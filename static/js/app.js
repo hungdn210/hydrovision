@@ -194,13 +194,41 @@
         refreshMarkerVisibility();
     }
 
+    function invalidateMapAfterTransition() {
+        setTimeout(() => { if (state.map) state.map.invalidateSize(); }, 370);
+    }
+
     function bindEvents() {
         els.sidebarToggle.addEventListener('click', () => {
             if (window.innerWidth <= 1100) {
                 els.sidebar.classList.toggle('open');
             } else {
-                els.sidebar.classList.toggle('collapsed');
+                els.sidebar.classList.add('collapsed');
+                invalidateMapAfterTransition();
             }
+        });
+
+        const sidebarToggleCollapsed = document.getElementById('sidebarToggleCollapsed');
+        if (sidebarToggleCollapsed) {
+            sidebarToggleCollapsed.addEventListener('click', () => {
+                els.sidebar.classList.remove('collapsed');
+                invalidateMapAfterTransition();
+            });
+        }
+
+        document.querySelectorAll('.rail-nav-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tab = btn.dataset.railTab;
+                els.sidebar.classList.remove('collapsed');
+                invalidateMapAfterTransition();
+                // Switch to the clicked tab
+                document.querySelectorAll('.workspace-pill').forEach(p => p.classList.remove('active'));
+                const pill = document.querySelector(`.workspace-pill[data-tab-target="${tab}"]`);
+                if (pill) pill.click();
+                // Update rail active state
+                document.querySelectorAll('.rail-nav-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            });
         });
 
         els.focusStationBtn.addEventListener('click', focusStationFromSearch);
@@ -320,6 +348,7 @@
         state.map = L.map('map', {
             zoomControl: false,
             worldCopyJump: true,
+            attributionControl: false,
         }).setView([15.5, 104.5], 5);
 
         const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
@@ -354,8 +383,8 @@
             interactive: false,
             style: {
                 color: '#38bdf8',
-                weight: 2.2,
-                opacity: 0.9,
+                weight: 1.5,
+                opacity: 0.7,
                 fillColor: '#38bdf8',
                 fillOpacity: 0.08,
             },
@@ -1330,7 +1359,7 @@
         const analysisBlock = document.createElement('div');
         analysisBlock.className = 'analysis-block';
         analysisBlock.innerHTML = `
-            <h4>AI Summary</h4>
+            <h4>🧠 AI Summary</h4>
             <div class="analysis-summary"></div>
             <div class="analysis-findings"></div>
             <div class="analysis-comparisons"></div>
@@ -1388,10 +1417,10 @@
         // AI analysis block
         const block = document.createElement('div');
         block.className = 'analysis-block';
-        block.innerHTML = `<h4>AI Prediction Analysis</h4><div class="analysis-summary"></div>`;
+        block.innerHTML = `<h4>🧠 Prediction Analysis</h4><div class="analysis-summary"></div>`;
         const summaryEl = block.querySelector('.analysis-summary');
-        if (result.summary && result.summary.startsWith('✨ AI Analysis:')) {
-            summaryEl.innerHTML = result.summary.replace('✨ AI Analysis:\n', '');
+        if (result.summary && result.summary.startsWith('🧠 Analysis:')) {
+            summaryEl.innerHTML = result.summary.replace('🧠 Analysis:\n', '');
         } else {
             summaryEl.textContent = result.summary;
         }
@@ -1615,11 +1644,14 @@
         });
     }
 
+    // Color by number of features: 1=#60a5fa, 2=#a78bfa, 3=#34d399, 4=#f59e0b
+    const FEATURE_COUNT_COLORS = { 1: '#60a5fa', 2: '#a78bfa', 3: '#34d399', 4: '#f59e0b' };
+
     function markerStyleForStation(stationName) {
         const station = state.stationsByName.get(stationName);
         const isFocused = state.focusedStation === stationName;
-        const hasRainfall = station?.features.includes('Rainfall');
-        const baseColor = isFocused ? '#f59e0b' : hasRainfall ? '#38bdf8' : '#a78bfa';
+        const featureCount = station?.features?.length || 1;
+        const baseColor = isFocused ? '#ef4444' : (FEATURE_COUNT_COLORS[featureCount] || '#60a5fa');
         return {
             radius: isFocused ? 9 : 6,
             color: '#e2e8f0',

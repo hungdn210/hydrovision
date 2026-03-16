@@ -14,8 +14,29 @@
 <body>
     <div class="app-shell">
         <aside class="sidebar" id="sidebar">
+            <!-- Icon rail: visible only when collapsed -->
+            <div class="sidebar-icon-rail" id="sidebarIconRail">
+                <button class="sidebar-collapse-btn" id="sidebarToggleCollapsed" title="Expand sidebar">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/>
+                    </svg>
+                </button>
+                <div class="rail-divider"></div>
+                <button class="rail-nav-btn active" data-rail-tab="visualize" title="Explore">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+                    <span class="rail-label">Explore</span>
+                </button>
+                <button class="rail-nav-btn" data-rail-tab="analysis" title="Analyse">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                    <span class="rail-label">Analyse</span>
+                </button>
+                <button class="rail-nav-btn" data-rail-tab="prediction" title="Predict">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+                    <span class="rail-label">Predict</span>
+                </button>
+            </div>
+
             <div class="sidebar-header">
-                <button class="icon-button" id="sidebarToggle" title="Collapse sidebar">☰</button>
                 <div class="brand-block">
                     <img src="{{ url_for('static', filename='images/Logo.png') }}" alt="Hydrovision Logo" class="brand-logo">
                     <div>
@@ -23,6 +44,11 @@
                         <h1>Hydrovision</h1>
                     </div>
                 </div>
+                <button class="sidebar-collapse-btn" id="sidebarToggle" title="Collapse sidebar">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/>
+                    </svg>
+                </button>
             </div>
 
             <nav class="workspace-switcher">
@@ -90,6 +116,39 @@
                     <label for="predictStationSelect">Station</label>
                     <select id="predictStationSelect"></select>
                 </div>
+                <div class="control-group">
+                    <label for="predictModelSelect">Model</label>
+                    <select id="predictModelSelect">
+                        <option value="FlowNet">FlowNet</option>
+                        <option value="CATS">CATS</option>
+                        <option value="CycleNet">CycleNet</option>
+                        <option value="DLinear">DLinear</option>
+                        <option value="DMCT">DMCT</option>
+                        <option value="DMCT_wo_D">DMCT_wo_D</option>
+                        <option value="DMCT_wo_IN">DMCT_wo_IN</option>
+                        <option value="DMCT_wo_M">DMCT_wo_M</option>
+                        <option value="DMT">DMT</option>
+                        <option value="FilterNet">FilterNet</option>
+                        <option value="GCN">GCN</option>
+                        <option value="GCNII">GCNII</option>
+                        <option value="GRU">GRU</option>
+                        <option value="iTransformer">iTransformer</option>
+                        <option value="LamaH_daily">LamaH_daily</option>
+                        <option value="LightTS">LightTS</option>
+                        <option value="LSTM">LSTM</option>
+                        <option value="MICN">MICN</option>
+                        <option value="PatchTST" selected>PatchTST</option>
+                        <option value="ResGAT">ResGAT</option>
+                        <option value="ResGCN">ResGCN</option>
+                        <option value="RLinear">RLinear</option>
+                        <option value="SOFTS">SOFTS</option>
+                        <option value="THGNN">THGNN</option>
+                        <option value="TiDE">TiDE</option>
+                        <option value="TimeXer">TimeXer</option>
+                        <option value="TQNet">TQNet</option>
+                        <option value="TSMixer">TSMixer</option>
+                    </select>
+                </div>
                 <div class="control-grid two-col">
                     <div class="control-group">
                         <label for="predictFeatureSelect">Feature</label>
@@ -147,6 +206,13 @@
                         <button class="map-filter-close" id="mapFilterClose" type="button" title="Close">✕</button>
                     </div>
                     <div class="feature-filter-grid" id="featureFilterBar"></div>
+                </div>
+                <div class="map-legend">
+                    <div class="map-legend-title">Features available</div>
+                    <div class="map-legend-item"><span class="map-legend-dot" style="background:#60a5fa"></span>1 feature</div>
+                    <div class="map-legend-item"><span class="map-legend-dot" style="background:#a78bfa"></span>2 features</div>
+                    <div class="map-legend-item"><span class="map-legend-dot" style="background:#34d399"></span>3 features</div>
+                    <div class="map-legend-item"><span class="map-legend-dot" style="background:#f59e0b"></span>4 features</div>
                 </div>
                 <div class="map-search-bar" id="mapSearchBar">
                     <div class="map-search-inner">

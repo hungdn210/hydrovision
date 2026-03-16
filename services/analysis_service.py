@@ -26,7 +26,7 @@ class AnalysisService:
         summary = self._compose_summary(series_frames, findings, comparisons)
 
         # If we have a successful AI summary, suppress the raw findings cards to reduce clutter
-        if summary.startswith("✨ AI Analysis:"):
+        if '<p>' in summary or '<ul>' in summary or '<li>' in summary:
             findings = []
 
         return {
@@ -91,7 +91,7 @@ class AnalysisService:
             )
             # Add a small AI badge or indication
             html_content = markdown.markdown(response.text.strip())
-            return "✨ AI Analysis:\n" + html_content
+            return html_content
         except Exception as e:
             return base_summary + f"\n\n*(AI Summary Generation Failed: {str(e)})*"
 

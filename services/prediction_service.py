@@ -364,6 +364,6 @@ class PredictionService:
             )
             response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
             html_content = markdown.markdown(response.text.strip())
-            return '✨ AI Analysis:\n' + html_content
+            return '🧠 Analysis:\n' + html_content
         except Exception as e:
             return base_summary + f'\n\n*(AI Analysis Failed: {str(e)})*'
