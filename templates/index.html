@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hydrovision Mekong Pro</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/Logo.png') }}" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <button class="icon-button" id="sidebarToggle" title="Collapse sidebar">☰</button>
+                <div class="brand-block">
+                    <img src="{{ url_for('static', filename='images/Logo.png') }}" alt="Hydrovision Logo" class="brand-logo">
+                    <div>
+                        <div class="brand-eyebrow">Mekong intelligence workspace</div>
+                        <h1>Hydrovision</h1>
+                    </div>
+                </div>
+            </div>
+
+            <nav class="workspace-switcher">
+                <button class="workspace-pill active" data-tab-target="visualize">Explore</button>
+                <button class="workspace-pill" data-tab-target="analysis">Analyse</button>
+                <button class="workspace-pill" data-tab-target="prediction">Predict</button>
+            </nav>
+
+
+
+
+
+            <section class="panel-section" data-sidebar-panel="visualize">
+                <div class="section-heading">Explore setup</div>
+                <div class="control-group relative-group">
+                    <label for="graphTypeSelect">
+                        Graph type
+                        <button class="info-btn" id="graphInfoBtn" type="button" aria-label="Graph Information">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        </button>
+                    </label>
+                    <select id="graphTypeSelect"></select>
+                    
+                    <div class="graph-info-popover hidden" id="graphInfoPopover">
+                        <div class="popover-header">
+                            <h4 id="popoverTitle">Graph Type</h4>
+                            <button class="ghost-btn icon-only" id="closePopoverBtn" type="button">✕</button>
+                        </div>
+                        <div class="popover-body">
+                            <p id="popoverDesc"></p>
+                            <div class="popover-rules">
+                                <strong>Requirements:</strong>
+                                <span id="popoverRules"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="selection-builder-header">
+                    <div>
+                        <strong>Series builder</strong>
+                        <p>Configure your station, feature, and date range.</p>
+                    </div>
+                </div>
+
+                <div class="series-builder" id="seriesBuilder"></div>
+                
+                <button class="ghost-btn hidden" id="addSeriesRowBtn" type="button" style="margin-top: 10px; margin-bottom: 20px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Add Data Series
+                </button>
+
+                <div class="action-row sticky-actions" data-sidebar-action="visualize">
+                    <button class="primary-btn" id="addVisualizationBtn">Add to visualize</button>
+                </div>
+                <div class="action-row sticky-actions hidden" data-sidebar-action="analysis">
+                    <button class="primary-btn" id="addAnalysisBtn">Add to analyse</button>
+                </div>
+                <div class="inline-message" id="builderMessage"></div>
+            </section>
+
+            <section class="panel-section hidden" data-sidebar-panel="prediction">
+                <div class="section-heading">Prediction setup</div>
+                <div class="control-group">
+                    <label for="predictStationSelect">Station</label>
+                    <select id="predictStationSelect"></select>
+                </div>
+                <div class="control-grid two-col">
+                    <div class="control-group">
+                        <label for="predictFeatureSelect">Feature</label>
+                        <select id="predictFeatureSelect"></select>
+                    </div>
+                    <div class="control-group">
+                        <label for="predictHorizonInput">Horizon</label>
+                        <input id="predictHorizonInput" type="number" min="1" value="7" />
+                    </div>
+                </div>
+                <div class="small-note" id="predictHint"></div>
+                <button class="primary-btn full-width" id="runPredictionBtn">Run prediction</button>
+                <div class="inline-message" id="predictionMessage"></div>
+            </section>
+        </aside>
+
+        <main class="workspace">
+            <header class="topbar">
+                <div>
+                    <div class="eyebrow">Spatial analytics dashboard</div>
+                    <h2>World map with Mekong basin intelligence</h2>
+                </div>
+                <div class="topbar-meta">
+                    <div class="metric-chip"><span id="stationCountChip">0</span> stations</div>
+                    <div class="metric-chip"><span id="featureCountChip">0</span> feature groups</div>
+                    <button class="theme-toggle-btn" id="themeToggleBtn" title="Switch to light mode" type="button">
+                        <span id="themeIcon" class="theme-icon">☀</span>
+                    </button>
+                </div>
+            </header>
+
+            <section class="map-stage">
+                <!-- <div class="map-toolbar">
+                    <div class="toolbar-title">Operational map</div>
+                    <div class="toolbar-subtitle">Hover for metadata. Click to pin station details. Use feature buttons to show only stations that contain that dataset.</div>
+                </div> -->
+                <div id="map"></div>
+                <div class="map-controls">
+                    <button class="map-ctrl-btn" id="mapZoomIn" type="button" title="Zoom in">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    </button>
+                    <button class="map-ctrl-btn" id="mapZoomOut" type="button" title="Zoom out">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    </button>
+                    <button class="map-ctrl-btn" id="mapFilterToggle" type="button" title="Map filters">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                    </button>
+                    <button class="map-ctrl-btn" id="mapFullscreenToggle" type="button" title="Toggle fullscreen map">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                    </button>
+                </div>
+                <div class="map-filter-panel hidden" id="mapFilterPanel">
+                    <div class="map-filter-header">
+                        <span class="map-filter-title">Map filters</span>
+                        <button class="map-filter-close" id="mapFilterClose" type="button" title="Close">✕</button>
+                    </div>
+                    <div class="feature-filter-grid" id="featureFilterBar"></div>
+                </div>
+                <div class="map-search-bar" id="mapSearchBar">
+                    <div class="map-search-inner">
+                        <svg class="map-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        <input id="stationSearch" list="stationList" type="text" placeholder="Search stations…" autocomplete="off" />
+                        <datalist id="stationList"></datalist>
+                        <button class="map-search-clear hidden" id="clearStationFocusBtn" type="button" title="Clear">✕</button>
+                        <button class="map-search-btn" id="focusStationBtn" type="button">Find</button>
+                    </div>
+                </div>
+                <div class="station-card hidden" id="stationDetailCard">
+                    <div class="station-card-header">
+                        <div>
+                            <div class="eyebrow">Station detail</div>
+                            <h3 id="detailStationName">—</h3>
+                        </div>
+                        <button class="ghost-btn" id="closeStationCardBtn">Close</button>
+                    </div>
+                    <div class="station-meta-grid" id="stationMetaGrid"></div>
+                    <div class="feature-badges" id="stationFeatureBadges"></div>
+                </div>
+            </section>
+
+            <section class="dock" id="dock">
+                <div class="dock-handle" id="dockHandle"></div>
+                <div class="dock-header">
+                    <div class="dock-tabs">
+                        <button class="dock-tab active" data-dock-tab="visualize">Visualize</button>
+                        <button class="dock-tab" data-dock-tab="analysis">AI Analysis</button>
+                        <button class="dock-tab" data-dock-tab="prediction">Prediction</button>
+                    </div>
+                    <div class="dock-actions">
+                        <button class="dock-clear-btn" id="clearVisualizationsBtn" data-dock-clear="visualize">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            Clear all
+                        </button>
+                        <button class="dock-clear-btn hidden" id="clearAnalysisBtn" data-dock-clear="analysis">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            Clear all
+                        </button>
+                        <button class="dock-clear-btn hidden" id="clearPredictionBtn" data-dock-clear="prediction">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            Clear all
+                        </button>
+                    </div>
+                </div>
+
+                <div class="dock-panels">
+                    <section class="dock-panel active" data-dock-panel="visualize">
+                        <div class="panel-intro">
+                            <h3>Visualization workspace</h3>
+                            <p>Charts stay here until you remove them. Each card preserves its own station, feature, and date-range setup.</p>
+                        </div>
+                        <div class="card-grid" id="visualizationCards"></div>
+                    </section>
+
+                    <section class="dock-panel" data-dock-panel="analysis">
+                        <div class="panel-intro">
+                            <h3>Automated analytical insights</h3>
+                            <p>Each analysis card includes the chart plus generated narrative findings, anomaly checks, and cross-series comparisons.</p>
+                        </div>
+                        <div class="card-grid" id="analysisCards"></div>
+                    </section>
+
+                    <section class="dock-panel" data-dock-panel="prediction">
+                        <div class="panel-intro">
+                            <h3>Prediction workspace</h3>
+                            <p>Forecasts use a time-series smoothing model with confidence bands. The prediction cards remain here until deleted.</p>
+                        </div>
+                        <div class="card-grid" id="predictionCards"></div>
+                    </section>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <template id="seriesRowTemplate">
+        <div class="series-row">
+            <div class="series-row-top">
+                <strong class="series-row-label">Data series</strong>
+                <button class="ghost-btn icon-only series-remove-btn hidden" type="button" aria-label="Remove series" style="color: #ef4444;">✕</button>
+            </div>
+            <div class="control-grid four-col">
+                <div class="control-group station-group">
+                    <label>Station</label>
+                    <select class="series-station"></select>
+                </div>
+                <div class="control-group feature-group">
+                    <label>Feature</label>
+                    <select class="series-feature"></select>
+                </div>
+                <div class="control-group shared-dates">
+                    <label>Start date</label>
+                    <input class="series-start" type="date" />
+                </div>
+                <div class="control-group shared-dates">
+                    <label>End date</label>
+                    <input class="series-end" type="date" />
+                </div>
+            </div>
+            <div class="per-feature-dates hidden"></div>
+            <div class="series-row-meta"></div>
+        </div>
+    </template>
+
+    <template id="featureFirstTemplate">
+        <div class="feature-first-container">
+            <div class="control-group feature-first-selector">
+                <label>Feature (category)</label>
+                <select class="ff-feature-select"></select>
+            </div>
+            <div class="ff-station-rows"></div>
+            <button class="ghost-btn ff-add-station-btn" type="button" style="margin-top: 10px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add Station
+            </button>
+        </div>
+    </template>
+
+    <template id="stationRowTemplate">
+        <div class="station-row-item">
+            <div class="station-row-item-header">
+                <strong class="series-row-label">Station</strong>
+                <button class="ghost-btn icon-only station-row-remove-btn" type="button" aria-label="Remove station" style="color: #ef4444;">✕</button>
+            </div>
+            <div class="control-grid station-row-grid">
+                <div class="control-group">
+                    <label>Station</label>
+                    <select class="sr-station-select"></select>
+                </div>
+                <div class="control-group">
+                    <label>Start date</label>
+                    <input class="sr-start" type="date" />
+                </div>
+                <div class="control-group">
+                    <label>End date</label>
+                    <input class="sr-end" type="date" />
+                </div>
+            </div>
+            <div class="station-row-meta"></div>
+        </div>
+    </template>
+
+    <div class="modal hidden" id="fullscreenModal">
+        <div class="modal-backdrop" id="modalBackdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h3 id="modalTitle">Analysis View</h3>
+                    <div id="modalSubtitle" style="color: var(--text-soft); font-size: 13px;"></div>
+                </div>
+                <button class="ghost-btn icon-only" id="closeModalBtn" title="Close fullscreen">✕</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Content injected via JS -->
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

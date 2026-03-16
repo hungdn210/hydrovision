@@ -1,0 +1,29 @@
+# Python virtualenv
+hydrovision/
+venv/
+env/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Data / large files
+*.zip
+*.csv
+*.parquet
+*.h5
+
+# Environment variables
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
