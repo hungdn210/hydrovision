@@ -4,9 +4,11 @@
         map: null,
         tileLayer: null,
         geojsonLayer: null,
+        lamahGeojsonLayer: null,
         markers: new Map(),
         stationsByName: new Map(),
         activeFeatureFilter: 'All',
+        activeDatasetFilter: 'all',
         focusedStation: null,
         cardCounters: {
             visualize: 0,
@@ -19,10 +21,11 @@
         sidebar: document.getElementById('sidebar'),
         sidebarToggle: document.getElementById('sidebarToggle'),
         stationSearch: document.getElementById('stationSearch'),
-        stationList: document.getElementById('stationList'),
+        stationSuggestList: document.getElementById('stationSuggestList'),
         focusStationBtn: document.getElementById('focusStationBtn'),
         clearStationFocusBtn: document.getElementById('clearStationFocusBtn'),
         featureFilterBar: document.getElementById('featureFilterBar'),
+        datasetFilterBar: document.getElementById('datasetFilterBar'),
         graphTypeSelect: document.getElementById('graphTypeSelect'),
         graphInfoBtn: document.getElementById('graphInfoBtn'),
         graphInfoPopover: document.getElementById('graphInfoPopover'),
@@ -36,8 +39,8 @@
         addVisualizationBtn: document.getElementById('addVisualizationBtn'),
         addAnalysisBtn: document.getElementById('addAnalysisBtn'),
         builderMessage: document.getElementById('builderMessage'),
-        stationCountChip: document.getElementById('stationCountChip'),
-        featureCountChip: document.getElementById('featureCountChip'),
+        flyToMekong: document.getElementById('flyToMekong'),
+        flyToLamaH: document.getElementById('flyToLamaH'),
         stationDetailCard: document.getElementById('stationDetailCard'),
         detailStationName: document.getElementById('detailStationName'),
         stationMetaGrid: document.getElementById('stationMetaGrid'),
@@ -186,6 +189,7 @@
         initMap();
         await loadGeoJson();
         buildFeatureFilterBar();
+        buildDatasetFilterBar();
         populateStationSearch();
         populateGraphTypes();
         populatePredictionControls();
@@ -229,6 +233,19 @@
                 document.querySelectorAll('.rail-nav-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
             });
+        });
+
+        els.flyToMekong.addEventListener('click', () => {
+            if (state.geojsonLayer && state.map) {
+                const bounds = state.geojsonLayer.getBounds();
+                if (bounds.isValid()) state.map.flyToBounds(bounds.pad(0.15), { duration: 1.2 });
+            }
+        });
+        els.flyToLamaH.addEventListener('click', () => {
+            if (state.lamahGeojsonLayer && state.map) {
+                const bounds = state.lamahGeojsonLayer.getBounds();
+                if (bounds.isValid()) state.map.flyToBounds(bounds.pad(0.1), { duration: 1.2 });
+            }
         });
 
         els.focusStationBtn.addEventListener('click', focusStationFromSearch);
@@ -340,8 +357,6 @@
         const response = await fetch('/api/bootstrap');
         state.bootstrap = await response.json();
         state.bootstrap.stations.forEach((station) => state.stationsByName.set(station.station, station));
-        els.stationCountChip.textContent = String(state.bootstrap.stations.length);
-        els.featureCountChip.textContent = String(state.bootstrap.features.length);
     }
 
     function initMap() {
@@ -349,7 +364,7 @@
             zoomControl: false,
             worldCopyJump: true,
             attributionControl: false,
-        }).setView([15.5, 104.5], 5);
+        }).setView([20, 103], 5);
 
         const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
         state.tileLayer = L.tileLayer(
@@ -377,9 +392,14 @@
     }
 
     async function loadGeoJson() {
-        const response = await fetch('/api/mekong-geojson');
-        const geojson = await response.json();
-        state.geojsonLayer = L.geoJSON(geojson, {
+        const [mekongRes, lamahRes] = await Promise.all([
+            fetch('/api/mekong-geojson'),
+            fetch('/api/lamah-geojson'),
+        ]);
+        const mekongGeojson = await mekongRes.json();
+        const lamahGeojson = await lamahRes.json();
+
+        state.geojsonLayer = L.geoJSON(mekongGeojson, {
             interactive: false,
             style: {
                 color: '#38bdf8',
@@ -389,21 +409,50 @@
                 fillOpacity: 0.08,
             },
         }).addTo(state.map);
-        const bounds = state.geojsonLayer.getBounds();
-        if (bounds.isValid()) {
-            state.map.fitBounds(bounds.pad(0.15));
-        }
+
+        // Default view: focus on Mekong basin on load
+        const mekongBounds = state.geojsonLayer.getBounds();
+        if (mekongBounds.isValid()) state.map.fitBounds(mekongBounds.pad(0.15));
+
+        state.lamahGeojsonLayer = L.geoJSON(lamahGeojson, {
+            interactive: false,
+            style: {
+                weight: 0,
+                fillColor: '#f2bd41',
+                fillOpacity: 0.2,
+            },
+        }).addTo(state.map);
     }
 
     function buildFeatureFilterBar() {
         els.featureFilterBar.innerHTML = '';
-        const features = ['All', ...state.bootstrap.features];
-        features.forEach((feature) => {
+
+        // Show only features relevant to the active dataset
+        const ds = state.activeDatasetFilter;
+        const datasetFeatures = state.bootstrap.dataset_features || {};
+        const datasetCounts = state.bootstrap.dataset_feature_counts || {};
+
+        let relevantFeatures;
+        let countMap;
+        if (ds === 'all') {
+            relevantFeatures = state.bootstrap.features;
+            countMap = state.bootstrap.feature_counts;
+        } else {
+            relevantFeatures = datasetFeatures[ds] || [];
+            countMap = datasetCounts[ds] || {};
+        }
+
+        // If current filter no longer applies, reset to All
+        if (state.activeFeatureFilter !== 'All' && !relevantFeatures.includes(state.activeFeatureFilter)) {
+            state.activeFeatureFilter = 'All';
+        }
+
+        ['All', ...relevantFeatures].forEach((feature) => {
             const btn = document.createElement('button');
             btn.className = `feature-chip${feature === state.activeFeatureFilter ? ' active' : ''}`;
             btn.textContent = feature === 'All'
                 ? 'All stations'
-                : `${prettyFeature(feature)} (${state.bootstrap.feature_counts[feature] || 0})`;
+                : `${prettyFeature(feature)} (${countMap[feature] || 0})`;
             btn.addEventListener('click', () => {
                 state.activeFeatureFilter = feature;
                 Array.from(els.featureFilterBar.children).forEach((child) => child.classList.remove('active'));
@@ -414,13 +463,71 @@
         });
     }
 
-    function populateStationSearch() {
-        els.stationList.innerHTML = '';
-        state.bootstrap.station_names.forEach((stationName) => {
-            const option = document.createElement('option');
-            option.value = prettyStation(stationName);
-            els.stationList.appendChild(option);
+    function buildDatasetFilterBar() {
+        if (!els.datasetFilterBar) return;
+        els.datasetFilterBar.innerHTML = '';
+        const datasets = [
+            { key: 'all', label: 'All datasets' },
+            { key: 'mekong', label: 'Mekong' },
+            { key: 'lamah', label: 'LamaH-CE' },
+        ];
+        datasets.forEach(({ key, label }) => {
+            const btn = document.createElement('button');
+            btn.className = `feature-chip${key === state.activeDatasetFilter ? ' active' : ''}`;
+            btn.textContent = label;
+            btn.addEventListener('click', () => {
+                state.activeDatasetFilter = key;
+                Array.from(els.datasetFilterBar.children).forEach((c) => c.classList.remove('active'));
+                btn.classList.add('active');
+                buildFeatureFilterBar();
+                refreshMarkerVisibility();
+            });
+            els.datasetFilterBar.appendChild(btn);
         });
+    }
+
+    function populateStationSearch() {
+        const input = els.stationSearch;
+        const list = els.stationSuggestList;
+
+        const mekongNames = state.bootstrap.station_names.filter(n => {
+            const s = state.stationsByName.get(n);
+            return s && s.dataset === 'mekong';
+        });
+
+        function showSuggestions(query) {
+            const q = query.trim().toLowerCase();
+            const pool = q.length === 0 ? mekongNames : state.bootstrap.station_names;
+            const matches = q.length === 0
+                ? pool
+                : pool.filter(n => prettyStation(n).toLowerCase().includes(q) || n.toLowerCase().includes(q)).slice(0, 80);
+
+            list.innerHTML = '';
+            if (matches.length === 0) { list.classList.add('hidden'); return; }
+            matches.forEach(name => {
+                const item = document.createElement('div');
+                item.className = 'station-suggest-item';
+                item.textContent = prettyStation(name);
+                item.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    input.value = prettyStation(name);
+                    list.classList.add('hidden');
+                    focusStation(name, true);
+                });
+                list.appendChild(item);
+            });
+            if (q.length === 0) {
+                const hint = document.createElement('div');
+                hint.className = 'station-suggest-hint';
+                hint.textContent = `Type a number to search LamaH-CE stations…`;
+                list.appendChild(hint);
+            }
+            list.classList.remove('hidden');
+        }
+
+        input.addEventListener('input', () => showSuggestions(input.value));
+        input.addEventListener('focus', () => showSuggestions(input.value));
+        input.addEventListener('blur', () => setTimeout(() => list.classList.add('hidden'), 150));
     }
 
     function populateGraphTypes() {
@@ -1634,8 +1741,9 @@
         state.bootstrap.stations.forEach((station) => {
             const marker = state.markers.get(station.station);
             if (!marker) return;
-            const passesFilter = state.activeFeatureFilter === 'All' || station.features.includes(state.activeFeatureFilter);
-            if (passesFilter) {
+            const passesFeature = state.activeFeatureFilter === 'All' || station.features.includes(state.activeFeatureFilter);
+            const passesDataset = state.activeDatasetFilter === 'all' || station.dataset === state.activeDatasetFilter;
+            if (passesFeature && passesDataset) {
                 if (!state.map.hasLayer(marker)) marker.addTo(state.map);
                 marker.setStyle(markerStyleForStation(station.station));
             } else if (state.map.hasLayer(marker)) {
@@ -1644,29 +1752,47 @@
         });
     }
 
-    // Color by number of features: 1=#60a5fa, 2=#a78bfa, 3=#34d399, 4=#f59e0b
-    const FEATURE_COUNT_COLORS = { 1: '#60a5fa', 2: '#a78bfa', 3: '#34d399', 4: '#f59e0b' };
+    // Mekong: colors by feature count (filled, opaque)
+    const MEKONG_COLORS = { 1: '#60a5fa', 2: '#a78bfa', 3: '#34d399', 4: '#f59e0b' };
+    // LamaH: orange palette (semi-transparent, thinner border)
+    const LAMAH_COLORS = { 1: '#fb923c', 2: '#f472b6', 3: '#34d399', 4: '#facc15' };
 
     function markerStyleForStation(stationName) {
         const station = state.stationsByName.get(stationName);
         const isFocused = state.focusedStation === stationName;
         const featureCount = station?.features?.length || 1;
-        const baseColor = isFocused ? '#ef4444' : (FEATURE_COUNT_COLORS[featureCount] || '#60a5fa');
+        const isLamaH = station?.dataset === 'lamah';
+        if (isFocused) {
+            return { radius: 9, color: '#ef4444', weight: 2.2, fillColor: '#ef4444', fillOpacity: 0.95 };
+        }
+        if (isLamaH) {
+            return {
+                radius: 3,
+                color: '#f54842', //'#94a3b8',
+                weight: 0.5,
+                fillColor: LAMAH_COLORS[featureCount] || '#f54842',
+                fillOpacity: 0.5,
+            };
+        }
         return {
-            radius: isFocused ? 9 : 6,
+            radius: 6,
             color: '#e2e8f0',
-            weight: isFocused ? 2.2 : 1.2,
-            fillColor: baseColor,
-            fillOpacity: isFocused ? 0.95 : 0.82,
+            weight: 1.2,
+            fillColor: MEKONG_COLORS[featureCount] || '#60a5fa',
+            fillOpacity: 0.82,
         };
     }
 
     function buildTooltip(station) {
-        const featureText = station.features.map(prettyFeature).join(', ');
+        const featureText = station.features.map(prettyFeature).join(', ') || 'None';
+        const displayName = station.name && station.name !== station.station
+            ? escapeHtml(station.name)
+            : escapeHtml(prettyStation(station.station));
+        const datasetLabel = station.dataset === 'lamah' ? 'LamaH-CE' : 'Mekong';
         return `
             <div class="station-tooltip-content">
-                <div class="station-tooltip-title">${escapeHtml(prettyStation(station.station))}</div>
-                <div class="station-tooltip-meta">${escapeHtml(station.country)} · ${station.lat}, ${station.lon}</div>
+                <div class="station-tooltip-title">${displayName}</div>
+                <div class="station-tooltip-meta">${escapeHtml(station.country)} · ${datasetLabel}</div>
                 <div class="station-tooltip-meta">Features: ${escapeHtml(featureText)}</div>
             </div>
         `;

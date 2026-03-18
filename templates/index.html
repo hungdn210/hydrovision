@@ -102,10 +102,10 @@
                 </button>
 
                 <div class="action-row sticky-actions" data-sidebar-action="visualize">
-                    <button class="primary-btn" id="addVisualizationBtn">Add to visualize</button>
+                    <button class="primary-btn full-width" id="addVisualizationBtn">Add to visualize</button>
                 </div>
                 <div class="action-row sticky-actions hidden" data-sidebar-action="analysis">
-                    <button class="primary-btn" id="addAnalysisBtn">Add to analyse</button>
+                    <button class="primary-btn full-width" id="addAnalysisBtn">Add to analyse</button>
                 </div>
                 <div class="inline-message" id="builderMessage"></div>
             </section>
@@ -172,8 +172,8 @@
                     <h2>World map with Mekong basin intelligence</h2>
                 </div>
                 <div class="topbar-meta">
-                    <div class="metric-chip"><span id="stationCountChip">0</span> stations</div>
-                    <div class="metric-chip"><span id="featureCountChip">0</span> feature groups</div>
+                    <button class="metric-chip dataset-nav-btn" id="flyToMekong" type="button">Mekong</button>
+                    <button class="metric-chip dataset-nav-btn" id="flyToLamaH" type="button">LamaH-CE</button>
                     <button class="theme-toggle-btn" id="themeToggleBtn" title="Switch to light mode" type="button">
                         <span id="themeIcon" class="theme-icon">☀</span>
                     </button>
@@ -205,6 +205,9 @@
                         <span class="map-filter-title">Map filters</span>
                         <button class="map-filter-close" id="mapFilterClose" type="button" title="Close">✕</button>
                     </div>
+                    <div class="map-filter-section-label">Dataset</div>
+                    <div class="feature-filter-grid" id="datasetFilterBar"></div>
+                    <div class="map-filter-section-label">Feature</div>
                     <div class="feature-filter-grid" id="featureFilterBar"></div>
                 </div>
                 <div class="map-legend">
@@ -212,13 +215,14 @@
                     <div class="map-legend-item"><span class="map-legend-dot" style="background:#60a5fa"></span>1 feature</div>
                     <div class="map-legend-item"><span class="map-legend-dot" style="background:#a78bfa"></span>2 features</div>
                     <div class="map-legend-item"><span class="map-legend-dot" style="background:#34d399"></span>3 features</div>
-                    <div class="map-legend-item"><span class="map-legend-dot" style="background:#f59e0b"></span>4 features</div>
+                    <div class="map-legend-item"><span class="map-legend-dot" style="background:#f59e0b"></span>4+ features</div>
+                    <div class="map-legend-item"><span class="map-legend-dot" style="background:#fb923c; opacity:0.6;"></span>LamaH</div>
                 </div>
                 <div class="map-search-bar" id="mapSearchBar">
                     <div class="map-search-inner">
                         <svg class="map-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                        <input id="stationSearch" list="stationList" type="text" placeholder="Search stations…" autocomplete="off" />
-                        <datalist id="stationList"></datalist>
+                        <input id="stationSearch" type="text" placeholder="Search stations…" autocomplete="off" />
+                        <div class="station-suggest-list hidden" id="stationSuggestList"></div>
                         <button class="map-search-clear hidden" id="clearStationFocusBtn" type="button" title="Clear">✕</button>
                         <button class="map-search-btn" id="focusStationBtn" type="button">Find</button>
                     </div>
