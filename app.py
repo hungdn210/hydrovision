@@ -56,6 +56,16 @@ def bootstrap():
     return jsonify(repository.bootstrap_payload())
 
 
+@app.route('/api/datasets')
+def datasets():
+    data_dir = BASE_DIR / 'data'
+    names = sorted(
+        d.name for d in data_dir.iterdir()
+        if d.is_dir() and not d.name.startswith('_') and not d.name.startswith('.')
+    )
+    return jsonify(names)
+
+
 @app.route('/api/mekong-geojson')
 def mekong_geojson():
     return MEKONG_GEOJSON_PATH.read_text(encoding='utf-8'), 200, {'Content-Type': 'application/json'}

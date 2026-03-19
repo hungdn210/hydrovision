@@ -522,6 +522,12 @@ select[multiple] option:checked {
     gap: 10px;
 }
 
+.dataset-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
 .feature-chip {
     border: 1px solid var(--line-strong);
     background: rgba(255, 255, 255, 0.06);

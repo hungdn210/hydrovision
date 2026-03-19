@@ -39,6 +39,7 @@
         addVisualizationBtn: document.getElementById('addVisualizationBtn'),
         addAnalysisBtn: document.getElementById('addAnalysisBtn'),
         builderMessage: document.getElementById('builderMessage'),
+        datasetPicker: document.getElementById('datasetPicker'),
         flyToMekong: document.getElementById('flyToMekong'),
         flyToLamaH: document.getElementById('flyToLamaH'),
         stationDetailCard: document.getElementById('stationDetailCard'),
@@ -188,6 +189,7 @@
         await loadBootstrap();
         initMap();
         await loadGeoJson();
+        await buildDatasetPicker();
         buildFeatureFilterBar();
         buildDatasetFilterBar();
         populateStationSearch();
@@ -422,6 +424,54 @@
                 fillOpacity: 0.2,
             },
         }).addTo(state.map);
+    }
+
+    async function buildDatasetPicker() {
+        if (!els.datasetPicker) return;
+        const res = await fetch('/api/datasets');
+        const folderNames = await res.json(); // e.g. ["LamaH", "Mekong"]
+
+        // Map folder name → dataset key used in bootstrap data
+        const keyMap = { lamah: 'lamah', mekong: 'mekong' };
+        const datasets = folderNames.map(name => ({
+            label: name,
+            key: keyMap[name.toLowerCase()] ?? name.toLowerCase(),
+        }));
+
+        // Default to first dataset (Mekong comes first alphabetically → LamaH, Mekong)
+        // Pick Mekong if present, else first
+        const defaultDataset = datasets.find(d => d.key === 'mekong') ?? datasets[0];
+        if (defaultDataset) {
+            state.activeDatasetFilter = defaultDataset.key;
+        }
+
+        els.datasetPicker.innerHTML = '';
+        datasets.forEach(({ label, key }) => {
+            const btn = document.createElement('button');
+            btn.className = `feature-chip${key === state.activeDatasetFilter ? ' active' : ''}`;
+            btn.textContent = label;
+            btn.addEventListener('click', () => {
+                if (state.activeDatasetFilter === key) return;
+                state.activeDatasetFilter = key;
+                Array.from(els.datasetPicker.children).forEach(c => c.classList.remove('active'));
+                btn.classList.add('active');
+                // Sync the map filter bar too
+                Array.from(els.datasetFilterBar?.children ?? []).forEach(c => {
+                    c.classList.toggle('active', c.textContent.toLowerCase().includes(key) || (key === 'all' && c.textContent.toLowerCase() === 'all datasets'));
+                });
+                buildFeatureFilterBar();
+                refreshMarkerVisibility();
+                // Fly map to the chosen dataset
+                if (key === 'mekong' && state.geojsonLayer) {
+                    const b = state.geojsonLayer.getBounds();
+                    if (b.isValid()) state.map.flyToBounds(b.pad(0.15), { duration: 1.2 });
+                } else if (key === 'lamah' && state.lamahGeojsonLayer) {
+                    const b = state.lamahGeojsonLayer.getBounds();
+                    if (b.isValid()) state.map.flyToBounds(b.pad(0.1), { duration: 1.2 });
+                }
+            });
+            els.datasetPicker.appendChild(btn);
+        });
     }
 
     function buildFeatureFilterBar() {
