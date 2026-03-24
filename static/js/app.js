@@ -438,15 +438,11 @@
             key: keyMap[name.toLowerCase()] ?? name.toLowerCase(),
         }));
 
-        // Default to first dataset (Mekong comes first alphabetically → LamaH, Mekong)
-        // Pick Mekong if present, else first
-        const defaultDataset = datasets.find(d => d.key === 'mekong') ?? datasets[0];
-        if (defaultDataset) {
-            state.activeDatasetFilter = defaultDataset.key;
-        }
+        state.activeDatasetFilter = 'all';
 
         els.datasetPicker.innerHTML = '';
-        datasets.forEach(({ label, key }) => {
+        const allDatasets = [{ label: 'All', key: 'all' }, ...datasets];
+        allDatasets.forEach(({ label, key }) => {
             const btn = document.createElement('button');
             btn.className = `feature-chip${key === state.activeDatasetFilter ? ' active' : ''}`;
             btn.textContent = label;
@@ -461,6 +457,10 @@
                 });
                 buildFeatureFilterBar();
                 refreshMarkerVisibility();
+                // Refresh station dropdowns in the series builder
+                els.seriesBuilder.querySelectorAll('.series-station').forEach(sel => {
+                    fillStationSelect(sel, sel.value);
+                });
                 // Fly map to the chosen dataset
                 if (key === 'mekong' && state.geojsonLayer) {
                     const b = state.geojsonLayer.getBounds();
@@ -814,7 +814,12 @@
 
     function fillStationSelect(selectEl, selectedValue) {
         selectEl.innerHTML = '';
+        const ds = state.activeDatasetFilter;
         state.bootstrap.station_names.forEach((stationName) => {
+            if (ds !== 'all') {
+                const meta = state.stationsByName.get(stationName);
+                if (!meta || meta.dataset !== ds) return;
+            }
             const option = document.createElement('option');
             option.value = stationName;
             option.textContent = prettyStation(stationName);
@@ -1379,15 +1384,16 @@
         selectEl.innerHTML = '';
         if (!feature) return;
 
+        const ds = state.activeDatasetFilter;
         state.bootstrap.station_names.forEach(stationName => {
             const meta = state.stationsByName.get(stationName);
-            if (meta && meta.features.includes(feature)) {
-                const option = document.createElement('option');
-                option.value = stationName;
-                option.textContent = prettyStation(stationName);
-                if (stationName === prevValue) option.selected = true;
-                selectEl.appendChild(option);
-            }
+            if (!meta || !meta.features.includes(feature)) return;
+            if (ds !== 'all' && meta.dataset !== ds) return;
+            const option = document.createElement('option');
+            option.value = stationName;
+            option.textContent = prettyStation(stationName);
+            if (stationName === prevValue) option.selected = true;
+            selectEl.appendChild(option);
         });
     }
 
