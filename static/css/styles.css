@@ -284,6 +284,37 @@ button {
     box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.22);
 }
 
+.analysis-mode-switch {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 4px;
+    margin-bottom: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+}
+
+.analysis-mode-btn {
+    background: transparent;
+    color: var(--text-soft);
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: calc(var(--radius-md) - 2px);
+    cursor: pointer;
+}
+
+.analysis-mode-btn.active {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.28), rgba(37, 99, 235, 0.22));
+    color: var(--text);
+    box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.22);
+}
+
+.sidebar.collapsed .analysis-mode-switch {
+    display: none;
+}
+
 .panel-section {
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid var(--line);
@@ -298,6 +329,14 @@ button {
     letter-spacing: 0.1em;
     color: var(--text-soft);
     margin-bottom: 14px;
+}
+
+.section-desc {
+    font-size: 12px;
+    color: var(--text-soft);
+    margin-top: -10px;
+    margin-bottom: 14px;
+    line-height: 1.5;
 }
 
 .control-group {
@@ -346,6 +385,11 @@ input:focus,
 select:focus {
     border-color: rgba(56, 189, 248, 0.58);
     box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.12);
+}
+
+select option:disabled {
+    color: #555;
+    font-style: italic;
 }
 
 input[type="date"] {
@@ -1324,6 +1368,78 @@ html[data-theme="light"] .station-suggest-item:hover {
     margin: 14px 0 6px;
 }
 
+/* ── AI Analysis Report (free-form multi) ───────────────────────── */
+.report-body {
+    padding: 0;
+}
+
+.report-section {
+    padding: 24px 20px 28px;
+    border-bottom: 1px solid var(--line);
+}
+
+.report-section-last {
+    border-bottom: none;
+    padding-bottom: 20px;
+}
+
+.report-section-heading {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.report-step {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.report-section-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.report-analysis {
+    margin-top: 16px;
+    font-size: 13px;
+    color: #d8e5fa;
+    line-height: 1.7;
+}
+
+.report-analysis ul {
+    margin: 10px 0;
+    padding-left: 18px;
+}
+
+.report-analysis li {
+    margin-bottom: 10px;
+}
+
+.report-analysis strong {
+    color: #fff;
+    font-weight: 700;
+}
+
+html[data-theme="light"] .report-analysis {
+    color: #1e293b;
+}
+
+html[data-theme="light"] .report-analysis strong {
+    color: #0f172a;
+}
+/* ── End AI Analysis Report ─────────────────────────────────────── */
+
 .analysis-block {
     margin-top: 14px;
     background: rgba(255, 255, 255, 0.04);
@@ -1367,6 +1483,7 @@ html[data-theme="light"] .station-suggest-item:hover {
     color: #fff;
     font-weight: 700;
 }
+
 
 .finding-card,
 .compare-note {

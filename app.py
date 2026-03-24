@@ -96,6 +96,26 @@ def analyze():
         return jsonify({'ok': False, 'error': str(exc)}), 400
 
 
+@app.post('/api/analyze-free')
+def analyze_free():
+    payload = request.get_json(silent=True) or {}
+    try:
+        result = analysis_service.analyse_free(payload)
+        return jsonify({'ok': True, 'result': result})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.post('/api/analyze-free-multi')
+def analyze_free_multi():
+    payload = request.get_json(silent=True) or {}
+    try:
+        result = analysis_service.analyse_free_multi(payload)
+        return jsonify({'ok': True, 'result': result})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
 @app.post('/api/predict')
 def predict():
     payload = request.get_json(silent=True) or {}

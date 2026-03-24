@@ -9,6 +9,7 @@
         stationsByName: new Map(),
         activeFeatureFilter: 'All',
         activeDatasetFilter: 'all',
+        analysisMode: 'free',
         focusedStation: null,
         cardCounters: {
             visualize: 0,
@@ -39,6 +40,12 @@
         addVisualizationBtn: document.getElementById('addVisualizationBtn'),
         addAnalysisBtn: document.getElementById('addAnalysisBtn'),
         builderMessage: document.getElementById('builderMessage'),
+        analysisModeSwitch: document.getElementById('analysisModeSwitch'),
+        freeDatasetPicker: document.getElementById('freeDatasetPicker'),
+        freeAnalysisBuilder: document.getElementById('freeAnalysisBuilder'),
+        addFreeSeriesRowBtn: document.getElementById('addFreeSeriesRowBtn'),
+        runFreeAnalysisBtn: document.getElementById('runFreeAnalysisBtn'),
+        freeAnalysisMessage: document.getElementById('freeAnalysisMessage'),
         datasetPicker: document.getElementById('datasetPicker'),
         flyToMekong: document.getElementById('flyToMekong'),
         flyToLamaH: document.getElementById('flyToLamaH'),
@@ -196,6 +203,7 @@
         populateGraphTypes();
         populatePredictionControls();
         addSeriesRow();
+        addFreeSeriesRow();
         syncSeriesBuilderUI();
         refreshMarkerVisibility();
     }
@@ -317,6 +325,14 @@
         });
         els.addVisualizationBtn.addEventListener('click', () => submitSeriesRequest('visualize'));
         els.addAnalysisBtn.addEventListener('click', () => submitSeriesRequest('analysis'));
+        els.addFreeSeriesRowBtn.addEventListener('click', () => addFreeSeriesRow());
+        els.runFreeAnalysisBtn.addEventListener('click', submitFreeAnalysis);
+        els.analysisModeSwitch.querySelectorAll('.analysis-mode-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                state.analysisMode = btn.dataset.mode;
+                applyAnalysisMode();
+            });
+        });
         els.clearVisualizationsBtn.addEventListener('click', () => setEmptyState(els.visualizationCards, 'No visualizations yet. Use the Explore section on the left to add your first chart.'));
         els.clearAnalysisBtn.addEventListener('click', () => setEmptyState(els.analysisCards, 'No analysis cards yet. Build a selection and choose “Add to analyse”.'));
         els.clearPredictionBtn.addEventListener('click', () => setEmptyState(els.predictionCards, 'No predictions yet. Configure a station, feature, and horizon on the left.'));
@@ -427,50 +443,76 @@
     }
 
     async function buildDatasetPicker() {
-        if (!els.datasetPicker) return;
         const res = await fetch('/api/datasets');
-        const folderNames = await res.json(); // e.g. ["LamaH", "Mekong"]
+        const folderNames = await res.json();
 
-        // Map folder name → dataset key used in bootstrap data
         const keyMap = { lamah: 'lamah', mekong: 'mekong' };
         const datasets = folderNames.map(name => ({
             label: name,
             key: keyMap[name.toLowerCase()] ?? name.toLowerCase(),
         }));
+        const allDatasets = [{ label: 'All', key: 'all' }, ...datasets];
 
         state.activeDatasetFilter = 'all';
 
-        els.datasetPicker.innerHTML = '';
-        const allDatasets = [{ label: 'All', key: 'all' }, ...datasets];
-        allDatasets.forEach(({ label, key }) => {
-            const btn = document.createElement('button');
-            btn.className = `feature-chip${key === state.activeDatasetFilter ? ' active' : ''}`;
-            btn.textContent = label;
-            btn.addEventListener('click', () => {
-                if (state.activeDatasetFilter === key) return;
-                state.activeDatasetFilter = key;
-                Array.from(els.datasetPicker.children).forEach(c => c.classList.remove('active'));
-                btn.classList.add('active');
-                // Sync the map filter bar too
-                Array.from(els.datasetFilterBar?.children ?? []).forEach(c => {
-                    c.classList.toggle('active', c.textContent.toLowerCase().includes(key) || (key === 'all' && c.textContent.toLowerCase() === 'all datasets'));
-                });
-                buildFeatureFilterBar();
-                refreshMarkerVisibility();
-                // Refresh station dropdowns in the series builder
-                els.seriesBuilder.querySelectorAll('.series-station').forEach(sel => {
-                    fillStationSelect(sel, sel.value);
-                });
-                // Fly map to the chosen dataset
-                if (key === 'mekong' && state.geojsonLayer) {
-                    const b = state.geojsonLayer.getBounds();
-                    if (b.isValid()) state.map.flyToBounds(b.pad(0.15), { duration: 1.2 });
-                } else if (key === 'lamah' && state.lamahGeojsonLayer) {
-                    const b = state.lamahGeojsonLayer.getBounds();
-                    if (b.isValid()) state.map.flyToBounds(b.pad(0.1), { duration: 1.2 });
-                }
+        const containers = [els.datasetPicker, els.freeDatasetPicker].filter(Boolean);
+
+        function syncActiveStyling(selectedKey) {
+            containers.forEach(container => {
+                Array.from(container.children).forEach(c =>
+                    c.classList.toggle('active', c.dataset.dsKey === selectedKey));
             });
-            els.datasetPicker.appendChild(btn);
+        }
+
+        containers.forEach(container => {
+            container.innerHTML = '';
+            allDatasets.forEach(({ label, key }) => {
+                const btn = document.createElement('button');
+                btn.className = `feature-chip${key === state.activeDatasetFilter ? ' active' : ''}`;
+                btn.dataset.dsKey = key;
+                btn.textContent = label;
+                btn.addEventListener('click', () => {
+                    if (state.activeDatasetFilter === key) return;
+                    state.activeDatasetFilter = key;
+                    syncActiveStyling(key);
+                    // Sync the map filter bar too
+                    Array.from(els.datasetFilterBar?.children ?? []).forEach(c => {
+                        c.classList.toggle('active', c.textContent.toLowerCase().includes(key) || (key === 'all' && c.textContent.toLowerCase() === 'all datasets'));
+                    });
+                    buildFeatureFilterBar();
+                    refreshMarkerVisibility();
+                    // Refresh station dropdowns in charted builder and re-sync features
+                    els.seriesBuilder.querySelectorAll('.series-row').forEach(row => {
+                        const stationSel = row.querySelector('.series-station');
+                        if (!stationSel) return;
+                        fillStationSelect(stationSel, stationSel.value);
+                        // Re-sync features to match the (possibly new) selected station
+                        syncRowFeatureOptions(row);
+                        syncRowDateBounds(row);
+                    });
+                    refreshDisabledOptions(els.seriesBuilder, '.series-station', '.series-feature');
+                    // Also refresh feature-first station selects
+                    const ffContainer = els.seriesBuilder.querySelector('.feature-first-container');
+                    if (ffContainer) {
+                        const ffFeature = ffContainer.querySelector('.ff-feature-select')?.value;
+                        ffContainer.querySelectorAll('.sr-station-select').forEach(sel => {
+                            ffPopulateStationSelect(sel, ffFeature);
+                        });
+                    }
+                    // Reset free-form builder: clear all rows and add one fresh row
+                    els.freeAnalysisBuilder.innerHTML = '';
+                    addFreeSeriesRow();
+                    // Fly map to the chosen dataset
+                    if (key === 'mekong' && state.geojsonLayer) {
+                        const b = state.geojsonLayer.getBounds();
+                        if (b.isValid()) state.map.flyToBounds(b.pad(0.15), { duration: 1.2 });
+                    } else if (key === 'lamah' && state.lamahGeojsonLayer) {
+                        const b = state.lamahGeojsonLayer.getBounds();
+                        if (b.isValid()) state.map.flyToBounds(b.pad(0.1), { duration: 1.2 });
+                    }
+                });
+                container.appendChild(btn);
+            });
         });
     }
 
@@ -723,7 +765,9 @@
         const metaLabel = fragment.querySelector('.series-row-meta');
         const removeBtn = row.querySelector('.series-remove-btn');
 
-        fillStationSelect(stationSelect, prefill?.station);
+        // Smart default when no prefill: pick next unused station/feature
+        const nextUnused = prefill ? null : pickNextUnused(els.seriesBuilder, '.series-station', '.series-feature');
+        fillStationSelect(stationSelect, prefill?.station ?? nextUnused?.station);
         let previousStationValue = stationSelect.value;
         
         stationSelect.addEventListener('change', () => {
@@ -753,6 +797,7 @@
                     syncRowDateBounds(row, true);
                 }
             }
+            refreshDisabledOptions(els.seriesBuilder, '.series-station', '.series-feature');
         });
         
         stationSelect.addEventListener('mousedown', function(e) {
@@ -778,6 +823,7 @@
             } else {
                 syncRowDateBounds(row, true);
             }
+            refreshDisabledOptions(els.seriesBuilder, '.series-station', '.series-feature');
         });
         featureSelect.addEventListener('mousedown', function(e) {
             if (!this.multiple) return;
@@ -794,6 +840,7 @@
             removeBtn.addEventListener('click', () => {
                 row.remove();
                 updateRemoveButtonsVisibility();
+                refreshDisabledOptions(els.seriesBuilder, '.series-station', '.series-feature');
             });
         }
 
@@ -802,14 +849,15 @@
         if (prefill?.feature) {
             syncRowFeatureOptions(insertedRow, prefill.feature);
         } else {
-            syncRowFeatureOptions(insertedRow);
+            syncRowFeatureOptions(insertedRow, nextUnused?.feature);
         }
         if (prefill?.start_date) insertedRow.querySelector('.series-start').value = prefill.start_date;
         if (prefill?.end_date) insertedRow.querySelector('.series-end').value = prefill.end_date;
         syncRowDateBounds(insertedRow);
+        attachDateEnforcement(insertedRow, '.series-start', '.series-end');
         metaLabel.textContent = 'The row metadata updates automatically based on the station and feature you choose.';
-        
-        setTimeout(syncSeriesBuilderUI, 0); 
+        refreshDisabledOptions(els.seriesBuilder, '.series-station', '.series-feature');
+        setTimeout(syncSeriesBuilderUI, 0);
     }
 
     function fillStationSelect(selectEl, selectedValue) {
@@ -829,6 +877,295 @@
             selectEl.appendChild(option);
         });
     }
+
+    // ── Series builder shared utilities ────────────────────────────────────
+
+    /** Returns a set of "station|feature" strings currently in use across all rows. */
+    function getUsedPairs(builderEl, stationClass, featureClass) {
+        const used = new Set();
+        builderEl.querySelectorAll('.series-row').forEach(row => {
+            const s = row.querySelector(stationClass)?.value;
+            const f = row.querySelector(featureClass)?.value;
+            if (s && f) used.add(`${s}|${f}`);
+        });
+        return used;
+    }
+
+    /**
+     * Pick the next station/feature combo not yet used in the builder.
+     * Prefers adding a new feature to the last row's station; falls back to another station.
+     */
+    function pickNextUnused(builderEl, stationClass, featureClass) {
+        const used = getUsedPairs(builderEl, stationClass, featureClass);
+        const ds = state.activeDatasetFilter;
+
+        // Prefer last row's station (only if it belongs to the active dataset)
+        const rows = builderEl.querySelectorAll('.series-row');
+        const lastStation = rows.length ? rows[rows.length - 1].querySelector(stationClass)?.value : null;
+        if (lastStation) {
+            const lastMeta = state.stationsByName.get(lastStation);
+            const inDataset = ds === 'all' || lastMeta?.dataset === ds;
+            if (inDataset) {
+                for (const f of (lastMeta?.features || [])) {
+                    if (!used.has(`${lastStation}|${f}`)) return { station: lastStation, feature: f };
+                }
+            }
+        }
+
+        // Fall back to any station with an unused feature
+        for (const stName of (state.bootstrap?.station_names || [])) {
+            if (ds !== 'all') {
+                const m = state.stationsByName.get(stName);
+                if (!m || m.dataset !== ds) continue;
+            }
+            const meta = state.stationsByName.get(stName);
+            for (const f of (meta?.features || [])) {
+                if (!used.has(`${stName}|${f}`)) return { station: stName, feature: f };
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Disable feature options already in use by other rows for the same station,
+     * and disable station options where every feature is already taken by other rows.
+     */
+    function refreshDisabledOptions(builderEl, stationClass, featureClass) {
+        const allRows = Array.from(builderEl.querySelectorAll('.series-row'));
+        allRows.forEach(row => {
+            const myStation = row.querySelector(stationClass)?.value;
+            const myFeature = row.querySelector(featureClass)?.value;
+            const featureSel = row.querySelector(featureClass);
+            const stationSel = row.querySelector(stationClass);
+
+            // Map: station -> Set<feature> used by OTHER rows
+            const usedByOthers = {};
+            allRows.forEach(r => {
+                if (r === row) return;
+                const s = r.querySelector(stationClass)?.value;
+                const f = r.querySelector(featureClass)?.value;
+                if (s && f) {
+                    if (!usedByOthers[s]) usedByOthers[s] = new Set();
+                    usedByOthers[s].add(f);
+                }
+            });
+
+            if (featureSel) {
+                Array.from(featureSel.options).forEach(opt => {
+                    opt.disabled = opt.value !== myFeature && !!(usedByOthers[myStation]?.has(opt.value));
+                });
+            }
+            if (stationSel) {
+                Array.from(stationSel.options).forEach(opt => {
+                    const meta = state.stationsByName.get(opt.value);
+                    const allFeatures = meta?.features || [];
+                    const taken = usedByOthers[opt.value] || new Set();
+                    // Disable only if EVERY feature is taken — unless this row currently uses that station
+                    opt.disabled = opt.value !== myStation &&
+                        allFeatures.length > 0 &&
+                        allFeatures.every(f => taken.has(f));
+                });
+            }
+        });
+    }
+
+    // ── Free-form analysis builder ─────────────────────────────────────────
+    function addFreeSeriesRow() {
+        const row = document.createElement('div');
+        row.className = 'series-row';
+        row.innerHTML = `
+            <div class="series-row-top">
+                <strong class="series-row-label">Series</strong>
+                <button class="ghost-btn icon-only free-row-remove-btn" type="button" aria-label="Remove" style="color:#ef4444;">✕</button>
+            </div>
+            <div class="control-grid four-col">
+                <div class="control-group station-group">
+                    <label>Station</label>
+                    <select class="free-station"></select>
+                </div>
+                <div class="control-group feature-group">
+                    <label>Feature</label>
+                    <select class="free-feature"></select>
+                </div>
+                <div class="control-group shared-dates">
+                    <label>Start date</label>
+                    <input class="free-start" type="date" />
+                </div>
+                <div class="control-group shared-dates">
+                    <label>End date</label>
+                    <input class="free-end" type="date" />
+                </div>
+            </div>
+            <div class="series-row-meta free-row-meta"></div>`;
+
+        const stationSel = row.querySelector('.free-station');
+        const featureSel = row.querySelector('.free-feature');
+        const startInput = row.querySelector('.free-start');
+        const endInput   = row.querySelector('.free-end');
+        const metaEl     = row.querySelector('.free-row-meta');
+        const removeBtn  = row.querySelector('.free-row-remove-btn');
+
+        // Smart default: pick next unused station/feature combo
+        const next = pickNextUnused(els.freeAnalysisBuilder, '.free-station', '.free-feature');
+        fillStationSelect(stationSel, next?.station);
+        syncFreeFeatureOptions(stationSel, featureSel, startInput, endInput, metaEl);
+        if (next?.feature && Array.from(featureSel.options).some(o => o.value === next.feature)) {
+            featureSel.value = next.feature;
+            syncFreeDateBounds(stationSel, featureSel, startInput, endInput, metaEl);
+        }
+
+        stationSel.addEventListener('change', () => {
+            syncFreeFeatureOptions(stationSel, featureSel, startInput, endInput, metaEl);
+            refreshDisabledOptions(els.freeAnalysisBuilder, '.free-station', '.free-feature');
+        });
+        featureSel.addEventListener('change', () => {
+            syncFreeDateBounds(stationSel, featureSel, startInput, endInput, metaEl);
+            refreshDisabledOptions(els.freeAnalysisBuilder, '.free-station', '.free-feature');
+        });
+        removeBtn.addEventListener('click', () => {
+            row.remove();
+            updateFreeRemoveBtns();
+            refreshDisabledOptions(els.freeAnalysisBuilder, '.free-station', '.free-feature');
+        });
+
+        els.freeAnalysisBuilder.appendChild(row);
+        attachDateEnforcement(row, '.free-start', '.free-end');
+        updateFreeRemoveBtns();
+        refreshDisabledOptions(els.freeAnalysisBuilder, '.free-station', '.free-feature');
+    }
+
+    function syncFreeFeatureOptions(stationSel, featureSel, startInput, endInput, metaEl) {
+        const meta = state.stationsByName.get(stationSel.value);
+        const features = meta?.features || [];
+        const prev = featureSel.value;
+        featureSel.innerHTML = '';
+        features.forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f;
+            opt.textContent = prettyFeature(f);
+            if (f === prev) opt.selected = true;
+            featureSel.appendChild(opt);
+        });
+        syncFreeDateBounds(stationSel, featureSel, startInput, endInput, metaEl);
+    }
+
+    function syncFreeDateBounds(stationSel, featureSel, startInput, endInput, metaEl) {
+        const meta = state.stationsByName.get(stationSel.value);
+        const feature = featureSel.value;
+        if (!meta || !feature) return;
+        const detail = meta.feature_details?.[feature];
+        if (!detail) return;
+        const cappedEnd = capDate(detail.end_date);
+        startInput.min = detail.start_date;
+        startInput.max = cappedEnd;
+        endInput.min   = detail.start_date;
+        endInput.max   = cappedEnd;
+        // Always reset to full dataset range when station or feature changes
+        startInput.value = detail.start_date;
+        endInput.value   = cappedEnd;
+        metaEl.textContent = `Data range: ${detail.start_date} → ${cappedEnd}`;
+    }
+
+    function updateFreeRemoveBtns() {
+        const rows = els.freeAnalysisBuilder.querySelectorAll('.series-row');
+        rows.forEach(r =>
+            r.querySelector('.free-row-remove-btn').classList.toggle('hidden', rows.length === 1));
+    }
+
+
+    async function submitFreeAnalysis() {
+        const rows = Array.from(els.freeAnalysisBuilder.querySelectorAll('.series-row'));
+        const series = rows.map(row => ({
+            station:    row.querySelector('.free-station').value,
+            feature:    row.querySelector('.free-feature').value,
+            start_date: row.querySelector('.free-start').value,
+            end_date:   row.querySelector('.free-end').value,
+        }));
+        if (series.some(s => !s.station || !s.feature || !s.start_date || !s.end_date)) {
+            showMessage(els.freeAnalysisMessage, 'Please fill in all fields for each series.', 'error');
+            return;
+        }
+        const btn = els.runFreeAnalysisBtn;
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Analysing…';
+        showMessage(els.freeAnalysisMessage, 'Generating 3 charts and AI analysis… this may take a moment.', '');
+        try {
+            const response = await fetch('/api/analyze-free-multi', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ series }),
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) throw new Error(data.error || 'Analysis failed.');
+            appendFreeMultiAnalysisCard(data.result.graphs);
+            activateDockTab('analysis');
+            showMessage(els.freeAnalysisMessage, `${data.result.graphs.length} charts generated — see Analysis panel.`, 'success');
+        } catch (err) {
+            showMessage(els.freeAnalysisMessage, err.message || 'Something went wrong.', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    }
+
+    function appendFreeMultiAnalysisCard(graphs) {
+        if (!graphs || !graphs.length) return;
+        clearEmptyStateIfNeeded(els.analysisCards);
+
+        const cardId = `analysis-${++state.cardCounters.analysis}`;
+
+        // Build the outer story card
+        const card = document.createElement('article');
+        card.className = 'workspace-card';
+        card.innerHTML = `
+            <div class="workspace-card-header">
+                <div style="flex:1;min-width:0;">
+                    <h3 class="workspace-card-title">🧠 AI Analysis Report</h3>
+                    <div class="workspace-card-subtitle">${escapeHtml(describeSeries(graphs[0].series))} · ${graphs.length} complementary views</div>
+                </div>
+                <div class="card-header-actions" style="display:flex;gap:8px;flex-shrink:0;align-items:start;">
+                    <button class="expand-btn ghost-btn icon-only" type="button" title="Expand to fullscreen">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                    </button>
+                    <button class="delete-btn ghost-btn" type="button">Delete</button>
+                </div>
+            </div>
+            <div class="workspace-card-body report-body" id="${cardId}"></div>
+        `;
+        card.querySelector('.expand-btn').addEventListener('click', () => openFullscreen(card));
+        card.querySelector('.delete-btn').addEventListener('click', () => {
+            const parent = card.parentElement;
+            card.remove();
+            if (!parent.children.length) {
+                setEmptyState(els.analysisCards, 'No analysis cards yet. Build a selection and choose "Add to analyse".');
+            }
+        });
+
+        const body = card.querySelector('.report-body');
+
+        graphs.forEach((graph, idx) => {
+            const label = graph.graph_label || graph.graph_type;
+            const isLast = idx === graphs.length - 1;
+
+            const section = document.createElement('div');
+            section.className = 'report-section' + (isLast ? ' report-section-last' : '');
+            section.innerHTML = `
+                <div class="report-section-heading">
+                    <span class="report-step">${idx + 1}</span>
+                    <span class="report-section-title">${escapeHtml(label)}</span>
+                </div>
+                <div class="plot-container" id="${cardId}-g${idx}"></div>
+                <div class="report-analysis"></div>
+            `;
+            body.appendChild(section);
+            renderPlot(section.querySelector('.plot-container'), graph.figure);
+            section.querySelector('.report-analysis').innerHTML = graph.analysis?.summary || '';
+        });
+
+        els.analysisCards.prepend(card);
+    }
+    // ── End free-form analysis builder ────────────────────────────────────
 
     function syncRowFeatureOptions(row, selectedFeature) {
         const station = row.querySelector('.series-station').value;
@@ -861,12 +1198,14 @@
         const feature = row.querySelector('.series-feature').value;
         const stationSelect = row.querySelector('.series-station');
         const prevSelections = Array.from(stationSelect.selectedOptions).map(opt => opt.value);
-        
+
         stationSelect.innerHTML = '';
         if (!feature) return;
 
+        const ds = state.activeDatasetFilter;
         state.bootstrap.station_names.forEach((stationName) => {
             const meta = state.stationsByName.get(stationName);
+            if (ds !== 'all' && (!meta || meta.dataset !== ds)) return;
             if (meta && meta.features.includes(feature)) {
                 const option = document.createElement('option');
                 option.value = stationName;
@@ -1074,19 +1413,20 @@
             endInput = forceInputType(endInput, 'date');
             startInput.disabled = false;
             endInput.disabled = false;
+            const cappedEnd = capDate(detail.end_date);
             startInput.min = detail.start_date;
-            startInput.max = detail.end_date;
+            startInput.max = cappedEnd;
             endInput.min = detail.start_date;
-            endInput.max = detail.end_date;
-            if (!startInput.value || startInput.value < detail.start_date || startInput.value > detail.end_date) {
+            endInput.max = cappedEnd;
+            if (!startInput.value || startInput.value < detail.start_date || startInput.value > cappedEnd) {
                 startInput.value = detail.start_date;
             }
-            if (!endInput.value || endInput.value > detail.end_date || endInput.value < detail.start_date) {
-                endInput.value = detail.end_date;
+            if (!endInput.value || endInput.value > cappedEnd || endInput.value < detail.start_date) {
+                endInput.value = cappedEnd;
             }
             if (startInput.value > endInput.value) {
                 startInput.value = detail.start_date;
-                endInput.value = detail.end_date;
+                endInput.value = cappedEnd;
             }
 
             if (stationSelect.multiple && stationSelect.selectedOptions.length > 1) {
@@ -1097,19 +1437,20 @@
         }
         // Fallback for regular dates if somehow out of bounds
         if (!isAnnualOverview) {
+            const cappedEnd2 = capDate(detail.end_date);
             if (forceReset) {
                 startInput.value = detail.start_date;
-                endInput.value = detail.end_date;
+                endInput.value = cappedEnd2;
             } else {
-                if (!startInput.value || startInput.value < detail.start_date || startInput.value > detail.end_date) {
+                if (!startInput.value || startInput.value < detail.start_date || startInput.value > cappedEnd2) {
                     startInput.value = detail.start_date;
                 }
-                if (!endInput.value || endInput.value > detail.end_date || endInput.value < detail.start_date) {
-                    endInput.value = detail.end_date;
+                if (!endInput.value || endInput.value > cappedEnd2 || endInput.value < detail.start_date) {
+                    endInput.value = cappedEnd2;
                 }
                 if (startInput.value > endInput.value) {
                     startInput.value = detail.start_date;
-                    endInput.value = detail.end_date;
+                    endInput.value = cappedEnd2;
                 }
             }
         }
@@ -1147,6 +1488,7 @@
             div.style.borderTop = '1px solid var(--line)';
             div.style.padding = '10px 14px 0 14px';
 
+            const cappedEnd = capDate(detail.end_date);
             div.innerHTML = `
                 <div class="control-group" style="margin-bottom: 8px;">
                     <label style="color: var(--primary);">Dates for ${prettyFeature(feature)}</label>
@@ -1155,11 +1497,11 @@
                 <div class="control-grid two-col">
                     <div class="control-group">
                         <label>Start date</label>
-                        <input class="pf-start" type="date" value="${detail.start_date}" min="${detail.start_date}" max="${detail.end_date}" />
+                        <input class="pf-start" type="date" value="${detail.start_date}" min="${detail.start_date}" max="${cappedEnd}" />
                     </div>
                     <div class="control-group">
                         <label>End date</label>
-                        <input class="pf-end" type="date" value="${detail.end_date}" min="${detail.start_date}" max="${detail.end_date}" />
+                        <input class="pf-end" type="date" value="${cappedEnd}" min="${detail.start_date}" max="${cappedEnd}" />
                     </div>
                 </div>
             `;
@@ -1312,10 +1654,12 @@
             container.querySelectorAll('.sr-station-select').forEach(sel => {
                 if (sel.value) selectedStations.add(sel.value);
             });
-            // Get all available stations for this feature
+            // Get all available stations for this feature (respecting dataset filter)
+            const ds = state.activeDatasetFilter;
             const availableStations = state.bootstrap.station_names.filter(name => {
                 const meta = state.stationsByName.get(name);
-                return meta && meta.features.includes(feature);
+                if (!meta || !meta.features.includes(feature)) return false;
+                return ds === 'all' || meta.dataset === ds;
             });
             // Find first unselected station
             const nextStation = availableStations.find(s => !selectedStations.has(s));
@@ -1418,19 +1762,20 @@
         }
 
         const detail = stationMeta.feature_details[feature];
+        const cappedEnd = capDate(detail.end_date);
         startInput.min = detail.start_date;
-        startInput.max = detail.end_date;
+        startInput.max = cappedEnd;
         endInput.min = detail.start_date;
-        endInput.max = detail.end_date;
-        if (!startInput.value || startInput.value < detail.start_date || startInput.value > detail.end_date) {
+        endInput.max = cappedEnd;
+        if (!startInput.value || startInput.value < detail.start_date || startInput.value > cappedEnd) {
             startInput.value = detail.start_date;
         }
-        if (!endInput.value || endInput.value > detail.end_date || endInput.value < detail.start_date) {
-            endInput.value = detail.end_date;
+        if (!endInput.value || endInput.value > cappedEnd || endInput.value < detail.start_date) {
+            endInput.value = cappedEnd;
         }
         if (startInput.value > endInput.value) {
             startInput.value = detail.start_date;
-            endInput.value = detail.end_date;
+            endInput.value = cappedEnd;
         }
 
         metaEl.textContent = `Coverage: ${detail.start_date} → ${detail.end_date} · ${detail.observations.toLocaleString()} obs · Unit: ${detail.unit}`;
@@ -1539,7 +1884,8 @@
             findingsWrap.appendChild(findingEl);
         });
         const compareWrap = analysisBlock.querySelector('.analysis-comparisons');
-        if (analysis.comparisons && analysis.comparisons.length) {
+        const hasAiSummary = analysis.summary && (analysis.summary.includes('<p>') || analysis.summary.includes('<ul>') || analysis.summary.includes('<li>'));
+        if (!hasAiSummary && analysis.comparisons && analysis.comparisons.length) {
             const heading = document.createElement('h4');
             heading.textContent = 'Cross-series comparisons';
             compareWrap.appendChild(heading);
@@ -1854,22 +2200,44 @@
         `;
     }
 
+    function applyAnalysisMode() {
+        const mode = state.analysisMode;
+        els.analysisModeSwitch.querySelectorAll('.analysis-mode-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+        const visualizePanel = document.querySelector('[data-sidebar-panel="visualize"]');
+        const analysisPanel  = document.querySelector('[data-sidebar-panel="analysis"]');
+        if (visualizePanel) visualizePanel.classList.toggle('hidden', mode !== 'charted');
+        if (analysisPanel)  analysisPanel.classList.toggle('hidden', mode !== 'free');
+    }
+
     function activateDockTab(tabName) {
         els.dockTabs.forEach((tab) => tab.classList.toggle('active', tab.dataset.dockTab === tabName));
         els.workspacePills.forEach((pill) => pill.classList.toggle('active', pill.dataset.tabTarget === tabName));
         els.dockPanels.forEach((panel) => panel.classList.toggle('active', panel.dataset.dockPanel === tabName));
         els.dockClearBtns.forEach((btn) => btn.classList.toggle('hidden', btn.dataset.dockClear !== tabName));
 
+        // Show/hide analysis mode switcher
+        els.analysisModeSwitch.classList.toggle('hidden', tabName !== 'analysis');
+
         // Toggle sidebar panels
         document.querySelectorAll('[data-sidebar-panel]').forEach(panel => {
             const key = panel.dataset.sidebarPanel;
             if (key === 'visualize') {
-                // Show explore/analyse setup for both visualize and analysis modes
-                panel.classList.toggle('hidden', tabName === 'prediction');
+                // In analysis tab: visibility controlled by mode switcher
+                if (tabName === 'analysis') {
+                    panel.classList.toggle('hidden', state.analysisMode !== 'charted');
+                } else {
+                    panel.classList.toggle('hidden', tabName === 'prediction');
+                }
+            } else if (key === 'analysis') {
+                panel.classList.toggle('hidden', tabName !== 'analysis' || state.analysisMode !== 'free');
             } else if (key === 'prediction') {
                 panel.classList.toggle('hidden', tabName !== 'prediction');
             }
         });
+
+        if (tabName === 'analysis') applyAnalysisMode();
 
         // Toggle action buttons within the explore panel
         document.querySelectorAll('[data-sidebar-action]').forEach(row => {
@@ -1929,6 +2297,29 @@
     function showMessage(element, text, type) {
         element.textContent = text;
         element.className = `inline-message${type ? ` ${type}` : ''}`;
+    }
+
+    function capDate(dateStr) {
+        const today = new Date().toISOString().split('T')[0];
+        return dateStr > today ? today : dateStr;
+    }
+
+    function attachDateEnforcement(row, startClass, endClass) {
+        function enforce(e) {
+            if (e.target.type !== 'date') return;
+            const input = e.target;
+            const startEl = row.querySelector(startClass);
+            const endEl   = row.querySelector(endClass);
+            if (!startEl || !endEl) return;
+            // Clamp individual input to its own min/max
+            if (input.min && input.value < input.min) input.value = input.min;
+            if (input.max && input.value > input.max) input.value = input.max;
+            // If start is after end for any reason, always reset end to its max
+            if (startEl.type === 'date' && endEl.type === 'date' && startEl.value > endEl.value) {
+                endEl.value = endEl.max || endEl.value;
+            }
+        }
+        row.addEventListener('change', enforce);
     }
 
     function prettyStation(name) {

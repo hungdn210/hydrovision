@@ -57,8 +57,10 @@
                 <button class="workspace-pill" data-tab-target="prediction">Predict</button>
             </nav>
 
-
-
+            <div class="analysis-mode-switch hidden" id="analysisModeSwitch">
+                <button class="analysis-mode-btn active" data-mode="free">Deep Dive</button>
+                <button class="analysis-mode-btn" data-mode="charted">Plot View</button>
+            </div>
 
 
             <section class="panel-section" data-sidebar-panel="visualize">
@@ -112,6 +114,24 @@
                     <button class="primary-btn full-width" id="addAnalysisBtn">Add to analyse</button>
                 </div>
                 <div class="inline-message" id="builderMessage"></div>
+            </section>
+
+            <section class="panel-section hidden" data-sidebar-panel="analysis">
+                <div class="section-heading">Deep Dive analysis</div>
+                <p class="section-desc">Add any mix of stations and features — no chart-type restrictions. The best chart is auto-selected.</p>
+                <div class="control-group">
+                    <label>Dataset</label>
+                    <div class="dataset-picker" id="freeDatasetPicker"></div>
+                </div>
+                <div class="series-builder" id="freeAnalysisBuilder"></div>
+                <button class="ghost-btn" id="addFreeSeriesRowBtn" type="button" style="margin-top:10px;margin-bottom:20px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Add Series
+                </button>
+                <div class="action-row sticky-actions">
+                    <button class="primary-btn full-width" id="runFreeAnalysisBtn">Run AI Analysis</button>
+                </div>
+                <div class="inline-message" id="freeAnalysisMessage"></div>
             </section>
 
             <section class="panel-section hidden" data-sidebar-panel="prediction">
