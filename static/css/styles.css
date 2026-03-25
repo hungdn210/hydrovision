@@ -1359,6 +1359,33 @@ html[data-theme="light"] .station-suggest-item:hover {
     min-height: 300px;
 }
 
+.model-metrics-bar {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.metrics-label {
+    font-weight: 600;
+    color: var(--text-soft);
+}
+
+.metrics-value {
+    color: #7dd3fc;
+    font-variant-numeric: tabular-nums;
+}
+
+.metrics-sep {
+    color: var(--line);
+}
+
+html[data-theme="light"] .metrics-value {
+    color: #0369a1;
+}
+
 .chart-section-label {
     font-size: 11px;
     font-weight: 600;
@@ -1438,6 +1465,102 @@ html[data-theme="light"] .report-analysis {
 html[data-theme="light"] .report-analysis strong {
     color: #0f172a;
 }
+/* ── Dataset Benchmark Table ────────────────────────────────────── */
+.benchmark-section {
+    margin-top: 16px;
+    margin-bottom: 4px;
+    width: 90%;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.benchmark-heading {
+    margin: 0 0 8px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.benchmark-dataset-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 6px;
+    margin-top: 12px;
+}
+
+.benchmark-dataset-label:first-of-type {
+    margin-top: 0;
+}
+
+.benchmark-table-wrap {
+    overflow-x: auto;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+}
+
+.benchmark-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    min-width: 540px;
+}
+
+.benchmark-table th {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-muted);
+    font-weight: 600;
+    text-align: left;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+}
+
+.benchmark-table td {
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--line);
+    color: var(--text);
+    white-space: nowrap;
+}
+
+.benchmark-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.benchmark-table tbody tr:hover td {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.bench-above { color: #4ade80; }
+.bench-below { color: #f87171; }
+
+html[data-theme="light"] .benchmark-table th {
+    background: rgba(0, 0, 0, 0.04);
+}
+html[data-theme="light"] .benchmark-table tbody tr:hover td {
+    background: rgba(0, 0, 0, 0.02);
+}
+html[data-theme="light"] .bench-above { color: #16a34a; }
+html[data-theme="light"] .bench-below { color: #dc2626; }
+
+.benchmark-analysis {
+    margin-top: 10px;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: #b0c4de;
+    padding: 4px 2px;
+}
+
+.benchmark-analysis p { margin: 0 0 6px; }
+.benchmark-analysis p:last-child { margin-bottom: 0; }
+
+html[data-theme="light"] .benchmark-analysis {
+    color: #374151;
+}
+/* ── End Dataset Benchmark Table ────────────────────────────────── */
+
 /* ── End AI Analysis Report ─────────────────────────────────────── */
 
 .analysis-block {

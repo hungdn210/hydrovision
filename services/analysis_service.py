@@ -97,9 +97,11 @@ class AnalysisService:
         findings = self._build_findings(primary_frames)
         comparisons = self._build_comparisons(primary_frames)
         climatology = self._build_climatology_anomalies(primary_frames)
+        benchmark = self._build_dataset_benchmark(primary_frames)
+        benchmark_analysis = self._compose_benchmark_summary(benchmark)
 
         graph_meta = [{'label': g['label'], 'focus': g['focus']} for g in graphs_data]
-        summaries = self._compose_multi_graph_summaries(primary_frames, findings, comparisons, climatology, graph_meta)
+        summaries = self._compose_multi_graph_summaries(primary_frames, findings, comparisons, climatology, benchmark, graph_meta)
 
         results = []
         for i, g in enumerate(graphs_data):
@@ -113,7 +115,7 @@ class AnalysisService:
                 },
             })
 
-        return {'graphs': results}
+        return {'graphs': results, 'benchmark': benchmark, 'benchmark_analysis': benchmark_analysis}
 
     def _pick_three_graphs(self, series: List[Dict]) -> List[Dict]:
         """Pick 3 complementary graph types based on series composition."""
@@ -195,6 +197,7 @@ class AnalysisService:
         findings: List[Dict],
         comparisons: List[str],
         climatology: List[str],
+        benchmark: List[Dict],
         graph_meta: List[Dict],
     ) -> List[str]:
         """One Gemini call producing N graph-specific analysis sections. Returns list of HTML strings."""
@@ -235,6 +238,8 @@ class AnalysisService:
             f"Statistical Findings:\n{self._format_findings_for_prompt(findings)}\n\n"
             f"Climatological Anomalies (each year vs long-run mean):\n"
             f"{chr(10).join(climatology) if climatology else 'Insufficient years for climatological comparison.'}\n\n"
+            f"Dataset Benchmark (station vs all stations in same dataset):\n"
+            f"{self._format_benchmark_for_prompt(benchmark) if benchmark else 'No benchmark data available.'}\n\n"
             f"Cross-Series Correlation Notes:\n"
             f"{chr(10).join(comparisons) if comparisons else 'Single series — no cross-series comparison available.'}"
         )
@@ -260,7 +265,9 @@ class AnalysisService:
         findings = self._build_findings(series_frames)
         comparisons = self._build_comparisons(series_frames)
         climatology = self._build_climatology_anomalies(series_frames)
-        summary = self._compose_summary(series_frames, findings, comparisons, climatology)
+        benchmark = self._build_dataset_benchmark(series_frames)
+        summary = self._compose_summary(series_frames, findings, comparisons, climatology, benchmark)
+        benchmark_analysis = self._compose_benchmark_summary(benchmark)
 
         # If we have a successful AI summary, suppress the raw findings cards to reduce clutter
         if '<p>' in summary or '<ul>' in summary or '<li>' in summary:
@@ -272,10 +279,12 @@ class AnalysisService:
                 'summary': summary,
                 'findings': findings,
                 'comparisons': comparisons,
+                'benchmark': benchmark,
+                'benchmark_analysis': benchmark_analysis,
             },
         }
 
-    def _compose_summary(self, frames: List[pd.DataFrame], findings: List[Dict], comparisons: List[str], climatology: List[str] = None) -> str:
+    def _compose_summary(self, frames: List[pd.DataFrame], findings: List[Dict], comparisons: List[str], climatology: List[str] = None, benchmark: List[Dict] = None) -> str:
         if len(frames) == 1:
             frame = frames[0]
             station = frame['Station'].iloc[0].replace('_', ' ')
@@ -324,6 +333,8 @@ class AnalysisService:
                 f"Statistical Findings:\n{self._format_findings_for_prompt(findings)}\n\n"
                 f"Climatological Anomalies (each year vs long-run mean):\n"
                 f"{chr(10).join(climatology) if climatology else 'Insufficient years for climatological comparison.'}\n\n"
+                f"Dataset Benchmark (station vs all stations in same dataset):\n"
+                f"{self._format_benchmark_for_prompt(benchmark) if benchmark else 'No benchmark data available.'}\n\n"
                 f"Series Correlation Notes:\n{chr(10).join(comparisons) if comparisons else 'Single series — no cross-series comparison available.'}"
             )
             html_content = markdown.markdown(_gemini_generate(api_key, prompt))
@@ -470,6 +481,105 @@ class AnalysisService:
             )
             notes.append(block)
         return notes
+
+    def _build_dataset_benchmark(self, frames: List[pd.DataFrame]) -> List[Dict]:
+        """Compare each selected station's mean to the dataset-wide distribution for that feature."""
+        results = []
+        for frame in frames:
+            station_id = frame['Station'].iloc[0]
+            feature = frame['Feature'].iloc[0]
+            unit = frame['Unit'].iloc[0]
+
+            # Find the repo this station belongs to (works with MultiDataRepository)
+            repo = getattr(self.repository, '_station_to_repo', {}).get(station_id)
+            if repo is None:
+                continue
+
+            # Collect per-station means for this feature from the same dataset
+            station_means = []
+            for _sid, meta in repo.station_index.items():
+                fd = meta.get('feature_details', {}).get(feature)
+                if fd is not None and 'mean' in fd and not pd.isna(fd['mean']):
+                    station_means.append(fd['mean'])
+
+            if len(station_means) < 2:
+                continue
+
+            arr = np.array(station_means)
+            dataset_mean = float(np.mean(arr))
+            dataset_std = float(np.std(arr))
+            dataset_min = float(np.min(arr))
+            dataset_q25 = float(np.percentile(arr, 25))
+            dataset_median = float(np.median(arr))
+            dataset_q75 = float(np.percentile(arr, 75))
+            dataset_max = float(np.max(arr))
+
+            station_mean = float(frame['Value'].mean())
+            z_score = (station_mean - dataset_mean) / dataset_std if dataset_std > 0 else 0.0
+            pct_rank = float(np.sum(arr <= station_mean) / len(arr) * 100)
+            pct_diff = (station_mean - dataset_mean) / abs(dataset_mean) * 100 if dataset_mean != 0 else 0.0
+
+            results.append({
+                'station': station_id,
+                'station_label': station_id.replace('_', ' '),
+                'feature': feature,
+                'feature_label': feature.replace('_', ' '),
+                'dataset': repo.dataset,
+                'n_stations': len(station_means),
+                'station_mean': round(station_mean, 3),
+                'dataset_mean': round(dataset_mean, 3),
+                'dataset_std': round(dataset_std, 3),
+                'dataset_min': round(dataset_min, 3),
+                'dataset_q25': round(dataset_q25, 3),
+                'dataset_median': round(dataset_median, 3),
+                'dataset_q75': round(dataset_q75, 3),
+                'dataset_max': round(dataset_max, 3),
+                'z_score': round(z_score, 2),
+                'percentile_rank': round(pct_rank, 0),
+                'pct_diff': round(pct_diff, 1),
+                'unit': unit,
+            })
+        return results
+
+    def _compose_benchmark_summary(self, benchmark: List[Dict]) -> str:
+        """Short AI paragraph interpreting the dataset benchmark comparisons."""
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key or api_key == "your_google_gemini_api_key_here" or not api_key.strip() or not benchmark:
+            return ''
+        try:
+            data_text = self._format_benchmark_for_prompt(benchmark)
+            station_list = ', '.join(b['station_label'].replace('_', ' ') for b in benchmark)
+            n = len(benchmark)
+            prompt = (
+                "Act as a professional hydrologist. "
+                "You have a dataset benchmark table comparing selected stations to all stations in their dataset.\n\n"
+                f"{data_text}\n\n"
+                f"Write exactly {n} bullet point(s), one per station ({station_list}). "
+                "Each bullet must start with '- **Station Name:**' (bold, using the exact station name), "
+                "followed by one sentence that: states whether the station is above or below the dataset average, "
+                "cites the percentile rank and z-score, and explains what this suggests about its hydrological character "
+                "(e.g. high-yield alpine catchment, low-flow lowland stream, large mainstem river). "
+                "Use professional hydrological language. No introduction, no sign-off, bullets only."
+            )
+            return markdown.markdown(_gemini_generate(api_key, prompt))
+        except Exception:
+            return ''
+
+    def _format_benchmark_for_prompt(self, benchmarks: List[Dict]) -> str:
+        lines = []
+        for b in benchmarks:
+            direction = 'above' if b['pct_diff'] >= 0 else 'below'
+            lines.append(
+                f"{b['station_label']} · {b['feature_label']} vs {b['dataset']} dataset "
+                f"({b['n_stations']} stations):\n"
+                f"  Station mean:    {b['station_mean']} {b['unit']}\n"
+                f"  Dataset mean:    {b['dataset_mean']} {b['unit']} "
+                f"({abs(b['pct_diff']):.1f}% {direction} dataset average)\n"
+                f"  Dataset range:   [{b['dataset_min']}, {b['dataset_max']}] {b['unit']}\n"
+                f"  Z-score:         {b['z_score']:+.2f} std devs from dataset mean\n"
+                f"  Percentile rank: {b['percentile_rank']:.0f}th among dataset stations"
+            )
+        return '\n\n'.join(lines)
 
     def _build_comparisons(self, frames: List[pd.DataFrame]) -> List[str]:
         notes: List[str] = []

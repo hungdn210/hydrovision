@@ -11,7 +11,10 @@ import plotly
 import plotly.graph_objects as go
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
+from .analysis_service import _gemini_generate
 from .data_loader import DataRepository, SeriesRequest
+
+MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 
 class PredictionService:
@@ -39,11 +42,35 @@ class PredictionService:
         if len(model_frame) < 10:
             raise ValueError('Not enough observations are available for prediction.')
 
-        fitted, forecast_index, forecast_values, lower, upper, residual_std = self._forecast(model_frame, frequency, horizon)
+        fitted, forecast_index, forecast_values, lower, upper, residual_std, rmse, mape = self._forecast(model_frame, frequency, horizon)
         figure = self._build_figure(model_frame, forecast_index, forecast_values, lower, upper, station, feature)
         figure_zoom = self._build_zoom_figure(model_frame, forecast_index, forecast_values, lower, upper, station, feature, frequency)
 
-        insight = self._prediction_summary(model_frame, forecast_values, residual_std, frequency, horizon, station, feature)
+        # Climatological context: compare forecast months to historical monthly normals
+        unit = self.repository.feature_units.get(feature, '')
+        fc = model_frame.copy()
+        fc['Month'] = pd.to_datetime(fc['Timestamp']).dt.month
+        monthly_normals = fc.groupby('Month')['Value'].mean().to_dict()
+        forecast_df = pd.DataFrame({'value': forecast_values.values}, index=forecast_index)
+        forecast_df['month'] = forecast_df.index.month
+        forecast_by_month = forecast_df.groupby('month')['value'].mean()
+        clim_lines = []
+        for m in sorted(forecast_by_month.index):
+            norm = monthly_normals.get(m)
+            fcast = float(forecast_by_month[m])
+            if norm and norm != 0:
+                pct = (fcast - norm) / abs(norm) * 100
+                direction = 'above' if pct >= 0 else 'below'
+                clim_lines.append(
+                    f"  {MONTH_NAMES[m - 1]}: forecast {fcast:.2f} {unit} vs normal {norm:.2f} {unit} "
+                    f"({abs(pct):.1f}% {direction} climatological normal)"
+                )
+        climatological_context = '\n'.join(clim_lines) if clim_lines else 'Insufficient history for monthly normals.'
+
+        insight = self._prediction_summary(
+            model_frame, forecast_values, residual_std, rmse, mape,
+            climatological_context, frequency, horizon, station, feature,
+        )
         return {
             'station': station,
             'feature': feature,
@@ -53,6 +80,10 @@ class PredictionService:
             'figure_zoom': plotly.io.to_json(figure_zoom),
             'title': f'Prediction · {feature} · {station}',
             'summary': insight,
+            'model_metrics': {
+                'rmse': round(rmse, 3) if not np.isnan(rmse) else None,
+                'mape': round(mape, 1) if not np.isnan(mape) else None,
+            },
         }
 
     def _prepare_training_frame(self, series: pd.DataFrame, frequency: str) -> pd.DataFrame:
@@ -79,6 +110,8 @@ class PredictionService:
             seasonal = 'add'
             seasonal_periods = 7
 
+        non_negative = float(indexed.min()) >= 0
+
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore')
@@ -94,24 +127,34 @@ class PredictionService:
                 forecast_values = fit.forecast(horizon)
             residuals = indexed - fit.fittedvalues.reindex(indexed.index)
             residual_std = float(np.nanstd(residuals)) if len(residuals) else 0.0
+            rmse = float(np.sqrt(np.nanmean(residuals ** 2)))
+            nonzero = indexed[indexed != 0]
+            if len(nonzero):
+                mape = float(np.nanmean(np.abs((nonzero - fit.fittedvalues.reindex(nonzero.index)) / nonzero)) * 100)
+            else:
+                mape = float('nan')
         except Exception:
             fit = None
             last_value = float(indexed.iloc[-1])
             forecast_index = self._future_index(indexed.index[-1], frequency, horizon)
             forecast_values = pd.Series([last_value] * horizon, index=forecast_index)
             residual_std = float(np.nanstd(indexed.values)) if len(indexed) else 0.0
+            rmse = residual_std
+            mape = float('nan')
             lower = forecast_values - 1.96 * residual_std
             upper = forecast_values + 1.96 * residual_std
-            return fit, forecast_index, forecast_values, lower, upper, residual_std
+            if non_negative:
+                lower = lower.clip(lower=0)
+            return fit, forecast_index, forecast_values, lower, upper, residual_std, rmse, mape
 
         forecast_index = forecast_values.index
         step = np.sqrt(np.arange(1, horizon + 1))
         margin = 1.96 * residual_std * step
-        lower = forecast_values.values - margin
-        upper = forecast_values.values + margin
-        lower = pd.Series(lower, index=forecast_index)
-        upper = pd.Series(upper, index=forecast_index)
-        return fit, forecast_index, forecast_values, lower, upper, residual_std
+        lower = pd.Series(forecast_values.values - margin, index=forecast_index)
+        upper = pd.Series(forecast_values.values + margin, index=forecast_index)
+        if non_negative:
+            lower = lower.clip(lower=0)
+        return fit, forecast_index, forecast_values, lower, upper, residual_std, rmse, mape
 
     def _future_index(self, last_timestamp: pd.Timestamp, frequency: str, horizon: int):
         if frequency == 'monthly':
@@ -298,6 +341,9 @@ class PredictionService:
         frame: pd.DataFrame,
         forecast_values: pd.Series,
         residual_std: float,
+        rmse: float,
+        mape: float,
+        climatological_context: str,
         frequency: str,
         horizon: int,
         station: str,
@@ -312,19 +358,19 @@ class PredictionService:
         unit = self.repository.feature_units.get(feature, '')
         period_label = 'month' if frequency == 'monthly' else 'day'
         pct_change = ((last_forecast - last_actual) / last_actual * 100) if last_actual != 0 else 0.0
-
-        # Historical stats for context
         hist_mean = float(frame['Value'].mean())
         hist_std = float(frame['Value'].std())
         hist_min = float(frame['Value'].min())
         hist_max = float(frame['Value'].max())
+        mape_str = f'{mape:.1f}%' if not np.isnan(mape) else 'n/a'
+        rmse_str = f'{rmse:.3f} {unit}'
 
         base_summary = (
             f'The forecast for {feature} at {station} spans the next {horizon} {period_label}(s). '
-            f'The model projects a {direction} trajectory from the latest historical value of {last_actual:.2f} {unit} '
-            f'toward approximately {last_forecast:.2f} {unit} by the end of the horizon ({pct_change:+.1f}%). '
-            f'Forecast range: {forecast_min:.2f}–{forecast_max:.2f} {unit}. '
-            f'Confidence band based on residual std {residual_std:.2f}.'
+            f'The model projects a {direction} trajectory from {last_actual:.2f} {unit} '
+            f'to {last_forecast:.2f} {unit} ({pct_change:+.1f}%). '
+            f'Model fit: RMSE {rmse_str}, MAPE {mape_str}. '
+            f'Forecast range: {forecast_min:.2f}–{forecast_max:.2f} {unit}.'
         )
 
         api_key = os.environ.get('GEMINI_API_KEY')
@@ -332,38 +378,31 @@ class PredictionService:
             return base_summary + '\n\n*(Note: Set GEMINI_API_KEY in the .env file to enable AI-powered prediction analysis)*'
 
         try:
-            from google import genai
-            client = genai.Client(api_key=api_key)
             prompt = (
                 'Act as a professional hydrologist for the Mekong River Commission. '
-                'You have just run a time-series forecast model (Holt-Winters Exponential Smoothing) on hydrological data. '
-                'Analyse the prediction results below and provide a concise, insightful report.\n\n'
+                'You have just run a Holt-Winters Exponential Smoothing forecast on hydrological data. '
+                'Analyse the prediction results and provide a concise, insightful report.\n\n'
                 'Structure your response exactly as follows:\n'
                 '1. A brief **Executive Summary** paragraph (2-3 sentences) summarising the forecast outlook.\n'
-                '2. A **Detailed Analysis** section with exactly 5 bullet points. Each bullet must start with a bold **Heading:** and cover:\n'
-                '   - **Forecast Trajectory**: Direction, magnitude, and rate of change.\n'
-                '   - **Comparison to Historical Baseline**: How the forecast compares to historical mean/range.\n'
-                '   - **Uncertainty & Confidence**: Interpretation of the confidence band width and residual spread.\n'
-                '   - **Seasonal Context**: Whether the forecast aligns with or deviates from expected seasonal patterns.\n'
+                '2. A **Detailed Analysis** section with exactly 5 bullet points, each starting with a bold **Heading:**:\n'
+                '   - **Forecast Trajectory**: Direction, magnitude, and rate of change over the horizon.\n'
+                '   - **Comparison to Historical Baseline**: How forecast values compare to historical mean/range.\n'
+                '   - **Model Reliability**: Interpret RMSE and MAPE — is this a trustworthy forecast or should it be treated cautiously?\n'
+                '   - **Climatological Context**: Use the monthly normals table to state whether the forecast is above or below seasonal expectations. Cite specific months and percentages.\n'
                 '   - **Operational Implications**: Practical meaning for water resource management or flood/drought risk.\n\n'
-                'IMPORTANT: Use pretty names (e.g. "Ban Chot" not "Ban_Chot"). Be analytical and specific — cite the actual numbers provided.\n'
-                'Do NOT include any introduction, sign-off, or markdown code blocks.\n\n'
-                f'Prediction Data:\n'
-                f'- Station: {station.replace("_", " ")}\n'
-                f'- Feature: {feature.replace("_", " ")} (unit: {unit})\n'
-                f'- Forecast horizon: {horizon} {period_label}(s)\n'
-                f'- Last historical value: {last_actual:.2f} {unit}\n'
-                f'- First forecast value: {first_forecast:.2f} {unit}\n'
-                f'- Last forecast value: {last_forecast:.2f} {unit} ({pct_change:+.1f}% change)\n'
-                f'- Forecast range: {forecast_min:.2f}–{forecast_max:.2f} {unit}\n'
-                f'- Residual std (confidence spread): {residual_std:.2f} {unit}\n'
-                f'- Historical mean: {hist_mean:.2f} {unit}\n'
-                f'- Historical std: {hist_std:.2f} {unit}\n'
-                f'- Historical min/max: {hist_min:.2f}/{hist_max:.2f} {unit}\n'
-                f'- Overall forecast direction: {direction}\n'
+                'RULES: Replace underscores with spaces in names. Cite actual numbers. No introduction, sign-off, or code blocks.\n\n'
+                f'Station: {station.replace("_", " ")}\n'
+                f'Feature: {feature.replace("_", " ")} ({unit})\n'
+                f'Horizon: {horizon} {period_label}(s)\n'
+                f'Last historical value: {last_actual:.2f} {unit}\n'
+                f'First / last forecast: {first_forecast:.2f} / {last_forecast:.2f} {unit} ({pct_change:+.1f}%)\n'
+                f'Forecast range: {forecast_min:.2f}–{forecast_max:.2f} {unit}\n'
+                f'Residual std: {residual_std:.3f} {unit} | RMSE: {rmse:.3f} {unit} | MAPE: {mape_str}\n'
+                f'Historical mean ± std: {hist_mean:.2f} ± {hist_std:.2f} {unit}\n'
+                f'Historical min/max: {hist_min:.2f} / {hist_max:.2f} {unit}\n\n'
+                f'Monthly climatological context (forecast vs historical normal):\n{climatological_context}\n'
             )
-            response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-            html_content = markdown.markdown(response.text.strip())
+            html_content = markdown.markdown(_gemini_generate(api_key, prompt))
             return '🧠 Analysis:\n' + html_content
         except Exception as e:
             return base_summary + f'\n\n*(AI Analysis Failed: {str(e)})*'

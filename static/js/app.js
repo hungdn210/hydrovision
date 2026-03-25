@@ -1098,7 +1098,7 @@
             });
             const data = await response.json();
             if (!response.ok || !data.ok) throw new Error(data.error || 'Analysis failed.');
-            appendFreeMultiAnalysisCard(data.result.graphs);
+            appendFreeMultiAnalysisCard(data.result.graphs, data.result.benchmark, data.result.benchmark_analysis);
             activateDockTab('analysis');
             showMessage(els.freeAnalysisMessage, `${data.result.graphs.length} charts generated — see Analysis panel.`, 'success');
         } catch (err) {
@@ -1109,7 +1109,7 @@
         }
     }
 
-    function appendFreeMultiAnalysisCard(graphs) {
+    function appendFreeMultiAnalysisCard(graphs, benchmark, benchmarkAnalysis) {
         if (!graphs || !graphs.length) return;
         clearEmptyStateIfNeeded(els.analysisCards);
 
@@ -1143,6 +1143,12 @@
         });
 
         const body = card.querySelector('.report-body');
+
+        if (benchmark && benchmark.length) {
+            const benchmarkEl = document.createElement('div');
+            benchmarkEl.innerHTML = buildBenchmarkTables(benchmark, benchmarkAnalysis);
+            body.appendChild(benchmarkEl);
+        }
 
         graphs.forEach((graph, idx) => {
             const label = graph.graph_label || graph.graph_type;
@@ -1858,6 +1864,52 @@
         renderPlot(card.querySelector('.plot-container'), result.figure);
     }
 
+    function buildBenchmarkTables(benchmark, benchmarkAnalysis) {
+        if (!benchmark || !benchmark.length) return '';
+
+        // Group by dataset
+        const byDataset = {};
+        benchmark.forEach(b => {
+            const key = b.dataset;
+            if (!byDataset[key]) byDataset[key] = [];
+            byDataset[key].push(b);
+        });
+
+        let html = '<div class="benchmark-section">';
+        html += '<h4 class="benchmark-heading">Dataset Benchmark</h4>';
+
+        for (const [dataset, rows] of Object.entries(byDataset)) {
+            const n = rows[0].n_stations;
+            html += `<div class="benchmark-dataset-label">${escapeHtml(dataset.charAt(0).toUpperCase() + dataset.slice(1))} dataset — ${n} stations</div>`;
+            html += '<div class="benchmark-table-wrap"><table class="benchmark-table">';
+            html += '<thead><tr><th>Station</th><th>Feature</th><th>Station Mean</th><th>Dataset Mean</th><th>Difference</th><th>Z-score</th><th>Percentile Rank</th></tr></thead>';
+            html += '<tbody>';
+            rows.forEach(b => {
+                const diff = b.pct_diff;
+                const diffClass = diff > 0 ? 'bench-above' : diff < 0 ? 'bench-below' : '';
+                const diffText = diff > 0 ? `+${diff.toFixed(1)}%` : `${diff.toFixed(1)}%`;
+                const zText = b.z_score > 0 ? `+${b.z_score.toFixed(2)}` : b.z_score.toFixed(2);
+                const rank = b.percentile_rank;
+                const rankSuffix = rank === 1 ? 'st' : rank === 2 ? 'nd' : rank === 3 ? 'rd' : 'th';
+                html += `<tr>
+                    <td>${escapeHtml(b.station_label)}</td>
+                    <td>${escapeHtml(b.feature_label)}</td>
+                    <td>${b.station_mean} ${escapeHtml(b.unit)}</td>
+                    <td>${b.dataset_mean} ${escapeHtml(b.unit)}</td>
+                    <td class="${diffClass}">${diffText}</td>
+                    <td class="${diffClass}">${zText}</td>
+                    <td>${rank}${rankSuffix}</td>
+                </tr>`;
+            });
+            html += '</tbody></table></div>';
+        }
+        if (benchmarkAnalysis) {
+            html += `<div class="benchmark-analysis">${benchmarkAnalysis}</div>`;
+        }
+        html += '</div>';
+        return html;
+    }
+
     function appendAnalysisCard(result) {
         clearEmptyStateIfNeeded(els.analysisCards);
         const cardId = `analysis-${++state.cardCounters.analysis}`;
@@ -1896,6 +1948,11 @@
                 compareWrap.appendChild(noteEl);
             });
         }
+        if (analysis.benchmark && analysis.benchmark.length) {
+            const benchmarkEl = document.createElement('div');
+            benchmarkEl.innerHTML = buildBenchmarkTables(analysis.benchmark, analysis.benchmark_analysis);
+            analysisBlock.appendChild(benchmarkEl);
+        }
     }
 
     function appendPredictionCard(result) {
@@ -1922,6 +1979,17 @@
         const fullPlot = document.createElement('div');
         fullPlot.className = 'plot-container';
         body.appendChild(fullPlot);
+
+        // Model metrics badge
+        if (result.model_metrics) {
+            const m = result.model_metrics;
+            const metricsEl = document.createElement('div');
+            metricsEl.className = 'model-metrics-bar';
+            const rmseText = m.rmse != null ? `RMSE ${m.rmse}` : 'RMSE n/a';
+            const mapeText = m.mape != null ? `MAPE ${m.mape}%` : 'MAPE n/a';
+            metricsEl.innerHTML = `<span class="metrics-label">Model fit:</span> <span class="metrics-value">${escapeHtml(rmseText)}</span> <span class="metrics-sep">·</span> <span class="metrics-value">${escapeHtml(mapeText)}</span>`;
+            body.appendChild(metricsEl);
+        }
 
         // AI analysis block
         const block = document.createElement('div');

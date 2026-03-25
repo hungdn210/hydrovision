@@ -85,6 +85,7 @@ class DataRepository:
                     'end_date': end.strftime('%Y-%m-%d'),
                     'observations': int(len(series_df)),
                     'imputed_points': imputed_count,
+                    'mean': float(series_df[feature].mean()),
                     'latest_value': None if pd.isna(latest_row[feature]) else float(latest_row[feature]),
                     'latest_date': latest_row['Timestamp'].strftime('%Y-%m-%d'),
                     'unit': self.feature_units.get(feature, ''),
