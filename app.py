@@ -116,6 +116,27 @@ def analyze_free_multi():
         return jsonify({'ok': False, 'error': str(exc)}), 400
 
 
+@app.route('/api/predict-stations')
+def predict_stations():
+    model = request.args.get('model', 'FlowNet').strip()
+    result = {'lamah': [], 'mekong': []}
+    lamah_dir = LAMAH_DIR / 'prediction_results' / 'station_predictions' / model
+    if lamah_dir.is_dir():
+        result['lamah'] = sorted(p.stem for p in lamah_dir.glob('*.csv'))
+    mekong_base = MEKONG_DIR / 'prediction_results' / 'station_predictions'
+    if mekong_base.is_dir():
+        seen = set()
+        for feat_dir in mekong_base.iterdir():
+            if not feat_dir.is_dir():
+                continue
+            model_dir = feat_dir / model
+            if model_dir.is_dir():
+                for p in model_dir.glob('*.csv'):
+                    seen.add(p.stem)
+        result['mekong'] = sorted(seen)
+    return jsonify(result)
+
+
 @app.post('/api/predict')
 def predict():
     payload = request.get_json(silent=True) or {}
@@ -124,8 +145,9 @@ def predict():
     horizon = int(payload.get('horizon', 7))
     model = str(payload.get('model', 'FlowNet')).strip()
     mode = str(payload.get('mode', 'future')).strip()
+    analysis = bool(payload.get('analysis', True))
     try:
-        result = prediction_service.predict(station, feature, horizon, model, mode)
+        result = prediction_service.predict(station, feature, horizon, model, mode, analysis)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400

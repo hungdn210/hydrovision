@@ -284,34 +284,8 @@ button {
     box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.22);
 }
 
-.analysis-mode-switch {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-    padding: 4px;
-    margin-bottom: 4px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-md);
-}
-
-.analysis-mode-btn {
-    background: transparent;
-    color: var(--text-soft);
-    padding: 8px 12px;
-    font-size: 13px;
-    font-weight: 600;
-    border-radius: calc(var(--radius-md) - 2px);
-    cursor: pointer;
-}
-
-.analysis-mode-btn.active {
-    background: linear-gradient(135deg, rgba(56, 189, 248, 0.28), rgba(37, 99, 235, 0.22));
-    color: var(--text);
-    box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.22);
-}
-
-.sidebar.collapsed .analysis-mode-switch {
+.sidebar.collapsed .analysis-mode-switch,
+.sidebar.collapsed .mode-seg {
     display: none;
 }
 
@@ -586,6 +560,60 @@ select[multiple] option:checked {
     border-color: rgba(56, 189, 248, 0.4);
 }
 
+/* ── Mode segmented control ───────────────────────────── */
+.mode-seg {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 3px;
+    gap: 3px;
+}
+
+.mode-seg-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-soft);
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 8px 10px;
+    border-radius: calc(var(--radius-sm) - 2px);
+    cursor: pointer;
+    transition: color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+    white-space: nowrap;
+}
+
+.mode-seg-btn:hover:not(.active) {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.mode-seg-btn.active {
+    background: linear-gradient(135deg, #38bdf8 0%, #2563eb 100%);
+    color: #f0f8ff;
+    box-shadow: 0 2px 12px rgba(37, 99, 235, 0.45), inset 0 1px 0 rgba(255,255,255,0.15);
+}
+
+html[data-theme="light"] .mode-seg {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+html[data-theme="light"] .mode-seg-btn {
+    color: #64748b;
+}
+
+html[data-theme="light"] .mode-seg-btn:hover:not(.active) {
+    background: rgba(0, 0, 0, 0.06);
+    color: #1e293b;
+}
+
+html[data-theme="light"] .mode-seg-btn.active {
+    color: #fff;
+    box-shadow: 0 2px 10px rgba(37, 99, 235, 0.35), inset 0 1px 0 rgba(255,255,255,0.2);
+}
+
 .selection-builder-header {
     display: flex;
     justify-content: space-between;
@@ -726,6 +754,84 @@ select[multiple] option:checked {
 
 .inline-message.success {
     color: #86efac;
+}
+
+.inline-message.warn {
+    color: #fbbf24;
+}
+
+/* ── Toggle switch ───────────────────────────────────── */
+.toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px 0;
+}
+
+.toggle-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-soft);
+}
+
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 22px;
+    flex-shrink: 0;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+    position: absolute;
+}
+
+.toggle-track {
+    position: absolute;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.toggle-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background: var(--text-soft);
+    border-radius: 50%;
+    transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.toggle-switch input:checked + .toggle-track {
+    background: linear-gradient(135deg, #38bdf8, #2563eb);
+    border-color: transparent;
+    box-shadow: 0 0 10px rgba(37, 99, 235, 0.4);
+}
+
+.toggle-switch input:checked + .toggle-track .toggle-thumb {
+    transform: translateX(18px);
+    background: #fff;
+}
+
+html[data-theme="light"] .toggle-track {
+    background: rgba(0, 0, 0, 0.08);
+    border-color: rgba(0, 0, 0, 0.15);
+}
+
+html[data-theme="light"] .toggle-thumb {
+    background: #94a3b8;
+}
+
+html[data-theme="light"] .toggle-switch input:checked + .toggle-track {
+    box-shadow: 0 0 8px rgba(37, 99, 235, 0.3);
 }
 
 .workspace {
@@ -2089,6 +2195,10 @@ html[data-theme="light"] .inline-message.error {
 
 html[data-theme="light"] .inline-message.success {
     color: #16a34a;
+}
+
+html[data-theme="light"] .inline-message.warn {
+    color: #d97706;
 }
 
 html[data-theme="light"] select[multiple] option {

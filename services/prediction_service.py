@@ -114,7 +114,7 @@ class PredictionService:
         except Exception:
             return None
 
-    def predict(self, station: str, feature: str, horizon: int, model: str = 'FlowNet', mode: str = 'future') -> Dict[str, Any]:
+    def predict(self, station: str, feature: str, horizon: int, model: str = 'FlowNet', mode: str = 'future', analysis: bool = True) -> Dict[str, Any]:
         if horizon <= 0:
             raise ValueError('Prediction horizon must be greater than zero.')
         meta = self.repository.get_station_metadata(station)
@@ -135,12 +135,12 @@ class PredictionService:
         if len(model_frame) < 10:
             raise ValueError('Not enough observations are available for prediction.')
 
-        # Cap horizon at 30 (max available in pre-computed CSVs)
-        effective_horizon = min(horizon, 30)
+        # Historical fit CSVs have at most 30 horizon columns — cap for that loader only
+        hist_horizon = min(horizon, 30)
 
         # Always load the historical rolling fit (needed for metrics in both modes)
-        hist_result = self._load_historical_fit(station, feature, model, effective_horizon, model_frame)
-        hist_fit_df, actual_h, rmse, mape = hist_result if hist_result else (None, effective_horizon, float('nan'), float('nan'))
+        hist_result = self._load_historical_fit(station, feature, model, hist_horizon, model_frame)
+        hist_fit_df, actual_h, rmse, mape = hist_result if hist_result else (None, hist_horizon, float('nan'), float('nan'))
 
         unit = self.repository.feature_units.get(feature, '')
         non_negative = float(model_frame['Value'].min()) >= 0
@@ -151,7 +151,7 @@ class PredictionService:
                 raise ValueError(f'No historical predictions found for {station} / {feature} / {model}.')
             figure = self._build_historical_figure(model_frame, hist_fit_df, actual_h, station, feature)
             figure_zoom = self._build_historical_zoom_figure(model_frame, hist_fit_df, actual_h, feature)
-            insight = self._historical_summary(model_frame, hist_fit_df, rmse, mape, actual_h, station, feature)
+            insight = self._historical_summary(model_frame, hist_fit_df, rmse, mape, actual_h, station, feature) if analysis else None
             return {
                 'station': station, 'feature': feature, 'horizon': actual_h,
                 'frequency': frequency,
@@ -166,6 +166,7 @@ class PredictionService:
             }
 
         # ── FUTURE MODE ───────────────────────────────────────────────────────
+        effective_horizon = min(horizon, 30)
         csv_forecast = self._load_csv_predictions(station, feature, model, effective_horizon)
 
         if csv_forecast is not None:
@@ -173,8 +174,9 @@ class PredictionService:
             forecast_index = self._future_index(last_timestamp, frequency, len(csv_forecast))
             forecast_values = pd.Series(csv_forecast.values.astype(float), index=forecast_index)
             residual_std = rmse if not np.isnan(rmse) else float(np.nanstd(model_frame['Value'].values))
-            lower = forecast_values - 1.96 * residual_std
-            upper = forecast_values + 1.96 * residual_std
+            step = np.sqrt(np.arange(1, effective_horizon + 1))
+            lower = pd.Series(forecast_values.values - 1.96 * residual_std * step, index=forecast_index)
+            upper = pd.Series(forecast_values.values + 1.96 * residual_std * step, index=forecast_index)
             if non_negative:
                 lower = lower.clip(lower=0)
         else:
@@ -182,34 +184,35 @@ class PredictionService:
             hist_fit_df = None
 
         figure = self._build_figure(model_frame, forecast_index, forecast_values, lower, upper,
-                                    station, feature, hist_fit_df, actual_h)
+                                    feature, hist_fit_df, actual_h)
         figure_zoom = self._build_zoom_figure(model_frame, forecast_index, forecast_values, lower, upper,
                                               station, feature, frequency, hist_fit_df, actual_h)
 
-        # Climatological context
-        fc = model_frame.copy()
-        fc['Month'] = pd.to_datetime(fc['Timestamp']).dt.month
-        monthly_normals = fc.groupby('Month')['Value'].mean().to_dict()
-        forecast_df = pd.DataFrame({'value': forecast_values.values}, index=forecast_index)
-        forecast_df['month'] = forecast_df.index.month
-        forecast_by_month = forecast_df.groupby('month')['value'].mean()
-        clim_lines = []
-        for m in sorted(forecast_by_month.index):
-            norm = monthly_normals.get(m)
-            fcast = float(forecast_by_month[m])
-            if norm and norm != 0:
-                pct = (fcast - norm) / abs(norm) * 100
-                direction = 'above' if pct >= 0 else 'below'
-                clim_lines.append(
-                    f"  {MONTH_NAMES[m - 1]}: forecast {fcast:.2f} {unit} vs normal {norm:.2f} {unit} "
-                    f"({abs(pct):.1f}% {direction} climatological normal)"
-                )
-        climatological_context = '\n'.join(clim_lines) if clim_lines else 'Insufficient history for monthly normals.'
-
-        insight = self._prediction_summary(
-            model_frame, forecast_values, residual_std, rmse, mape,
-            climatological_context, frequency, horizon, station, feature,
-        )
+        if analysis:
+            fc = model_frame.copy()
+            fc['Month'] = pd.to_datetime(fc['Timestamp']).dt.month
+            monthly_normals = fc.groupby('Month')['Value'].mean().to_dict()
+            forecast_df = pd.DataFrame({'value': forecast_values.values}, index=forecast_index)
+            forecast_df['month'] = forecast_df.index.month
+            forecast_by_month = forecast_df.groupby('month')['value'].mean()
+            clim_lines = []
+            for m in sorted(forecast_by_month.index):
+                norm = monthly_normals.get(m)
+                fcast = float(forecast_by_month[m])
+                if norm and norm != 0:
+                    pct = (fcast - norm) / abs(norm) * 100
+                    direction = 'above' if pct >= 0 else 'below'
+                    clim_lines.append(
+                        f"  {MONTH_NAMES[m - 1]}: forecast {fcast:.2f} {unit} vs normal {norm:.2f} {unit} "
+                        f"({abs(pct):.1f}% {direction} climatological normal)"
+                    )
+            climatological_context = '\n'.join(clim_lines) if clim_lines else 'Insufficient history for monthly normals.'
+            insight = self._prediction_summary(
+                model_frame, forecast_values, residual_std, rmse, mape,
+                climatological_context, frequency, horizon, station, feature,
+            )
+        else:
+            insight = None
         return {
             'station': station, 'feature': feature, 'horizon': horizon,
             'frequency': frequency,
@@ -305,7 +308,6 @@ class PredictionService:
         forecast_values,
         lower,
         upper,
-        station: str,
         feature: str,
         hist_fit_df: pd.DataFrame | None = None,
         actual_h: int = 1,
@@ -344,10 +346,9 @@ class PredictionService:
         ))
         figure.update_layout(
             template='plotly_white',
-            title={'text': f'Prediction · {feature.replace("_"," ")} · {station.replace("_"," ")}', 'x': 0.5, 'xanchor': 'center'},
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#ffffff',
             font={'family': 'Inter, Arial, sans-serif', 'size': 12, 'color': '#0f172a'},
-            margin={'l': 46, 'r': 28, 't': 72, 'b': 48},
+            margin={'l': 46, 'r': 28, 't': 48, 'b': 48},
             hovermode='x unified',
             legend={'orientation': 'h', 'yanchor': 'bottom', 'y': 1.02, 'xanchor': 'left', 'x': 0},
         )
@@ -469,10 +470,10 @@ class PredictionService:
         ))
         fig.update_layout(
             template='plotly_white',
-            title={'text': f'Historical Fit · {feature.replace("_"," ")} · {station.replace("_"," ")}', 'x': 0.5, 'xanchor': 'center'},
+            title={'text': f'Historical Fit · {feature.replace("_"," ")} · {station.replace("_"," ")}', 'x': 0.5, 'xanchor': 'center', 'y': 0.97, 'yanchor': 'top'},
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#ffffff',
             font={'family': 'Inter, Arial, sans-serif', 'size': 12, 'color': '#0f172a'},
-            margin={'l': 46, 'r': 28, 't': 72, 'b': 48},
+            margin={'l': 46, 'r': 28, 't': 96, 'b': 48},
             hovermode='x unified',
             legend={'orientation': 'h', 'yanchor': 'bottom', 'y': 1.02, 'xanchor': 'left', 'x': 0},
         )

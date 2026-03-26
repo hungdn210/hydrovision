@@ -57,9 +57,9 @@
                 <button class="workspace-pill" data-tab-target="prediction">Predict</button>
             </nav>
 
-            <div class="analysis-mode-switch hidden" id="analysisModeSwitch">
-                <button class="analysis-mode-btn active" data-mode="free">Deep Dive</button>
-                <button class="analysis-mode-btn" data-mode="charted">Plot View</button>
+            <div class="mode-seg hidden" id="analysisModeSwitch">
+                <button class="mode-seg-btn active" data-mode="free">Deep Dive</button>
+                <button class="mode-seg-btn" data-mode="charted">Plot View</button>
             </div>
 
 
@@ -138,9 +138,9 @@
                 <div class="section-heading">Prediction setup</div>
                 <div class="control-group">
                     <label>Mode</label>
-                    <div class="dataset-picker" id="predictModePicker">
-                        <button class="chip active" data-mode="future">Future Forecast</button>
-                        <button class="chip" data-mode="historical">Historical Fit</button>
+                    <div class="mode-seg" id="predictModePicker">
+                        <button class="mode-seg-btn active" data-mode="future">Future Forecast</button>
+                        <button class="mode-seg-btn" data-mode="historical">Historical Fit</button>
                     </div>
                 </div>
                 <div class="control-group">
@@ -191,11 +191,18 @@
                     </div>
                     <div class="control-group">
                         <label for="predictHorizonInput" id="predictHorizonLabel">Horizon (steps)</label>
-                        <input id="predictHorizonInput" type="number" min="1" max="30" value="7" />
+                        <input id="predictHorizonInput" type="number" min="1" value="7" />
                     </div>
                 </div>
                 <div class="small-note" id="predictHint"></div>
-                <button class="primary-btn full-width" id="runPredictionBtn">Run prediction</button>
+                <div class="toggle-row">
+                    <span class="toggle-label">Include Analysis</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="predictAnalysisToggle" checked />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    </label>
+                </div>
+                <button class="primary-btn full-width" id="runPredictionBtn" style="margin-top: 10px;">Run prediction</button>
                 <div class="inline-message" id="predictionMessage"></div>
             </section>
         </aside>

@@ -11,6 +11,7 @@
         activeDatasetFilter: 'all',
         predictDatasetFilter: 'all',
         predictMode: 'future',
+        predictStationsForModel: { lamah: new Set(), mekong: new Set() },
         analysisMode: 'free',
         focusedStation: null,
         cardCounters: {
@@ -37,7 +38,6 @@
         popoverDesc: document.getElementById('popoverDesc'),
         popoverRules: document.getElementById('popoverRules'),
         seriesBuilder: document.getElementById('seriesBuilder'),
-        seriesRowTemplate: document.getElementById('seriesRowTemplate'),
         addSeriesRowBtn: document.getElementById('addSeriesRowBtn'),
         addVisualizationBtn: document.getElementById('addVisualizationBtn'),
         addAnalysisBtn: document.getElementById('addAnalysisBtn'),
@@ -75,6 +75,7 @@
         predictFeatureSelect: document.getElementById('predictFeatureSelect'),
         predictModelSelect: document.getElementById('predictModelSelect'),
         predictHorizonInput: document.getElementById('predictHorizonInput'),
+        predictAnalysisToggle: document.getElementById('predictAnalysisToggle'),
         predictHint: document.getElementById('predictHint'),
         runPredictionBtn: document.getElementById('runPredictionBtn'),
         predictionMessage: document.getElementById('predictionMessage'),
@@ -238,6 +239,7 @@
         buildDatasetFilterBar();
         populateStationSearch();
         populateGraphTypes();
+        await fetchPredictStations(els.predictModelSelect?.value || 'FlowNet');
         populatePredictionControls();
         addSeriesRow();
         addFreeSeriesRow();
@@ -364,7 +366,7 @@
         els.addAnalysisBtn.addEventListener('click', () => submitSeriesRequest('analysis'));
         els.addFreeSeriesRowBtn.addEventListener('click', () => addFreeSeriesRow());
         els.runFreeAnalysisBtn.addEventListener('click', submitFreeAnalysis);
-        els.analysisModeSwitch.querySelectorAll('.analysis-mode-btn').forEach(btn => {
+        els.analysisModeSwitch.querySelectorAll('.mode-seg-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 state.analysisMode = btn.dataset.mode;
                 applyAnalysisMode();
@@ -384,24 +386,49 @@
         els.predictStationSelect.addEventListener('change', updatePredictionFeatureOptions);
         els.predictFeatureSelect.addEventListener('change', updatePredictionHint);
         els.runPredictionBtn.addEventListener('click', runPrediction);
+        els.predictModelSelect?.addEventListener('change', async () => {
+            await fetchPredictStations(els.predictModelSelect.value);
+            populatePredictionControls();
+        });
 
         // Mode picker (Historical Fit / Future Forecast)
         if (els.predictModePicker) {
-            els.predictModePicker.querySelectorAll('.chip').forEach(btn => {
+            els.predictModePicker.querySelectorAll('.mode-seg-btn').forEach(btn => {
                 btn.addEventListener('click', () => {
                     state.predictMode = btn.dataset.mode;
-                    els.predictModePicker.querySelectorAll('.chip').forEach(b => b.classList.remove('active'));
+                    els.predictModePicker.querySelectorAll('.mode-seg-btn').forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
                     if (state.predictMode === 'historical') {
                         els.predictHorizonLabel.textContent = 'Horizon H (1–30)';
-                        els.predictHorizonInput.max = 30;
+                        els.predictHorizonInput.removeAttribute('max');
+                        validateHorizonInput();
                     } else {
-                        els.predictHorizonLabel.textContent = 'Horizon (steps)';
-                        els.predictHorizonInput.max = 30;
+                        els.predictHorizonLabel.textContent = 'Horizon (1–30)';
+                        els.predictHorizonInput.removeAttribute('max');
+                        validateHorizonInput();
                     }
                 });
             });
         }
+
+        // Horizon input clamping
+        function validateHorizonInput() {
+            let val = parseInt(els.predictHorizonInput.value, 10);
+            if (isNaN(val) || val < 1) {
+                els.predictHorizonInput.value = 1;
+                val = 1;
+            }
+            if (val > 30) {
+                els.predictHorizonInput.value = 30;
+                els.predictionMessage.textContent = 'Maximum horizon is 30.';
+                els.predictionMessage.className = 'inline-message warn';
+                return;
+            }
+            els.predictionMessage.textContent = '';
+            els.predictionMessage.className = 'inline-message';
+        }
+        els.predictHorizonInput.addEventListener('input', validateHorizonInput);
+        els.predictHorizonInput.addEventListener('change', validateHorizonInput);
 
         // Theme toggle
         const themeToggleBtn = document.getElementById('themeToggleBtn');
@@ -706,15 +733,31 @@
         });
     }
 
+    async function fetchPredictStations(model) {
+        try {
+            const res = await fetch(`/api/predict-stations?model=${encodeURIComponent(model)}`);
+            const data = await res.json();
+            state.predictStationsForModel = {
+                lamah: new Set(data.lamah || []),
+                mekong: new Set(data.mekong || []),
+            };
+        } catch (e) {
+            state.predictStationsForModel = { lamah: new Set(), mekong: new Set() };
+        }
+    }
+
     function populatePredictionControls() {
         const ds = state.predictDatasetFilter;
         const prev = els.predictStationSelect.value;
+        const { lamah, mekong } = state.predictStationsForModel;
         els.predictStationSelect.innerHTML = '';
         state.bootstrap.station_names.forEach(stationName => {
-            if (ds !== 'all') {
-                const meta = state.stationsByName.get(stationName);
-                if (!meta || meta.dataset !== ds) return;
-            }
+            const meta = state.stationsByName.get(stationName);
+            if (ds !== 'all' && (!meta || meta.dataset !== ds)) return;
+            // Only include stations that have prediction files for the selected model
+            const dataset = meta?.dataset;
+            if (dataset === 'lamah' && !lamah.has(stationName)) return;
+            if (dataset === 'mekong' && !mekong.has(stationName)) return;
             const option = document.createElement('option');
             option.value = stationName;
             option.textContent = prettyStation(stationName);
@@ -1925,6 +1968,7 @@
             horizon: Number(els.predictHorizonInput.value || 0),
             model: els.predictModelSelect.value,
             mode: state.predictMode,
+            analysis: els.predictAnalysisToggle?.checked ?? true,
         };
         showMessage(els.predictionMessage, 'Running prediction…', '');
         try {
@@ -2085,12 +2129,14 @@
         block.className = 'analysis-block';
         block.innerHTML = `<h4>🧠 Prediction Analysis</h4><div class="analysis-summary"></div>`;
         const summaryEl = block.querySelector('.analysis-summary');
-        if (result.summary && (result.summary.includes('<p>') || result.summary.includes('<ul>') || result.summary.includes('<li>'))) {
-            summaryEl.innerHTML = result.summary.replace(/^🧠 \*\*AI Analysis\*\*\n\n/, '').replace(/^🧠 Analysis:\n/, '');
-        } else {
-            summaryEl.textContent = result.summary;
+        if (result.summary) {
+            if (result.summary.includes('<p>') || result.summary.includes('<ul>') || result.summary.includes('<li>')) {
+                summaryEl.innerHTML = result.summary.replace(/^🧠 \*\*AI Analysis\*\*\n\n/, '').replace(/^🧠 Analysis:\n/, '');
+            } else {
+                summaryEl.textContent = result.summary;
+            }
+            body.appendChild(block);
         }
-        body.appendChild(block);
 
         // Prepend to DOM first so Plotly can measure container width correctly
         els.predictionCards.prepend(card);
@@ -2359,7 +2405,7 @@
 
     function applyAnalysisMode() {
         const mode = state.analysisMode;
-        els.analysisModeSwitch.querySelectorAll('.analysis-mode-btn').forEach(btn => {
+        els.analysisModeSwitch.querySelectorAll('.mode-seg-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.mode === mode);
         });
         const visualizePanel = document.querySelector('[data-sidebar-panel="visualize"]');
