@@ -41,7 +41,7 @@ print(f'  LamaH: {len(lamah_repo.station_index)} stations loaded.')
 repository = MultiDataRepository([mekong_repo, lamah_repo])
 chart_service = ChartService(repository)
 analysis_service = AnalysisService(repository, chart_service)
-prediction_service = PredictionService(repository)
+prediction_service = PredictionService(repository, data_dir=BASE_DIR / 'data')
 
 app = Flask(__name__)
 
@@ -122,8 +122,10 @@ def predict():
     station = str(payload.get('station', '')).strip()
     feature = str(payload.get('feature', '')).strip()
     horizon = int(payload.get('horizon', 7))
+    model = str(payload.get('model', 'FlowNet')).strip()
+    mode = str(payload.get('mode', 'future')).strip()
     try:
-        result = prediction_service.predict(station, feature, horizon)
+        result = prediction_service.predict(station, feature, horizon, model, mode)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400

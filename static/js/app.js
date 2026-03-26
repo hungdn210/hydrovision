@@ -9,6 +9,8 @@
         stationsByName: new Map(),
         activeFeatureFilter: 'All',
         activeDatasetFilter: 'all',
+        predictDatasetFilter: 'all',
+        predictMode: 'future',
         analysisMode: 'free',
         focusedStation: null,
         cardCounters: {
@@ -66,8 +68,12 @@
         clearVisualizationsBtn: document.getElementById('clearVisualizationsBtn'),
         clearAnalysisBtn: document.getElementById('clearAnalysisBtn'),
         clearPredictionBtn: document.getElementById('clearPredictionBtn'),
+        predictModePicker: document.getElementById('predictModePicker'),
+        predictHorizonLabel: document.getElementById('predictHorizonLabel'),
+        predictDatasetPicker: document.getElementById('predictDatasetPicker'),
         predictStationSelect: document.getElementById('predictStationSelect'),
         predictFeatureSelect: document.getElementById('predictFeatureSelect'),
+        predictModelSelect: document.getElementById('predictModelSelect'),
         predictHorizonInput: document.getElementById('predictHorizonInput'),
         predictHint: document.getElementById('predictHint'),
         runPredictionBtn: document.getElementById('runPredictionBtn'),
@@ -155,6 +161,37 @@
         },
         'Anomaly Detection Chart': {
             desc: 'Shows deviation from the long-term monthly average. Blue bars = above average (wet anomaly), red bars = below average (dry anomaly). A secondary line overlays the raw value for context.',
+            rules: 'Exactly 1 row. Single station and feature required.',
+            allowMultiFeature: false,
+            allowMultiRow: false
+        },
+        'Seasonal Subseries Plot': {
+            desc: 'Draws 12 mini time-series — one per calendar month — each showing that month\'s values across all years. Trend lines (red = declining, green = rising) make long-term shifts within a season immediately visible.',
+            rules: 'Exactly 1 row. Single station and feature required.',
+            allowMultiFeature: false,
+            allowMultiRow: false
+        },
+        'Calendar Heatmap': {
+            desc: 'A grid with years on the Y-axis and months on the X-axis. Each cell is coloured by the monthly mean value — darker = higher. Instantly reveals wet/dry seasons and anomalous years across decades.',
+            rules: 'Exactly 1 row. Single station and feature required.',
+            allowMultiFeature: false,
+            allowMultiRow: false
+        },
+        'Station Ranking Bar Chart': {
+            desc: 'Horizontal bar chart ranking all selected stations by their mean value for a single feature. Median (amber tick) and max (red diamond) markers are overlaid on each bar for a full distributional snapshot.',
+            rules: 'Select one feature to see available stations, then choose multiple stations.',
+            allowMultiFeature: false,
+            allowMultiRow: false,
+            isFeatureFirst: true
+        },
+        'Rolling Correlation Chart': {
+            desc: 'Plots the Pearson correlation between two features in a sliding time window (365-day for daily data, 12-month for monthly). Shows whether the relationship between variables is stable year-round or varies seasonally.',
+            rules: 'Select exactly 2 features from the same station.',
+            allowMultiFeature: true,
+            allowMultiRow: false
+        },
+        'Exceedance Probability Curve': {
+            desc: 'Like a Flow Duration Curve but on a log-probability x-axis — the standard format for flood frequency analysis. Return period markers (2yr, 5yr, 10yr…) show the magnitude of rare events.',
             rules: 'Exactly 1 row. Single station and feature required.',
             allowMultiFeature: false,
             allowMultiRow: false
@@ -348,6 +385,24 @@
         els.predictFeatureSelect.addEventListener('change', updatePredictionHint);
         els.runPredictionBtn.addEventListener('click', runPrediction);
 
+        // Mode picker (Historical Fit / Future Forecast)
+        if (els.predictModePicker) {
+            els.predictModePicker.querySelectorAll('.chip').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    state.predictMode = btn.dataset.mode;
+                    els.predictModePicker.querySelectorAll('.chip').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    if (state.predictMode === 'historical') {
+                        els.predictHorizonLabel.textContent = 'Horizon H (1–30)';
+                        els.predictHorizonInput.max = 30;
+                    } else {
+                        els.predictHorizonLabel.textContent = 'Horizon (steps)';
+                        els.predictHorizonInput.max = 30;
+                    }
+                });
+            });
+        }
+
         // Theme toggle
         const themeToggleBtn = document.getElementById('themeToggleBtn');
         if (themeToggleBtn) {
@@ -514,6 +569,25 @@
                 container.appendChild(btn);
             });
         });
+
+        // Prediction panel has its own independent dataset picker
+        if (els.predictDatasetPicker) {
+            els.predictDatasetPicker.innerHTML = '';
+            allDatasets.forEach(({ label, key }) => {
+                const btn = document.createElement('button');
+                btn.className = `feature-chip${key === state.predictDatasetFilter ? ' active' : ''}`;
+                btn.dataset.dsKey = key;
+                btn.textContent = label;
+                btn.addEventListener('click', () => {
+                    if (state.predictDatasetFilter === key) return;
+                    state.predictDatasetFilter = key;
+                    Array.from(els.predictDatasetPicker.children).forEach(c =>
+                        c.classList.toggle('active', c.dataset.dsKey === key));
+                    populatePredictionControls();
+                });
+                els.predictDatasetPicker.appendChild(btn);
+            });
+        }
     }
 
     function buildFeatureFilterBar() {
@@ -633,7 +707,20 @@
     }
 
     function populatePredictionControls() {
-        fillStationSelect(els.predictStationSelect);
+        const ds = state.predictDatasetFilter;
+        const prev = els.predictStationSelect.value;
+        els.predictStationSelect.innerHTML = '';
+        state.bootstrap.station_names.forEach(stationName => {
+            if (ds !== 'all') {
+                const meta = state.stationsByName.get(stationName);
+                if (!meta || meta.dataset !== ds) return;
+            }
+            const option = document.createElement('option');
+            option.value = stationName;
+            option.textContent = prettyStation(stationName);
+            if (stationName === prev) option.selected = true;
+            els.predictStationSelect.appendChild(option);
+        });
         updatePredictionFeatureOptions();
     }
 
@@ -1836,6 +1923,8 @@
             station: els.predictStationSelect.value,
             feature: els.predictFeatureSelect.value,
             horizon: Number(els.predictHorizonInput.value || 0),
+            model: els.predictModelSelect.value,
+            mode: state.predictMode,
         };
         showMessage(els.predictionMessage, 'Running prediction…', '');
         try {
@@ -1996,8 +2085,8 @@
         block.className = 'analysis-block';
         block.innerHTML = `<h4>🧠 Prediction Analysis</h4><div class="analysis-summary"></div>`;
         const summaryEl = block.querySelector('.analysis-summary');
-        if (result.summary && result.summary.startsWith('🧠 Analysis:')) {
-            summaryEl.innerHTML = result.summary.replace('🧠 Analysis:\n', '');
+        if (result.summary && (result.summary.includes('<p>') || result.summary.includes('<ul>') || result.summary.includes('<li>'))) {
+            summaryEl.innerHTML = result.summary.replace(/^🧠 \*\*AI Analysis\*\*\n\n/, '').replace(/^🧠 Analysis:\n/, '');
         } else {
             summaryEl.textContent = result.summary;
         }

@@ -212,6 +212,11 @@ class DataRepository:
                 'Multi-Station Temporal Heatmap',
                 'Correlation Scatter Plot',
                 'Anomaly Detection Chart',
+                'Seasonal Subseries Plot',
+                'Calendar Heatmap',
+                'Station Ranking Bar Chart',
+                'Rolling Correlation Chart',
+                'Exceedance Probability Curve',
             ],
         }
 

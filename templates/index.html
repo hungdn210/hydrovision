@@ -137,13 +137,24 @@
             <section class="panel-section hidden" data-sidebar-panel="prediction">
                 <div class="section-heading">Prediction setup</div>
                 <div class="control-group">
+                    <label>Mode</label>
+                    <div class="dataset-picker" id="predictModePicker">
+                        <button class="chip active" data-mode="future">Future Forecast</button>
+                        <button class="chip" data-mode="historical">Historical Fit</button>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>Dataset</label>
+                    <div class="dataset-picker" id="predictDatasetPicker"></div>
+                </div>
+                <div class="control-group">
                     <label for="predictStationSelect">Station</label>
                     <select id="predictStationSelect"></select>
                 </div>
                 <div class="control-group">
                     <label for="predictModelSelect">Model</label>
                     <select id="predictModelSelect">
-                        <option value="FlowNet">FlowNet</option>
+                        <option value="FlowNet" selected>FlowNet</option>
                         <option value="CATS">CATS</option>
                         <option value="CycleNet">CycleNet</option>
                         <option value="DLinear">DLinear</option>
@@ -161,7 +172,7 @@
                         <option value="LightTS">LightTS</option>
                         <option value="LSTM">LSTM</option>
                         <option value="MICN">MICN</option>
-                        <option value="PatchTST" selected>PatchTST</option>
+                        <option value="PatchTST">PatchTST</option>
                         <option value="ResGAT">ResGAT</option>
                         <option value="ResGCN">ResGCN</option>
                         <option value="RLinear">RLinear</option>
@@ -179,8 +190,8 @@
                         <select id="predictFeatureSelect"></select>
                     </div>
                     <div class="control-group">
-                        <label for="predictHorizonInput">Horizon</label>
-                        <input id="predictHorizonInput" type="number" min="1" value="7" />
+                        <label for="predictHorizonInput" id="predictHorizonLabel">Horizon (steps)</label>
+                        <input id="predictHorizonInput" type="number" min="1" max="30" value="7" />
                     </div>
                 </div>
                 <div class="small-note" id="predictHint"></div>

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Dict, List
 
+import numpy as np
 import pandas as pd
 import plotly
 import plotly.express as px
@@ -24,6 +25,11 @@ GRAPH_TYPES = {
     'Multi-Station Temporal Heatmap',
     'Correlation Scatter Plot',
     'Anomaly Detection Chart',
+    'Seasonal Subseries Plot',
+    'Calendar Heatmap',
+    'Station Ranking Bar Chart',
+    'Rolling Correlation Chart',
+    'Exceedance Probability Curve',
 }
 
 
@@ -78,6 +84,19 @@ class ChartService:
                 raise ValueError('Correlation Scatter Plot requires exactly 2 different features selected.')
         if graph_type == 'Anomaly Detection Chart' and len(requests) != 1:
             raise ValueError('Anomaly Detection Chart requires exactly one selection row.')
+        if graph_type == 'Seasonal Subseries Plot' and len(requests) != 1:
+            raise ValueError('Seasonal Subseries Plot requires exactly one selection row.')
+        if graph_type == 'Calendar Heatmap' and len(requests) != 1:
+            raise ValueError('Calendar Heatmap requires exactly one selection row.')
+        if graph_type == 'Station Ranking Bar Chart' and len(features) != 1:
+            raise ValueError('Station Ranking Bar Chart requires one feature across multiple stations.')
+        if graph_type == 'Rolling Correlation Chart':
+            if len(stations) != 1:
+                raise ValueError('Rolling Correlation Chart requires all series from the same station.')
+            if len(features) != 2:
+                raise ValueError('Rolling Correlation Chart requires exactly 2 different features.')
+        if graph_type == 'Exceedance Probability Curve' and len(requests) != 1:
+            raise ValueError('Exceedance Probability Curve requires exactly one selection row.')
 
         return requests
 
@@ -107,6 +126,16 @@ class ChartService:
             figure = self._correlation_scatter_plot(requests)
         elif graph_type == 'Anomaly Detection Chart':
             figure = self._anomaly_detection_chart(requests[0])
+        elif graph_type == 'Seasonal Subseries Plot':
+            figure = self._seasonal_subseries_plot(requests[0])
+        elif graph_type == 'Calendar Heatmap':
+            figure = self._calendar_heatmap(requests[0])
+        elif graph_type == 'Station Ranking Bar Chart':
+            figure = self._station_ranking_bar_chart(requests)
+        elif graph_type == 'Rolling Correlation Chart':
+            figure = self._rolling_correlation_chart(requests)
+        elif graph_type == 'Exceedance Probability Curve':
+            figure = self._exceedance_probability_curve(requests[0])
         else:
             raise ValueError('Unsupported graph type.')
 
@@ -363,17 +392,22 @@ class ChartService:
         frames = []
         for request in requests:
             df = self.repository.get_feature_series(request)
-            df['YearMonth'] = df['Timestamp'].dt.to_period('M')
-            monthly = df.groupby('YearMonth')['Value'].mean()
+            monthly = (
+                df.set_index('Timestamp')['Value']
+                .resample('MS').mean()
+            )
             monthly.name = request.station.replace('_', ' ')
             frames.append(monthly)
 
         combined = pd.concat(frames, axis=1).T
-        combined.columns = [str(col) for col in combined.columns]
+        # Convert DatetimeIndex columns to "YYYY-MM" strings
+        combined.columns = [str(col)[:7] for col in combined.columns]
 
         station_names = list(combined.index)
         time_labels = list(combined.columns)
-        z_values = combined.values.tolist()
+        # Replace NaN with None so Plotly renders blank cells correctly
+        z_values = [[None if pd.isna(v) else float(v) for v in row]
+                    for row in combined.values.tolist()]
 
         fig = go.Figure(
             data=go.Heatmap(
@@ -547,4 +581,335 @@ class ChartService:
         )
         fig.update_xaxes(title='Month')
         fig.update_yaxes(title=f"Anomaly ({unit})" if unit else 'Anomaly')
+        return fig
+
+    def _seasonal_subseries_plot(self, request: SeriesRequest) -> go.Figure:
+        df = self.repository.get_feature_series(request)
+        unit = self.repository.feature_units.get(request.feature, '')
+        month_labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+        df['Year'] = df['Timestamp'].dt.year
+        df['Month'] = df['Timestamp'].dt.month
+        monthly = df.groupby(['Year', 'Month'], as_index=False)['Value'].mean()
+
+        fig = make_subplots(
+            rows=2, cols=6,
+            subplot_titles=month_labels,
+            shared_yaxes=True,
+            horizontal_spacing=0.04,
+            vertical_spacing=0.18,
+        )
+        for i, month_num in enumerate(range(1, 13)):
+            row = 1 if i < 6 else 2
+            col = (i % 6) + 1
+            month_data = monthly[monthly['Month'] == month_num].sort_values('Year')
+            if month_data.empty:
+                continue
+            x_vals = month_data['Year'].values
+            y_vals = month_data['Value'].values
+            fig.add_trace(
+                go.Scatter(
+                    x=x_vals, y=y_vals,
+                    mode='lines+markers',
+                    name=month_labels[i],
+                    line={'width': 1.8, 'color': '#2563eb'},
+                    marker={'size': 3},
+                    showlegend=False,
+                    hovertemplate=f'{month_labels[i]} %{{x}}: %{{y:.2f}} {unit}<extra></extra>',
+                ),
+                row=row, col=col,
+            )
+            if len(x_vals) >= 3:
+                coeffs = np.polyfit(x_vals, y_vals, 1)
+                y_trend = np.polyval(coeffs, x_vals)
+                color = '#ef4444' if coeffs[0] < 0 else '#16a34a'
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_vals, y=y_trend,
+                        mode='lines', showlegend=False,
+                        line={'width': 1.4, 'color': color, 'dash': 'dash'},
+                        hoverinfo='skip',
+                    ),
+                    row=row, col=col,
+                )
+        fig.update_layout(
+            template='plotly_white',
+            title={
+                'text': f"Seasonal Subseries · {request.feature.replace('_', ' ')} · {request.station.replace('_', ' ')}",
+                'x': 0.5, 'xanchor': 'center',
+            },
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='#ffffff',
+            font={'family': 'Inter, Arial, sans-serif', 'size': 11, 'color': '#0f172a'},
+            margin={'l': 50, 'r': 20, 't': 90, 'b': 50},
+            showlegend=False,
+        )
+        fig.update_xaxes(showgrid=True, gridcolor='rgba(148,163,184,0.22)', tickformat='d')
+        fig.update_yaxes(showgrid=True, gridcolor='rgba(148,163,184,0.22)')
+        return fig
+
+    def _calendar_heatmap(self, request: SeriesRequest) -> go.Figure:
+        df = self.repository.get_feature_series(request)
+        unit = self.repository.feature_units.get(request.feature, '')
+        month_labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+        monthly = (
+            df.set_index('Timestamp')['Value']
+            .resample('MS').mean()
+            .dropna()
+            .reset_index()
+        )
+        monthly.columns = ['Timestamp', 'Value']
+        monthly['Year'] = monthly['Timestamp'].dt.year
+        monthly['Month'] = monthly['Timestamp'].dt.month
+
+        years = sorted(monthly['Year'].unique())
+        z = []
+        for yr in years:
+            row = []
+            for m in range(1, 13):
+                subset = monthly[(monthly['Year'] == yr) & (monthly['Month'] == m)]['Value']
+                row.append(float(subset.iloc[0]) if not subset.empty else None)
+            z.append(row)
+
+        n_years = len(years)
+        # ~18px per year row, minimum 300px, scales to fill ~80% of a typical panel
+        dynamic_height = max(300, n_years * 18 + 160)
+        # Show a tick every N years so labels don't overlap (aim for ~15 visible ticks max)
+        dtick = max(1, int(np.ceil(n_years / 15)))
+
+        fig = go.Figure(
+            data=go.Heatmap(
+                z=z,
+                x=month_labels,
+                y=years,
+                colorscale='Blues',
+                colorbar={'title': {'text': unit, 'side': 'right'}, 'thickness': 15, 'len': 0.9},
+                hovertemplate='%{y} · %{x}<br>Value: %{z:.3f} ' + unit + '<extra></extra>',
+            )
+        )
+        self._base_layout(fig, f"Calendar Heatmap · {request.feature.replace('_', ' ')} · {request.station.replace('_', ' ')}")
+        fig.update_layout(hovermode='closest', margin={'l': 60, 'r': 80, 't': 80, 'b': 60}, height=dynamic_height)
+        fig.update_xaxes(title='Month')
+        fig.update_yaxes(title='Year', autorange='reversed', tickformat='d', dtick=dtick)
+        return fig
+
+    def _station_ranking_bar_chart(self, requests: List[SeriesRequest]) -> go.Figure:
+        feature = requests[0].feature
+        unit = self.repository.feature_units.get(feature, '')
+
+        rows = []
+        for request in requests:
+            df = self.repository.get_feature_series(request)
+            rows.append({
+                'station': request.station.replace('_', ' '),
+                'mean': float(df['Value'].mean()),
+                'median': float(df['Value'].median()),
+                'min': float(df['Value'].min()),
+                'max': float(df['Value'].max()),
+            })
+        # Sort descending so rank 1 (highest mean) is at top
+        rows.sort(key=lambda x: x['mean'], reverse=True)
+
+        stations = [r['station'] for r in rows]
+        means = [r['mean'] for r in rows]
+        medians = [r['median'] for r in rows]
+        maxes = [r['max'] for r in rows]
+        ranks = [f'#{i+1}' for i in range(len(rows))]
+
+        # Color gradient: top rank = deepest blue, lower = lighter
+        n = len(rows)
+        colors = [f'rgba(37,99,235,{0.9 - 0.5 * i / max(n - 1, 1):.2f})' for i in range(n)]
+
+        fig = go.Figure()
+
+        # Min–Max range lines (thin, faint)
+        for i, r in enumerate(rows):
+            fig.add_trace(go.Scatter(
+                x=[r['min'], r['max']],
+                y=[r['station'], r['station']],
+                mode='lines',
+                line={'color': 'rgba(148,163,184,0.35)', 'width': 6},
+                showlegend=False,
+                hoverinfo='skip',
+            ))
+
+        # Lollipop stems: 0 → mean
+        for i, r in enumerate(rows):
+            fig.add_trace(go.Scatter(
+                x=[0, r['mean']],
+                y=[r['station'], r['station']],
+                mode='lines',
+                line={'color': colors[i], 'width': 3},
+                showlegend=False,
+                hoverinfo='skip',
+            ))
+
+        # Mean dot
+        fig.add_trace(go.Scatter(
+            y=stations, x=means,
+            mode='markers+text',
+            name='Mean',
+            marker={'color': colors, 'size': 14, 'line': {'width': 2, 'color': 'white'}},
+            text=[f'{v:.1f}' for v in means],
+            textposition='middle right',
+            textfont={'size': 10, 'color': '#94a3b8'},
+            hovertemplate='%{y}<br>Mean: %{x:.3f} ' + unit + '<extra></extra>',
+        ))
+
+        # Median tick
+        fig.add_trace(go.Scatter(
+            y=stations, x=medians,
+            mode='markers',
+            name='Median',
+            marker={'color': '#f59e0b', 'size': 10, 'symbol': 'line-ns-open',
+                    'line': {'width': 3, 'color': '#f59e0b'}},
+            hovertemplate='%{y}<br>Median: %{x:.3f} ' + unit + '<extra></extra>',
+        ))
+
+        # Max diamond
+        fig.add_trace(go.Scatter(
+            y=stations, x=maxes,
+            mode='markers',
+            name='Max',
+            marker={'color': '#ef4444', 'size': 9, 'symbol': 'diamond',
+                    'line': {'width': 1, 'color': 'white'}},
+            hovertemplate='%{y}<br>Max: %{x:.3f} ' + unit + '<extra></extra>',
+        ))
+
+        # Rank labels on y-axis via annotations
+        annotations = []
+        for i, (station, rank) in enumerate(zip(stations, ranks)):
+            annotations.append({
+                'x': 0, 'y': station,
+                'xref': 'x', 'yref': 'y',
+                'text': rank,
+                'showarrow': False,
+                'xanchor': 'right',
+                'xshift': -8,
+                'font': {'size': 11, 'color': '#64748b'},
+            })
+
+        self._base_layout(fig, f"Station Ranking · {feature.replace('_', ' ')}")
+        fig.update_layout(
+            hovermode='closest',
+            height=max(380, n * 55 + 180),
+            margin={'l': 140, 'r': 80, 't': 80, 'b': 70},
+            annotations=annotations,
+            legend={'orientation': 'h', 'yanchor': 'bottom', 'y': -0.15,
+                    'xanchor': 'center', 'x': 0.5},
+            bargap=0.4,
+        )
+        x_title = f"{feature.replace('_', ' ')} ({unit})" if unit else feature.replace('_', ' ')
+        fig.update_xaxes(title=x_title, zeroline=True, zerolinewidth=1, zerolinecolor='rgba(148,163,184,0.4)')
+        fig.update_yaxes(title='', categoryorder='array', categoryarray=list(reversed(stations)))
+        return fig
+
+    def _rolling_correlation_chart(self, requests: List[SeriesRequest]) -> go.Figure:
+        station = requests[0].station
+        feature_x = requests[0].feature
+        feature_y = requests[1].feature
+        df_x = self.repository.get_feature_series(requests[0])
+        df_y = self.repository.get_feature_series(requests[1])
+
+        frequency = self.repository.feature_frequency.get(feature_x, 'daily')
+        window = 12 if frequency == 'monthly' else 365
+        window_label = '12-month' if frequency == 'monthly' else '365-day'
+
+        merged = pd.merge(
+            df_x[['Timestamp', 'Value']].rename(columns={'Value': 'X'}),
+            df_y[['Timestamp', 'Value']].rename(columns={'Value': 'Y'}),
+            on='Timestamp', how='inner',
+        ).sort_values('Timestamp')
+
+        min_pts = max(6, window // 6)
+        if len(merged) < min_pts:
+            raise ValueError(f'Not enough overlapping data for {window_label} rolling correlation.')
+
+        merged['RollingCorr'] = merged['X'].rolling(window=window, min_periods=min_pts).corr(merged['Y'])
+
+        fig = go.Figure()
+        fig.add_hrect(y0=0.7, y1=1.05, fillcolor='rgba(37,99,235,0.06)', line_width=0)
+        fig.add_hrect(y0=-1.05, y1=-0.7, fillcolor='rgba(239,68,68,0.06)', line_width=0)
+        fig.add_hline(y=0, line_dash='dash', line_color='rgba(100,100,100,0.35)', line_width=1)
+        fig.add_hline(y=0.7, line_dash='dot', line_color='rgba(37,99,235,0.35)', line_width=1,
+                      annotation_text='r = 0.7', annotation_font_size=9, annotation_font_color='#2563eb')
+        fig.add_hline(y=-0.7, line_dash='dot', line_color='rgba(239,68,68,0.35)', line_width=1,
+                      annotation_text='r = −0.7', annotation_font_size=9, annotation_font_color='#ef4444')
+        fig.add_trace(
+            go.Scatter(
+                x=merged['Timestamp'],
+                y=merged['RollingCorr'],
+                mode='lines',
+                name=f'{window_label} rolling r',
+                line={'width': 2.2, 'color': '#6366f1'},
+                hovertemplate='Date: %{x|%Y-%m-%d}<br>r = %{y:.3f}<extra></extra>',
+            )
+        )
+        self._base_layout(fig, f"Rolling Correlation · {feature_x.replace('_', ' ')} vs {feature_y.replace('_', ' ')} · {station.replace('_', ' ')}")
+        fig.update_xaxes(title='Date')
+        fig.update_yaxes(title=f'Pearson r ({window_label} window)', range=[-1.05, 1.05])
+        return fig
+
+    def _exceedance_probability_curve(self, request: SeriesRequest) -> go.Figure:
+        df = self.repository.get_feature_series(request)
+        unit = self.repository.feature_units.get(request.feature, '')
+
+        values = df['Value'].dropna().sort_values(ascending=False).reset_index(drop=True)
+        n = len(values)
+        # Weibull plotting positions
+        rank = np.arange(1, n + 1)
+        exceedance_pct = rank / (n + 1) * 100  # percent
+
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=exceedance_pct,
+                y=values.values,
+                mode='lines',
+                name=f"{request.station.replace('_', ' ')} · {request.feature.replace('_', ' ')}",
+                line={'width': 2.4, 'color': '#2563eb'},
+                fill='tozeroy',
+                fillcolor='rgba(37,99,235,0.10)',
+                customdata=100 / exceedance_pct,
+                hovertemplate='Exceedance: %{x:.2f}%<br>Return period: %{customdata:.1f} yrs<br>Value: %{y:.3f} ' + unit + '<extra></extra>',
+            )
+        )
+
+        mean_val = float(values.mean())
+        fig.add_hline(
+            y=mean_val,
+            line_dash='dash', line_color='#f59e0b', line_width=1.5,
+            annotation_text=f'Mean: {mean_val:.2f} {unit}',
+            annotation_position='top right',
+            annotation_font_color='#f59e0b',
+            annotation_font_size=10,
+        )
+
+        # Return period reference lines
+        for rp in [2, 5, 10, 25, 50, 100]:
+            prob = 100 / rp
+            if prob < exceedance_pct.min() or prob > exceedance_pct.max():
+                continue
+            fig.add_vline(
+                x=prob,
+                line_dash='dot', line_color='rgba(239,68,68,0.45)', line_width=1,
+                annotation_text=f'{rp}yr',
+                annotation_position='top',
+                annotation_font_size=9,
+                annotation_font_color='#ef4444',
+            )
+
+        self._base_layout(fig, f"Exceedance Probability · {request.feature.replace('_', ' ')} · {request.station.replace('_', ' ')}")
+        fig.update_layout(hovermode='closest')
+        fig.update_xaxes(
+            title='Exceedance Probability (%)',
+            type='log',
+            tickvals=[0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 20, 30, 50, 70, 90, 99],
+            ticktext=['0.01', '0.05', '0.1', '0.5', '1', '2', '5', '10', '20', '30', '50', '70', '90', '99'],
+            range=[np.log10(max(exceedance_pct.min(), 0.001)), np.log10(min(exceedance_pct.max(), 100))],
+        )
+        fig.update_yaxes(title=f"{request.feature.replace('_', ' ')} ({unit})" if unit else request.feature.replace('_', ' '))
         return fig
