@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Hydrovision Mekong Pro</title>
+    <title>Hydrovision</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -40,7 +40,7 @@
                 <div class="brand-block">
                     <img src="{{ url_for('static', filename='images/Logo.png') }}" alt="Hydrovision Logo" class="brand-logo">
                     <div>
-                        <div class="brand-eyebrow">Mekong intelligence workspace</div>
+                        <div class="brand-eyebrow">Hydrological intelligence workspace</div>
                         <h1>Hydrovision</h1>
                     </div>
                 </div>
@@ -144,45 +144,16 @@
                     </div>
                 </div>
                 <div class="control-group">
+                    <label for="predictModelSelect">Model</label>
+                    <select id="predictModelSelect"></select>
+                </div>
+                <div class="control-group">
                     <label>Dataset</label>
                     <div class="dataset-picker" id="predictDatasetPicker"></div>
                 </div>
                 <div class="control-group">
                     <label for="predictStationSelect">Station</label>
                     <select id="predictStationSelect"></select>
-                </div>
-                <div class="control-group">
-                    <label for="predictModelSelect">Model</label>
-                    <select id="predictModelSelect">
-                        <option value="FlowNet" selected>FlowNet</option>
-                        <option value="CATS">CATS</option>
-                        <option value="CycleNet">CycleNet</option>
-                        <option value="DLinear">DLinear</option>
-                        <option value="DMCT">DMCT</option>
-                        <option value="DMCT_wo_D">DMCT_wo_D</option>
-                        <option value="DMCT_wo_IN">DMCT_wo_IN</option>
-                        <option value="DMCT_wo_M">DMCT_wo_M</option>
-                        <option value="DMT">DMT</option>
-                        <option value="FilterNet">FilterNet</option>
-                        <option value="GCN">GCN</option>
-                        <option value="GCNII">GCNII</option>
-                        <option value="GRU">GRU</option>
-                        <option value="iTransformer">iTransformer</option>
-                        <option value="LamaH_daily">LamaH_daily</option>
-                        <option value="LightTS">LightTS</option>
-                        <option value="LSTM">LSTM</option>
-                        <option value="MICN">MICN</option>
-                        <option value="PatchTST">PatchTST</option>
-                        <option value="ResGAT">ResGAT</option>
-                        <option value="ResGCN">ResGCN</option>
-                        <option value="RLinear">RLinear</option>
-                        <option value="SOFTS">SOFTS</option>
-                        <option value="THGNN">THGNN</option>
-                        <option value="TiDE">TiDE</option>
-                        <option value="TimeXer">TimeXer</option>
-                        <option value="TQNet">TQNet</option>
-                        <option value="TSMixer">TSMixer</option>
-                    </select>
                 </div>
                 <div class="control-grid two-col">
                     <div class="control-group">
@@ -211,7 +182,7 @@
             <header class="topbar">
                 <div>
                     <div class="eyebrow">Spatial analytics dashboard</div>
-                    <h2>World map with Mekong basin intelligence</h2>
+                    <h2>World map with hydrological intelligence</h2>
                 </div>
                 <div class="topbar-meta">
                     <button class="metric-chip dataset-nav-btn" id="flyToMekong" type="button">Mekong</button>
@@ -326,7 +297,7 @@
                     <section class="dock-panel" data-dock-panel="prediction">
                         <div class="panel-intro">
                             <h3>Prediction workspace</h3>
-                            <p>Forecasts use a time-series smoothing model with confidence bands. The prediction cards remain here until deleted.</p>
+                            <p>Forecasts use pre-trained deep learning models. The prediction cards remain here until deleted.</p>
                         </div>
                         <div class="card-grid" id="predictionCards"></div>
                     </section>

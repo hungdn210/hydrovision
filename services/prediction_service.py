@@ -42,7 +42,11 @@ class PredictionService:
                         / self._mekong_feature_folder(feature) / model / f'{station}.csv')
         elif dataset == 'lamah':
             csv_path = (self.data_dir / 'LamaH' / 'prediction_results' / 'station_predictions_future'
-                        / model / 'LamaH_daily' / f'{station}.csv')
+                        / model / f'{station}.csv')
+            # FlowNet has an extra LamaH_daily subfolder
+            if not csv_path.exists():
+                csv_path = (self.data_dir / 'LamaH' / 'prediction_results' / 'station_predictions_future'
+                            / model / 'LamaH_daily' / f'{station}.csv')
         else:
             return None
         if not csv_path.exists():
@@ -143,7 +147,6 @@ class PredictionService:
         hist_fit_df, actual_h, rmse, mape = hist_result if hist_result else (None, hist_horizon, float('nan'), float('nan'))
 
         unit = self.repository.feature_units.get(feature, '')
-        non_negative = float(model_frame['Value'].min()) >= 0
 
         # ── HISTORICAL MODE ───────────────────────────────────────────────────
         if mode == 'historical':
@@ -174,19 +177,12 @@ class PredictionService:
             forecast_index = self._future_index(last_timestamp, frequency, len(csv_forecast))
             forecast_values = pd.Series(csv_forecast.values.astype(float), index=forecast_index)
             residual_std = rmse if not np.isnan(rmse) else float(np.nanstd(model_frame['Value'].values))
-            step = np.sqrt(np.arange(1, effective_horizon + 1))
-            lower = pd.Series(forecast_values.values - 1.96 * residual_std * step, index=forecast_index)
-            upper = pd.Series(forecast_values.values + 1.96 * residual_std * step, index=forecast_index)
-            if non_negative:
-                lower = lower.clip(lower=0)
         else:
-            _, forecast_index, forecast_values, lower, upper, residual_std, rmse, mape = self._forecast(model_frame, frequency, effective_horizon)
+            _, forecast_index, forecast_values, _, _, residual_std, rmse, mape = self._forecast(model_frame, frequency, effective_horizon)
             hist_fit_df = None
 
-        figure = self._build_figure(model_frame, forecast_index, forecast_values, lower, upper,
-                                    feature, hist_fit_df, actual_h)
-        figure_zoom = self._build_zoom_figure(model_frame, forecast_index, forecast_values, lower, upper,
-                                              station, feature, frequency, hist_fit_df, actual_h)
+        figure = self._build_figure(model_frame, forecast_index, forecast_values, feature, actual_h)
+        figure_zoom = self._build_zoom_figure(model_frame, forecast_index, forecast_values, feature, frequency, actual_h)
 
         if analysis:
             fc = model_frame.copy()
@@ -306,10 +302,7 @@ class PredictionService:
         frame: pd.DataFrame,
         forecast_index,
         forecast_values,
-        lower,
-        upper,
         feature: str,
-        hist_fit_df: pd.DataFrame | None = None,
         actual_h: int = 1,
     ) -> go.Figure:
         unit = self.repository.feature_units.get(feature, '')
@@ -318,25 +311,6 @@ class PredictionService:
             x=frame['Timestamp'], y=frame['Value'],
             mode='lines', name='Actual',
             line={'width': 2, 'color': '#38bdf8'},
-        ))
-        if hist_fit_df is not None and not hist_fit_df.empty:
-            figure.add_trace(go.Scatter(
-                x=hist_fit_df['Timestamp'], y=hist_fit_df['ModelFit'],
-                mode='lines', name=f'Model fit (H={actual_h})',
-                line={'width': 1.5, 'color': '#a78bfa'},
-                opacity=0.85,
-            ))
-        # Confidence band
-        figure.add_trace(go.Scatter(
-            x=forecast_index, y=upper,
-            mode='lines', line={'width': 0},
-            showlegend=False, hoverinfo='skip',
-        ))
-        figure.add_trace(go.Scatter(
-            x=forecast_index, y=lower,
-            mode='lines', line={'width': 0},
-            fill='tonexty', fillcolor='rgba(245,158,11,0.15)',
-            name='Confidence band', hoverinfo='skip',
         ))
         figure.add_trace(go.Scatter(
             x=forecast_index, y=forecast_values,
@@ -362,26 +336,19 @@ class PredictionService:
         frame: pd.DataFrame,
         forecast_index,
         forecast_values,
-        lower,
-        upper,
-        station: str,
         feature: str,
         frequency: str,
-        hist_fit_df: pd.DataFrame | None = None,
         actual_h: int = 1,
     ) -> go.Figure:
         unit = self.repository.feature_units.get(feature, '')
 
-        # Show last ~2 years of history to align with model fit window
-        cutoff = frame['Timestamp'].max() - (pd.DateOffset(months=24) if frequency == 'monthly' else pd.Timedelta(days=730))
+        cutoff = frame['Timestamp'].max() - (pd.DateOffset(months=6) if frequency == 'monthly' else pd.Timedelta(days=90))
         zoom_frame = frame[frame['Timestamp'] >= cutoff]
 
         last_hist_ts = zoom_frame['Timestamp'].iloc[-1]
         last_hist_val = float(zoom_frame['Value'].iloc[-1])
         bridge_x = [last_hist_ts] + list(forecast_index)
         bridge_forecast = [last_hist_val] + list(forecast_values.values)
-        bridge_upper = [last_hist_val] + list(upper.values)
-        bridge_lower = [last_hist_val] + list(lower.values)
 
         if frequency == 'monthly':
             x_end = pd.Timestamp(forecast_index[-1]) + pd.DateOffset(months=1)
@@ -392,30 +359,8 @@ class PredictionService:
         figure = go.Figure()
         figure.add_trace(go.Scatter(
             x=zoom_frame['Timestamp'], y=zoom_frame['Value'],
-            mode='lines', name='Actual (last 2 years)',
+            mode='lines', name='Actual (last 3 months)',
             line={'width': 2, 'color': '#38bdf8'},
-        ))
-        # Model fit overlay (clipped to zoom window)
-        if hist_fit_df is not None and not hist_fit_df.empty:
-            fit_zoom = hist_fit_df[hist_fit_df['Timestamp'] >= cutoff]
-            if not fit_zoom.empty:
-                figure.add_trace(go.Scatter(
-                    x=fit_zoom['Timestamp'], y=fit_zoom['ModelFit'],
-                    mode='lines', name=f'Model fit (H={actual_h})',
-                    line={'width': 1.5, 'color': '#a78bfa'},
-                    opacity=0.85,
-                ))
-        # Confidence band (bridged)
-        figure.add_trace(go.Scatter(
-            x=bridge_x, y=bridge_upper,
-            mode='lines', line={'width': 0},
-            showlegend=False, hoverinfo='skip',
-        ))
-        figure.add_trace(go.Scatter(
-            x=bridge_x, y=bridge_lower,
-            mode='lines', line={'width': 0},
-            fill='tonexty', fillcolor='rgba(245,158,11,0.15)',
-            name='Confidence band', hoverinfo='skip',
         ))
         figure.add_trace(go.Scatter(
             x=bridge_x, y=bridge_forecast,

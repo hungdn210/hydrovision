@@ -11,7 +11,10 @@
         activeDatasetFilter: 'all',
         predictDatasetFilter: 'all',
         predictMode: 'future',
-        predictStationsForModel: { lamah: new Set(), mekong: new Set() },
+        predictStationsForModel: {
+            lamah: { historical: new Set(), future: new Set() },
+            mekong: { historical: new Set(), future: new Set() },
+        },
         analysisMode: 'free',
         focusedStation: null,
         cardCounters: {
@@ -239,6 +242,7 @@
         buildDatasetFilterBar();
         populateStationSearch();
         populateGraphTypes();
+        await populateModelDropdown();
         await fetchPredictStations(els.predictModelSelect?.value || 'FlowNet');
         populatePredictionControls();
         addSeriesRow();
@@ -407,6 +411,7 @@
                         els.predictHorizonInput.removeAttribute('max');
                         validateHorizonInput();
                     }
+                    populatePredictionControls();
                 });
             });
         }
@@ -733,31 +738,59 @@
         });
     }
 
+    async function populateModelDropdown() {
+        try {
+            const res = await fetch('/api/predict-models');
+            const models = await res.json();
+            els.predictModelSelect.innerHTML = '';
+            models.forEach(name => {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = name;
+                if (name === 'FlowNet') opt.selected = true;
+                els.predictModelSelect.appendChild(opt);
+            });
+        } catch (e) {
+            // fallback: single default
+            els.predictModelSelect.innerHTML = '<option value="FlowNet" selected>FlowNet</option>';
+        }
+    }
+
     async function fetchPredictStations(model) {
         try {
             const res = await fetch(`/api/predict-stations?model=${encodeURIComponent(model)}`);
             const data = await res.json();
             state.predictStationsForModel = {
-                lamah: new Set(data.lamah || []),
-                mekong: new Set(data.mekong || []),
+                lamah: {
+                    historical: new Set((data.lamah?.historical) || []),
+                    future: new Set((data.lamah?.future) || []),
+                },
+                mekong: {
+                    historical: new Set((data.mekong?.historical) || []),
+                    future: new Set((data.mekong?.future) || []),
+                },
             };
         } catch (e) {
-            state.predictStationsForModel = { lamah: new Set(), mekong: new Set() };
+            state.predictStationsForModel = {
+                lamah: { historical: new Set(), future: new Set() },
+                mekong: { historical: new Set(), future: new Set() },
+            };
         }
     }
 
     function populatePredictionControls() {
         const ds = state.predictDatasetFilter;
         const prev = els.predictStationSelect.value;
+        const mode = state.predictMode;
         const { lamah, mekong } = state.predictStationsForModel;
         els.predictStationSelect.innerHTML = '';
         state.bootstrap.station_names.forEach(stationName => {
             const meta = state.stationsByName.get(stationName);
             if (ds !== 'all' && (!meta || meta.dataset !== ds)) return;
-            // Only include stations that have prediction files for the selected model
+            // Only include stations that have prediction files for the selected model + mode
             const dataset = meta?.dataset;
-            if (dataset === 'lamah' && !lamah.has(stationName)) return;
-            if (dataset === 'mekong' && !mekong.has(stationName)) return;
+            if (dataset === 'lamah' && !lamah[mode]?.has(stationName)) return;
+            if (dataset === 'mekong' && !mekong[mode]?.has(stationName)) return;
             const option = document.createElement('option');
             option.value = stationName;
             option.textContent = prettyStation(stationName);
@@ -2100,7 +2133,7 @@
         // Insert zoom label BEFORE basePlot so it appears at the top
         const zoomLabel = document.createElement('div');
         zoomLabel.className = 'chart-section-label';
-        zoomLabel.textContent = 'Zoomed view · Last 1 year + forecast';
+        zoomLabel.textContent = 'Zoomed view · Last 3 months + forecast';
         body.insertBefore(zoomLabel, basePlot);
 
         // Full history section — appended after basePlot

@@ -66,6 +66,32 @@ def datasets():
     return jsonify(names)
 
 
+MEKONG_FEATURE_DIRS = {'Water_Discharge', 'Water_Level', 'Rainfall', 'Total_Suspended_Solids'}
+NON_MODEL_DIRS = MEKONG_FEATURE_DIRS | {'LamaH_daily'}
+
+
+@app.route('/api/predict-models')
+def predict_models():
+    """Return the union of all model names found in prediction_results directories."""
+    models = set()
+    for base_dir in [LAMAH_DIR, MEKONG_DIR]:
+        for sub in ['station_predictions', 'station_predictions_future']:
+            parent = base_dir / 'prediction_results' / sub
+            if not parent.is_dir():
+                continue
+            for d in parent.iterdir():
+                if not d.is_dir():
+                    continue
+                if d.name in MEKONG_FEATURE_DIRS:
+                    # Mekong feature folder — children are model dirs
+                    for model_dir in d.iterdir():
+                        if model_dir.is_dir() and model_dir.name not in NON_MODEL_DIRS:
+                            models.add(model_dir.name)
+                elif d.name not in NON_MODEL_DIRS:
+                    models.add(d.name)
+    return jsonify(sorted(models))
+
+
 @app.route('/api/mekong-geojson')
 def mekong_geojson():
     return MEKONG_GEOJSON_PATH.read_text(encoding='utf-8'), 200, {'Content-Type': 'application/json'}
@@ -119,21 +145,50 @@ def analyze_free_multi():
 @app.route('/api/predict-stations')
 def predict_stations():
     model = request.args.get('model', 'FlowNet').strip()
-    result = {'lamah': [], 'mekong': []}
-    lamah_dir = LAMAH_DIR / 'prediction_results' / 'station_predictions' / model
-    if lamah_dir.is_dir():
-        result['lamah'] = sorted(p.stem for p in lamah_dir.glob('*.csv'))
-    mekong_base = MEKONG_DIR / 'prediction_results' / 'station_predictions'
-    if mekong_base.is_dir():
+    result = {
+        'lamah': {'historical': [], 'future': []},
+        'mekong': {'historical': [], 'future': []},
+    }
+
+    # LamaH historical
+    lamah_hist_dir = LAMAH_DIR / 'prediction_results' / 'station_predictions' / model
+    if lamah_hist_dir.is_dir():
+        result['lamah']['historical'] = sorted(p.stem for p in lamah_hist_dir.glob('*.csv'))
+
+    # LamaH future — FlowNet has an extra LamaH_daily subfolder; others have CSVs directly
+    lamah_future_dir = LAMAH_DIR / 'prediction_results' / 'station_predictions_future' / model
+    if lamah_future_dir.is_dir():
+        csvs = list(lamah_future_dir.glob('*.csv'))
+        if not csvs and (lamah_future_dir / 'LamaH_daily').is_dir():
+            csvs = list((lamah_future_dir / 'LamaH_daily').glob('*.csv'))
+        result['lamah']['future'] = sorted(p.stem for p in csvs)
+
+    # Mekong historical
+    mekong_hist_base = MEKONG_DIR / 'prediction_results' / 'station_predictions'
+    if mekong_hist_base.is_dir():
         seen = set()
-        for feat_dir in mekong_base.iterdir():
+        for feat_dir in mekong_hist_base.iterdir():
             if not feat_dir.is_dir():
                 continue
             model_dir = feat_dir / model
             if model_dir.is_dir():
                 for p in model_dir.glob('*.csv'):
                     seen.add(p.stem)
-        result['mekong'] = sorted(seen)
+        result['mekong']['historical'] = sorted(seen)
+
+    # Mekong future
+    mekong_future_base = MEKONG_DIR / 'prediction_results' / 'station_predictions_future'
+    if mekong_future_base.is_dir():
+        seen = set()
+        for feat_dir in mekong_future_base.iterdir():
+            if not feat_dir.is_dir():
+                continue
+            model_dir = feat_dir / model
+            if model_dir.is_dir():
+                for p in model_dir.glob('*.csv'):
+                    seen.add(p.stem)
+        result['mekong']['future'] = sorted(seen)
+
     return jsonify(result)
 
 
