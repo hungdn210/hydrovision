@@ -36,7 +36,11 @@ GRAPH_TYPES = {
 class ChartService:
     def __init__(self, repository: DataRepository) -> None:
         self.repository = repository
-        self.palette = px.colors.qualitative.Plotly
+        self.palette = [
+            '#38bdf8', '#f59e0b', '#4ade80', '#f472b6',
+            '#a78bfa', '#fb923c', '#34d399', '#60a5fa',
+            '#fbbf24', '#818cf8', '#e879f9', '#2dd4bf',
+        ]
 
     def validate_payload(self, payload: Dict[str, Any]) -> List[SeriesRequest]:
         graph_type = payload.get('graph_type')
@@ -155,25 +159,49 @@ class ChartService:
                 'text': title,
                 'x': 0.5,
                 'xanchor': 'center',
-                'y': 0.98,
+                'y': 0.97,
                 'yanchor': 'top',
+                'font': {'size': 15, 'color': '#0f172a', 'family': 'Inter, Arial, sans-serif'},
             },
             paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='#ffffff',
-            font={'family': 'Inter, Arial, sans-serif', 'size': 12, 'color': '#0f172a'},
-            margin={'l': 60, 'r': 40, 't': 80, 'b': 150},
+            plot_bgcolor='rgba(248,250,252,0.6)',
+            font={'family': 'Inter, Arial, sans-serif', 'size': 12, 'color': '#334155'},
+            margin={'l': 64, 'r': 40, 't': 72, 'b': 120},
             hovermode='x unified',
+            hoverlabel={
+                'bgcolor': '#1e293b',
+                'bordercolor': '#334155',
+                'font': {'color': '#f1f5f9', 'size': 12},
+            },
             legend={
                 'orientation': 'h',
                 'yanchor': 'top',
-                'y': -0.35,
+                'y': -0.22,
                 'xanchor': 'center',
                 'x': 0.5,
-                'font': {'size': 11},
+                'font': {'size': 11, 'color': '#475569'},
+                'bgcolor': 'rgba(0,0,0,0)',
+                'borderwidth': 0,
             },
         )
-        figure.update_xaxes(showgrid=True, gridcolor='rgba(148,163,184,0.22)', linecolor='rgba(15,23,42,0.18)')
-        figure.update_yaxes(showgrid=True, gridcolor='rgba(148,163,184,0.22)', linecolor='rgba(15,23,42,0.18)')
+        figure.update_xaxes(
+            showgrid=True,
+            gridcolor='rgba(148,163,184,0.18)',
+            gridwidth=1,
+            linecolor='rgba(148,163,184,0.3)',
+            zeroline=False,
+            tickfont={'size': 11, 'color': '#64748b'},
+            title_font={'size': 12, 'color': '#475569'},
+        )
+        figure.update_yaxes(
+            showgrid=True,
+            gridcolor='rgba(148,163,184,0.18)',
+            gridwidth=1,
+            linecolor='rgba(148,163,184,0.3)',
+            zeroline=False,
+            tickfont={'size': 11, 'color': '#64748b'},
+            title_font={'size': 12, 'color': '#475569'},
+        )
 
     @staticmethod
     def _normalize(values: pd.Series) -> pd.Series:
@@ -193,11 +221,11 @@ class ChartService:
                 y=df['Value'],
                 mode='lines',
                 name=f"{request.station.replace('_', ' ')} · {request.feature.replace('_', ' ')}",
-                line={'width': 2.4, 'color': '#2563eb'},
+                line={'width': 2, 'color': '#38bdf8', 'shape': 'spline', 'smoothing': 0.3},
                 fill='tozeroy',
-                fillcolor='rgba(37,99,235,0.18)',
+                fillcolor='rgba(56,189,248,0.12)',
                 customdata=df[['Imputed']].to_numpy(),
-                hovertemplate='Date: %{x|%Y-%m-%d}<br>Value: %{y:.3f} ' + unit + '<br>Imputed: %{customdata[0]}<extra></extra>',
+                hovertemplate='<b>%{x|%Y-%m-%d}</b><br>Value: %{y:.3f} ' + unit + '<br>Imputed: %{customdata[0]}<extra></extra>',
             )
         )
         self._base_layout(fig, f"{request.feature.replace('_', ' ')} Timeline · {request.station.replace('_', ' ')}")
@@ -304,14 +332,25 @@ class ChartService:
         df['Month'] = df['Timestamp'].dt.month
         totals = df.groupby('Month')['Value'].sum().reindex(range(1, 13), fill_value=0)
         unit = self.repository.feature_units.get(request.feature, '')
+        bar_colors = [
+            '#93c5fd', '#7dd3fc', '#38bdf8', '#06b6d4',
+            '#34d399', '#4ade80', '#facc15', '#fb923c',
+            '#f87171', '#ef4444', '#a78bfa', '#818cf8',
+        ]
         fig = go.Figure(
             data=[
                 go.Bar(
                     x=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
                     y=totals.values,
-                    text=[f'{value:.2f}' for value in totals.values],
-                    textposition='auto',
-                    marker={'color': '#0ea5e9'},
+                    text=[f'{value:.1f}' for value in totals.values],
+                    textposition='outside',
+                    textfont={'size': 10, 'color': '#64748b'},
+                    marker={
+                        'color': bar_colors,
+                        'line': {'width': 0},
+                        'opacity': 0.88,
+                    },
+                    hovertemplate='<b>%{x}</b><br>Total: %{y:.2f} ' + unit + '<extra></extra>',
                 )
             ]
         )
@@ -334,10 +373,10 @@ class ChartService:
                 y=values,
                 mode='lines',
                 name=f"{request.station.replace('_', ' ')} · {request.feature.replace('_', ' ')}",
-                line={'width': 2.4, 'color': '#2563eb'},
+                line={'width': 2.2, 'color': '#38bdf8'},
                 fill='tozeroy',
-                fillcolor='rgba(37,99,235,0.10)',
-                hovertemplate='Exceedance: %{x:.1f}%<br>Value: %{y:.3f} ' + unit + '<extra></extra>',
+                fillcolor='rgba(56,189,248,0.12)',
+                hovertemplate='<b>Exceedance: %{x:.1f}%</b><br>Value: %{y:.3f} ' + unit + '<extra></extra>',
             )
         )
         mean_val = values.mean()
@@ -364,14 +403,31 @@ class ChartService:
         month_labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                         'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
+        season_map = {
+            1:  ('#93c5fd', 'rgba(147,197,253,0.25)'),
+            2:  ('#7dd3fc', 'rgba(125,211,252,0.25)'),
+            3:  ('#4ade80', 'rgba(74,222,128,0.25)'),
+            4:  ('#22c55e', 'rgba(34,197,94,0.25)'),
+            5:  ('#16a34a', 'rgba(22,163,74,0.25)'),
+            6:  ('#fbbf24', 'rgba(251,191,36,0.25)'),
+            7:  ('#f59e0b', 'rgba(245,158,11,0.25)'),
+            8:  ('#d97706', 'rgba(217,119,6,0.25)'),
+            9:  ('#fb923c', 'rgba(251,146,60,0.25)'),
+            10: ('#f97316', 'rgba(249,115,22,0.25)'),
+            11: ('#ea580c', 'rgba(234,88,12,0.25)'),
+            12: ('#60a5fa', 'rgba(96,165,250,0.25)'),
+        }
         fig = go.Figure()
         for month_num in range(1, 13):
             month_data = df[df['Month'] == month_num]['Value']
+            clr, fill = season_map[month_num]
             fig.add_trace(
                 go.Box(
                     y=month_data,
                     name=month_labels[month_num - 1],
-                    marker_color=self.palette[(month_num - 1) % len(self.palette)],
+                    marker={'color': clr, 'size': 3, 'opacity': 0.6},
+                    line={'color': clr, 'width': 1.5},
+                    fillcolor=fill,
                     boxmean='sd',
                     hoverinfo='y+name',
                 )
@@ -414,13 +470,14 @@ class ChartService:
                 z=z_values,
                 x=time_labels,
                 y=station_names,
-                colorscale='Blues',
+                colorscale='Plasma',
                 colorbar={
-                    'title': {'text': f'{unit}', 'side': 'right'},
-                    'thickness': 15,
-                    'len': 0.9,
+                    'title': {'text': unit, 'side': 'right', 'font': {'size': 11}},
+                    'thickness': 14,
+                    'len': 0.85,
+                    'tickfont': {'size': 10},
                 },
-                hovertemplate='Station: %{y}<br>Period: %{x}<br>Value: %{z:.2f} ' + unit + '<extra></extra>',
+                hovertemplate='<b>%{y}</b><br>Period: %{x}<br>Value: %{z:.2f} ' + unit + '<extra></extra>',
             )
         )
         self._base_layout(fig, f"Temporal Heatmap · {feature.replace('_', ' ')} Across Stations")
@@ -551,8 +608,8 @@ class ChartService:
                 x=monthly['Timestamp'],
                 y=pos,
                 name='Above average',
-                marker_color='rgba(56, 189, 248, 0.8)',
-                hovertemplate='Month: %{x|%Y-%m}<br>Anomaly: +%{y:.2f} ' + unit + '<extra></extra>',
+                marker={'color': 'rgba(56,189,248,0.75)', 'line': {'width': 0}},
+                hovertemplate='<b>%{x|%Y-%m}</b><br>Anomaly: +%{y:.2f} ' + unit + '<extra></extra>',
             )
         )
         fig.add_trace(
@@ -560,8 +617,8 @@ class ChartService:
                 x=monthly['Timestamp'],
                 y=neg,
                 name='Below average',
-                marker_color='rgba(239, 68, 68, 0.8)',
-                hovertemplate='Month: %{x|%Y-%m}<br>Anomaly: %{y:.2f} ' + unit + '<extra></extra>',
+                marker={'color': 'rgba(248,113,113,0.75)', 'line': {'width': 0}},
+                hovertemplate='<b>%{x|%Y-%m}</b><br>Anomaly: %{y:.2f} ' + unit + '<extra></extra>',
             )
         )
         fig.add_trace(
@@ -570,8 +627,8 @@ class ChartService:
                 y=monthly['Climatology'],
                 mode='lines',
                 name='Climatological mean',
-                line={'width': 1.5, 'color': '#f59e0b', 'dash': 'dot'},
-                hovertemplate='Month: %{x|%Y-%m}<br>Mean: %{y:.2f} ' + unit + '<extra></extra>',
+                line={'width': 1.8, 'color': '#f59e0b', 'dash': 'dot'},
+                hovertemplate='<b>%{x|%Y-%m}</b><br>Mean: %{y:.2f} ' + unit + '<extra></extra>',
             )
         )
         self._base_layout(fig, f"Anomaly Detection · {request.feature.replace('_', ' ')} · {request.station.replace('_', ' ')}")
@@ -608,15 +665,17 @@ class ChartService:
                 continue
             x_vals = month_data['Year'].values
             y_vals = month_data['Value'].values
+            season_clr = ['#93c5fd','#7dd3fc','#4ade80','#22c55e','#16a34a','#fbbf24',
+                          '#f59e0b','#d97706','#fb923c','#f97316','#ea580c','#60a5fa'][i]
             fig.add_trace(
                 go.Scatter(
                     x=x_vals, y=y_vals,
                     mode='lines+markers',
                     name=month_labels[i],
-                    line={'width': 1.8, 'color': '#2563eb'},
-                    marker={'size': 3},
+                    line={'width': 1.8, 'color': season_clr},
+                    marker={'size': 4, 'color': season_clr, 'opacity': 0.8},
                     showlegend=False,
-                    hovertemplate=f'{month_labels[i]} %{{x}}: %{{y:.2f}} {unit}<extra></extra>',
+                    hovertemplate=f'<b>{month_labels[i]} %{{x}}</b>: %{{y:.2f}} {unit}<extra></extra>',
                 ),
                 row=row, col=col,
             )
@@ -685,9 +744,14 @@ class ChartService:
                 z=z,
                 x=month_labels,
                 y=years,
-                colorscale='Blues',
-                colorbar={'title': {'text': unit, 'side': 'right'}, 'thickness': 15, 'len': 0.9},
-                hovertemplate='%{y} · %{x}<br>Value: %{z:.3f} ' + unit + '<extra></extra>',
+                colorscale='RdYlBu_r',
+                colorbar={
+                    'title': {'text': unit, 'side': 'right', 'font': {'size': 11}},
+                    'thickness': 14,
+                    'len': 0.85,
+                    'tickfont': {'size': 10},
+                },
+                hovertemplate='<b>%{y} · %{x}</b><br>Value: %{z:.3f} ' + unit + '<extra></extra>',
             )
         )
         self._base_layout(fig, f"Calendar Heatmap · {request.feature.replace('_', ' ')} · {request.station.replace('_', ' ')}")
@@ -844,8 +908,10 @@ class ChartService:
                 y=merged['RollingCorr'],
                 mode='lines',
                 name=f'{window_label} rolling r',
-                line={'width': 2.2, 'color': '#6366f1'},
-                hovertemplate='Date: %{x|%Y-%m-%d}<br>r = %{y:.3f}<extra></extra>',
+                line={'width': 2.2, 'color': '#818cf8'},
+                fill='tozeroy',
+                fillcolor='rgba(129,140,248,0.08)',
+                hovertemplate='<b>%{x|%Y-%m-%d}</b><br>r = %{y:.3f}<extra></extra>',
             )
         )
         self._base_layout(fig, f"Rolling Correlation · {feature_x.replace('_', ' ')} vs {feature_y.replace('_', ' ')} · {station.replace('_', ' ')}")
@@ -870,11 +936,11 @@ class ChartService:
                 y=values.values,
                 mode='lines',
                 name=f"{request.station.replace('_', ' ')} · {request.feature.replace('_', ' ')}",
-                line={'width': 2.4, 'color': '#2563eb'},
+                line={'width': 2.2, 'color': '#a78bfa'},
                 fill='tozeroy',
-                fillcolor='rgba(37,99,235,0.10)',
+                fillcolor='rgba(167,139,250,0.12)',
                 customdata=100 / exceedance_pct,
-                hovertemplate='Exceedance: %{x:.2f}%<br>Return period: %{customdata:.1f} yrs<br>Value: %{y:.3f} ' + unit + '<extra></extra>',
+                hovertemplate='<b>Exceedance: %{x:.2f}%</b><br>Return period: %{customdata:.1f} yrs<br>Value: %{y:.3f} ' + unit + '<extra></extra>',
             )
         )
 

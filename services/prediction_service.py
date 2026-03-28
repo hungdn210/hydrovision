@@ -310,25 +310,31 @@ class PredictionService:
         figure.add_trace(go.Scatter(
             x=frame['Timestamp'], y=frame['Value'],
             mode='lines', name='Actual',
-            line={'width': 2, 'color': '#38bdf8'},
+            line={'width': 1.8, 'color': '#38bdf8'},
+            fill='tozeroy', fillcolor='rgba(56,189,248,0.07)',
+            hovertemplate='<b>%{x|%Y-%m-%d}</b><br>Actual: %{y:.3f} ' + unit + '<extra></extra>',
         ))
         figure.add_trace(go.Scatter(
             x=forecast_index, y=forecast_values,
             mode='lines+markers', name=f'Forecast (H={actual_h})',
-            line={'width': 2.4, 'color': '#f59e0b', 'dash': 'dash'},
-            marker={'size': 5},
+            line={'width': 2.2, 'color': '#f59e0b', 'dash': 'dash'},
+            marker={'size': 7, 'color': '#f59e0b', 'line': {'width': 1.5, 'color': 'white'}},
+            hovertemplate='<b>%{x|%Y-%m-%d}</b><br>Forecast: %{y:.3f} ' + unit + '<extra></extra>',
         ))
         figure.update_layout(
             template='plotly_white',
-            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#ffffff',
-            font={'family': 'Inter, Arial, sans-serif', 'size': 12, 'color': '#0f172a'},
-            margin={'l': 46, 'r': 28, 't': 48, 'b': 48},
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(248,250,252,0.6)',
+            font={'family': 'Inter, Arial, sans-serif', 'size': 12, 'color': '#334155'},
+            margin={'l': 50, 'r': 28, 't': 48, 'b': 48},
             hovermode='x unified',
-            legend={'orientation': 'h', 'yanchor': 'bottom', 'y': 1.02, 'xanchor': 'left', 'x': 0},
+            hoverlabel={'bgcolor': '#1e293b', 'bordercolor': '#334155', 'font': {'color': '#f1f5f9', 'size': 12}},
+            legend={'orientation': 'h', 'yanchor': 'bottom', 'y': 1.02, 'xanchor': 'left', 'x': 0,
+                    'font': {'size': 11}, 'bgcolor': 'rgba(0,0,0,0)'},
         )
-        figure.update_xaxes(showgrid=True, gridcolor='rgba(148,163,184,0.22)')
-        figure.update_yaxes(showgrid=True, gridcolor='rgba(148,163,184,0.22)',
-                            title=f'{feature.replace("_"," ")} ({unit})')
+        figure.update_xaxes(showgrid=True, gridcolor='rgba(148,163,184,0.18)', tickfont={'size': 11, 'color': '#64748b'})
+        figure.update_yaxes(showgrid=True, gridcolor='rgba(148,163,184,0.18)',
+                            title=f'{feature.replace("_"," ")} ({unit})',
+                            tickfont={'size': 11, 'color': '#64748b'})
         return figure
 
     def _build_zoom_figure(
@@ -361,39 +367,45 @@ class PredictionService:
             x=zoom_frame['Timestamp'], y=zoom_frame['Value'],
             mode='lines', name='Actual (last 3 months)',
             line={'width': 2, 'color': '#38bdf8'},
+            fill='tozeroy', fillcolor='rgba(56,189,248,0.09)',
+            hovertemplate='<b>%{x|%Y-%m-%d}</b><br>Actual: %{y:.3f} ' + unit + '<extra></extra>',
         ))
         figure.add_trace(go.Scatter(
             x=bridge_x, y=bridge_forecast,
             mode='lines+markers', name=f'Forecast (H={actual_h})',
-            line={'width': 2.4, 'color': '#f59e0b', 'dash': 'dash'},
-            marker={'size': 6},
+            line={'width': 2.2, 'color': '#f59e0b', 'dash': 'dash'},
+            marker={'size': 8, 'color': '#f59e0b', 'line': {'width': 1.5, 'color': 'white'}},
+            hovertemplate='<b>%{x|%Y-%m-%d}</b><br>Forecast: %{y:.3f} ' + unit + '<extra></extra>',
         ))
         figure.update_layout(
             template='plotly_white',
-            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#ffffff',
-            font={'family': 'Inter, Arial, sans-serif', 'size': 12, 'color': '#0f172a'},
-            margin={'l': 46, 'r': 28, 't': 28, 'b': 48},
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(248,250,252,0.6)',
+            font={'family': 'Inter, Arial, sans-serif', 'size': 12, 'color': '#334155'},
+            margin={'l': 50, 'r': 28, 't': 28, 'b': 48},
             hovermode='x unified',
-            legend={'orientation': 'h', 'yanchor': 'bottom', 'y': 1.02, 'xanchor': 'left', 'x': 0},
+            hoverlabel={'bgcolor': '#1e293b', 'bordercolor': '#334155', 'font': {'color': '#f1f5f9', 'size': 12}},
+            legend={'orientation': 'h', 'yanchor': 'bottom', 'y': 1.02, 'xanchor': 'left', 'x': 0,
+                    'font': {'size': 11}, 'bgcolor': 'rgba(0,0,0,0)'},
             shapes=[{
                 'type': 'line', 'x0': last_hist_ts, 'x1': last_hist_ts,
                 'y0': 0, 'y1': 1, 'yref': 'paper',
-                'line': {'color': 'rgba(245,158,11,0.5)', 'width': 1.5, 'dash': 'dot'},
+                'line': {'color': 'rgba(245,158,11,0.6)', 'width': 1.5, 'dash': 'dot'},
             }],
             annotations=[{
                 'x': last_hist_ts, 'y': 1, 'yref': 'paper',
                 'text': 'Forecast start', 'showarrow': False,
                 'font': {'size': 10, 'color': '#f59e0b'},
-                'xanchor': 'left', 'xshift': 4,
+                'xanchor': 'left', 'xshift': 5,
             }],
         )
         figure.update_xaxes(
-            showgrid=True, gridcolor='rgba(148,163,184,0.22)',
+            showgrid=True, gridcolor='rgba(148,163,184,0.18)',
             range=[x_start.strftime('%Y-%m-%d'), x_end.strftime('%Y-%m-%d')],
-            autorange=False,
+            autorange=False, tickfont={'size': 11, 'color': '#64748b'},
         )
-        figure.update_yaxes(showgrid=True, gridcolor='rgba(148,163,184,0.22)',
-                            title=f'{feature.replace("_"," ")} ({unit})')
+        figure.update_yaxes(showgrid=True, gridcolor='rgba(148,163,184,0.18)',
+                            title=f'{feature.replace("_"," ")} ({unit})',
+                            tickfont={'size': 11, 'color': '#64748b'})
         return figure
 
     def _build_historical_figure(
@@ -405,26 +417,34 @@ class PredictionService:
         fig.add_trace(go.Scatter(
             x=frame['Timestamp'], y=frame['Value'],
             mode='lines', name='Actual',
-            line={'width': 2, 'color': '#38bdf8'},
+            line={'width': 1.8, 'color': '#38bdf8'},
+            fill='tozeroy', fillcolor='rgba(56,189,248,0.07)',
+            hovertemplate='<b>%{x|%Y-%m-%d}</b><br>Actual: %{y:.3f} ' + unit + '<extra></extra>',
         ))
         fig.add_trace(go.Scatter(
             x=hist_fit_df['Timestamp'], y=hist_fit_df['ModelFit'],
             mode='lines', name=f'Model fit (H={actual_h})',
-            line={'width': 1.8, 'color': '#a78bfa'},
-            opacity=0.9,
+            line={'width': 1.8, 'color': '#f472b6'},
+            opacity=0.85,
+            hovertemplate='<b>%{x|%Y-%m-%d}</b><br>Model fit: %{y:.3f} ' + unit + '<extra></extra>',
         ))
         fig.update_layout(
             template='plotly_white',
-            title={'text': f'Historical Fit · {feature.replace("_"," ")} · {station.replace("_"," ")}', 'x': 0.5, 'xanchor': 'center', 'y': 0.97, 'yanchor': 'top'},
-            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#ffffff',
-            font={'family': 'Inter, Arial, sans-serif', 'size': 12, 'color': '#0f172a'},
-            margin={'l': 46, 'r': 28, 't': 96, 'b': 48},
+            title={'text': f'Historical Fit · {feature.replace("_"," ")} · {station.replace("_"," ")}',
+                   'x': 0.5, 'xanchor': 'center', 'y': 0.97, 'yanchor': 'top',
+                   'font': {'size': 14, 'color': '#0f172a'}},
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(248,250,252,0.6)',
+            font={'family': 'Inter, Arial, sans-serif', 'size': 12, 'color': '#334155'},
+            margin={'l': 50, 'r': 28, 't': 96, 'b': 48},
             hovermode='x unified',
-            legend={'orientation': 'h', 'yanchor': 'bottom', 'y': 1.02, 'xanchor': 'left', 'x': 0},
+            hoverlabel={'bgcolor': '#1e293b', 'bordercolor': '#334155', 'font': {'color': '#f1f5f9', 'size': 12}},
+            legend={'orientation': 'h', 'yanchor': 'bottom', 'y': 1.02, 'xanchor': 'left', 'x': 0,
+                    'font': {'size': 11}, 'bgcolor': 'rgba(0,0,0,0)'},
         )
-        fig.update_xaxes(showgrid=True, gridcolor='rgba(148,163,184,0.22)')
-        fig.update_yaxes(showgrid=True, gridcolor='rgba(148,163,184,0.22)',
-                         title=f'{feature.replace("_"," ")} ({unit})')
+        fig.update_xaxes(showgrid=True, gridcolor='rgba(148,163,184,0.18)', tickfont={'size': 11, 'color': '#64748b'})
+        fig.update_yaxes(showgrid=True, gridcolor='rgba(148,163,184,0.18)',
+                         title=f'{feature.replace("_"," ")} ({unit})',
+                         tickfont={'size': 11, 'color': '#64748b'})
         return fig
 
     def _build_historical_zoom_figure(
@@ -440,27 +460,33 @@ class PredictionService:
             x=zoom_frame['Timestamp'], y=zoom_frame['Value'],
             mode='lines', name='Actual',
             line={'width': 2, 'color': '#38bdf8'},
+            fill='tozeroy', fillcolor='rgba(56,189,248,0.09)',
+            hovertemplate='<b>%{x|%Y-%m-%d}</b><br>Actual: %{y:.3f} ' + unit + '<extra></extra>',
         ))
         fig.add_trace(go.Scatter(
             x=hist_fit_df['Timestamp'], y=hist_fit_df['ModelFit'],
             mode='lines', name=f'Model fit (H={actual_h})',
-            line={'width': 1.8, 'color': '#a78bfa'},
-            opacity=0.9,
+            line={'width': 1.8, 'color': '#f472b6'},
+            opacity=0.85,
+            hovertemplate='<b>%{x|%Y-%m-%d}</b><br>Model fit: %{y:.3f} ' + unit + '<extra></extra>',
         ))
         fig.update_layout(
             template='plotly_white',
-            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='#ffffff',
-            font={'family': 'Inter, Arial, sans-serif', 'size': 12, 'color': '#0f172a'},
-            margin={'l': 46, 'r': 28, 't': 28, 'b': 48},
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(248,250,252,0.6)',
+            font={'family': 'Inter, Arial, sans-serif', 'size': 12, 'color': '#334155'},
+            margin={'l': 50, 'r': 28, 't': 28, 'b': 48},
             hovermode='x unified',
-            legend={'orientation': 'h', 'yanchor': 'bottom', 'y': 1.02, 'xanchor': 'left', 'x': 0},
+            hoverlabel={'bgcolor': '#1e293b', 'bordercolor': '#334155', 'font': {'color': '#f1f5f9', 'size': 12}},
+            legend={'orientation': 'h', 'yanchor': 'bottom', 'y': 1.02, 'xanchor': 'left', 'x': 0,
+                    'font': {'size': 11}, 'bgcolor': 'rgba(0,0,0,0)'},
         )
-        fig.update_xaxes(showgrid=True, gridcolor='rgba(148,163,184,0.22)',
+        fig.update_xaxes(showgrid=True, gridcolor='rgba(148,163,184,0.18)',
                          range=[x_start.strftime('%Y-%m-%d'),
                                 hist_fit_df['Timestamp'].max().strftime('%Y-%m-%d')],
-                         autorange=False)
-        fig.update_yaxes(showgrid=True, gridcolor='rgba(148,163,184,0.22)',
-                         title=f'{feature.replace("_"," ")} ({unit})')
+                         autorange=False, tickfont={'size': 11, 'color': '#64748b'})
+        fig.update_yaxes(showgrid=True, gridcolor='rgba(148,163,184,0.18)',
+                         title=f'{feature.replace("_"," ")} ({unit})',
+                         tickfont={'size': 11, 'color': '#64748b'})
         return fig
 
     def _historical_summary(
