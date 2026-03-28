@@ -217,6 +217,11 @@ class DataRepository:
                 'Station Ranking Bar Chart',
                 'Rolling Correlation Chart',
                 'Exceedance Probability Curve',
+                'STL Decomposition',
+                'Change-Point Detection',
+                'Wavelet Analysis',
+                'Granger Causality',
+                'Cross-Correlation Function (CCF)',
             ],
         }
 

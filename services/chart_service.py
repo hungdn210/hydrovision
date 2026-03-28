@@ -30,6 +30,11 @@ GRAPH_TYPES = {
     'Station Ranking Bar Chart',
     'Rolling Correlation Chart',
     'Exceedance Probability Curve',
+    'STL Decomposition',
+    'Change-Point Detection',
+    'Wavelet Analysis',
+    'Granger Causality',
+    'Cross-Correlation Function (CCF)',
 }
 
 
@@ -101,6 +106,19 @@ class ChartService:
                 raise ValueError('Rolling Correlation Chart requires exactly 2 different features.')
         if graph_type == 'Exceedance Probability Curve' and len(requests) != 1:
             raise ValueError('Exceedance Probability Curve requires exactly one selection row.')
+        if graph_type == 'STL Decomposition' and len(requests) != 1:
+            raise ValueError('STL Decomposition requires exactly one selection row.')
+        if graph_type == 'Change-Point Detection' and len(requests) != 1:
+            raise ValueError('Change-Point Detection requires exactly one selection row.')
+        if graph_type == 'Wavelet Analysis' and len(requests) != 1:
+            raise ValueError('Wavelet Analysis requires exactly one selection row.')
+        if graph_type == 'Granger Causality':
+            if len(stations) != 1:
+                raise ValueError('Granger Causality requires all series from the same station.')
+            if len(features) != 2:
+                raise ValueError('Granger Causality requires exactly 2 different features.')
+        if graph_type == 'Cross-Correlation Function (CCF)' and len(requests) != 2:
+            raise ValueError('Cross-Correlation Function (CCF) requires exactly 2 series (same or different stations).')
 
         return requests
 
@@ -140,6 +158,16 @@ class ChartService:
             figure = self._rolling_correlation_chart(requests)
         elif graph_type == 'Exceedance Probability Curve':
             figure = self._exceedance_probability_curve(requests[0])
+        elif graph_type == 'STL Decomposition':
+            figure = self._stl_decomposition(requests[0])
+        elif graph_type == 'Change-Point Detection':
+            figure = self._change_point_detection(requests[0])
+        elif graph_type == 'Wavelet Analysis':
+            figure = self._wavelet_analysis(requests[0])
+        elif graph_type == 'Granger Causality':
+            figure = self._granger_causality(requests)
+        elif graph_type == 'Cross-Correlation Function (CCF)':
+            figure = self._cross_correlation_function(requests)
         else:
             raise ValueError('Unsupported graph type.')
 
@@ -978,4 +1006,767 @@ class ChartService:
             range=[np.log10(max(exceedance_pct.min(), 0.001)), np.log10(min(exceedance_pct.max(), 100))],
         )
         fig.update_yaxes(title=f"{request.feature.replace('_', ' ')} ({unit})" if unit else request.feature.replace('_', ' '))
+        return fig
+
+    # ------------------------------------------------------------------ #
+    #  Advanced Statistical Analysis — 5 new chart types                  #
+    # ------------------------------------------------------------------ #
+
+    def _stl_decomposition(self, request: SeriesRequest) -> go.Figure:
+        """Seasonal-Trend decomposition using LOESS (STL). 4-panel subplot."""
+        from statsmodels.tsa.seasonal import STL
+
+        df = self.repository.get_feature_series(request)
+        unit = self.repository.feature_units.get(request.feature, '')
+        frequency = self.repository.feature_frequency.get(request.feature, 'daily')
+
+        # Always work at monthly resolution — keeps STL fast and period=12 natural
+        ts = (
+            df.set_index('Timestamp')['Value']
+            .resample('MS').mean()
+            .dropna()
+        )
+        period = 12
+        if len(ts) < 2 * period:
+            raise ValueError(
+                f'Need at least {2 * period} months of data for STL decomposition '
+                f'(got {len(ts)} months).'
+            )
+
+        stl = STL(ts, period=period, robust=True)
+        res = stl.fit()
+        dates = ts.index
+
+        fig = make_subplots(
+            rows=4, cols=1,
+            subplot_titles=['Original', 'Trend', 'Seasonal', 'Residual'],
+            shared_xaxes=True,
+            vertical_spacing=0.055,
+            row_heights=[0.28, 0.24, 0.24, 0.24],
+        )
+
+        # Original
+        fig.add_trace(go.Scatter(
+            x=dates, y=res.observed,
+            mode='lines', name='Original',
+            line={'width': 1.8, 'color': '#38bdf8'},
+            hovertemplate='<b>%{x|%Y-%m}</b><br>Value: %{y:.3f} ' + unit + '<extra></extra>',
+        ), row=1, col=1)
+
+        # Trend
+        fig.add_trace(go.Scatter(
+            x=dates, y=res.trend,
+            mode='lines', name='Trend',
+            line={'width': 2.4, 'color': '#f59e0b'},
+            hovertemplate='<b>%{x|%Y-%m}</b><br>Trend: %{y:.3f} ' + unit + '<extra></extra>',
+        ), row=2, col=1)
+
+        # Seasonal
+        fig.add_trace(go.Scatter(
+            x=dates, y=res.seasonal,
+            mode='lines', name='Seasonal',
+            line={'width': 1.8, 'color': '#4ade80'},
+            fill='tozeroy',
+            fillcolor='rgba(74,222,128,0.1)',
+            hovertemplate='<b>%{x|%Y-%m}</b><br>Seasonal: %{y:.3f} ' + unit + '<extra></extra>',
+        ), row=3, col=1)
+
+        # Residual — positive/negative bars
+        resid = pd.Series(res.resid, index=dates)
+        fig.add_trace(go.Bar(
+            x=dates, y=resid.clip(lower=0).values,
+            name='Residual (+)',
+            marker={'color': 'rgba(56,189,248,0.72)', 'line': {'width': 0}},
+            hovertemplate='<b>%{x|%Y-%m}</b><br>Residual: +%{y:.3f} ' + unit + '<extra></extra>',
+        ), row=4, col=1)
+        fig.add_trace(go.Bar(
+            x=dates, y=resid.clip(upper=0).values,
+            name='Residual (−)',
+            marker={'color': 'rgba(248,113,113,0.72)', 'line': {'width': 0}},
+            hovertemplate='<b>%{x|%Y-%m}</b><br>Residual: %{y:.3f} ' + unit + '<extra></extra>',
+        ), row=4, col=1)
+
+        # Strength metrics
+        var_resid = float(np.var(res.resid))
+        f_trend = max(0.0, 1.0 - var_resid / (np.var(res.resid + res.trend) + 1e-12))
+        f_season = max(0.0, 1.0 - var_resid / (np.var(res.resid + res.seasonal) + 1e-12))
+        subtitle = (
+            f'Trend strength: {f_trend:.2f} · '
+            f'Seasonal strength: {f_season:.2f} · '
+            f'Period: 12 months · Robust STL'
+        )
+
+        label = f"STL Decomposition · {request.feature.replace('_', ' ')} · {request.station.replace('_', ' ')}"
+        freq_note = 'resampled to monthly' if frequency == 'daily' else 'monthly'
+        fig.update_layout(
+            template='plotly_white',
+            title={
+                'text': f"{label}<br><sup style='color:#64748b;font-size:11px'>{subtitle} · {freq_note}</sup>",
+                'x': 0.5, 'xanchor': 'center', 'y': 0.98, 'yanchor': 'top',
+                'font': {'size': 14, 'color': '#0f172a', 'family': 'Inter, Arial, sans-serif'},
+            },
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(248,250,252,0.6)',
+            font={'family': 'Inter, Arial, sans-serif', 'size': 11, 'color': '#334155'},
+            margin={'l': 64, 'r': 40, 't': 90, 'b': 60},
+            hovermode='x unified',
+            hoverlabel={'bgcolor': '#1e293b', 'bordercolor': '#334155', 'font': {'color': '#f1f5f9', 'size': 12}},
+            barmode='relative',
+            height=680,
+            legend={
+                'orientation': 'h', 'yanchor': 'top', 'y': -0.05,
+                'xanchor': 'center', 'x': 0.5,
+                'font': {'size': 11, 'color': '#475569'},
+                'bgcolor': 'rgba(0,0,0,0)',
+            },
+        )
+        axis_style = {
+            'showgrid': True, 'gridcolor': 'rgba(148,163,184,0.18)',
+            'linecolor': 'rgba(148,163,184,0.3)', 'zeroline': False,
+            'tickfont': {'size': 10, 'color': '#64748b'},
+            'title_font': {'size': 11, 'color': '#475569'},
+        }
+        fig.update_xaxes(**axis_style)
+        fig.update_yaxes(**axis_style)
+        fig.update_yaxes(title_text=unit or 'Value', row=1, col=1)
+        fig.update_yaxes(title_text=unit or 'Value', row=2, col=1)
+        fig.update_yaxes(title_text=unit or 'Value', row=3, col=1)
+        fig.update_yaxes(title_text=unit or 'Value', row=4, col=1)
+        fig.update_xaxes(title_text='Date', row=4, col=1)
+        return fig
+
+    @staticmethod
+    def _cusum_breakpoints(values: np.ndarray, n_bkps: int, min_size: int = 5) -> List[int]:
+        """Binary segmentation change-point detection via CUSUM (no external deps)."""
+        n = len(values)
+
+        def best_split(start: int, end: int):
+            if end - start < 2 * min_size:
+                return None, -1.0
+            seg = values[start:end]
+            cusum = np.cumsum(seg - seg.mean())
+            inner = cusum[min_size: len(cusum) - min_size]
+            if len(inner) == 0:
+                return None, -1.0
+            best_local = int(np.argmax(np.abs(inner))) + min_size
+            return start + best_local, float(np.abs(cusum[best_local]))
+
+        segments = [(0, n)]
+        breakpoints: List[int] = []
+
+        while len(breakpoints) < n_bkps:
+            best_bp, best_score, best_seg = None, -1.0, None
+            for seg in segments:
+                bp, score = best_split(*seg)
+                if score > best_score:
+                    best_score, best_bp, best_seg = score, bp, seg
+            if best_bp is None:
+                break
+            breakpoints.append(best_bp)
+            segments.remove(best_seg)
+            segments += [(best_seg[0], best_bp), (best_bp, best_seg[1])]
+
+        return sorted(breakpoints)
+
+    def _change_point_detection(self, request: SeriesRequest) -> go.Figure:
+        """Detect structural regime shifts using PELT (ruptures) or CUSUM fallback."""
+        try:
+            import ruptures as rpt
+            _has_ruptures = True
+        except ImportError:
+            _has_ruptures = False
+
+        df = self.repository.get_feature_series(request)
+        unit = self.repository.feature_units.get(request.feature, '')
+        frequency = self.repository.feature_frequency.get(request.feature, 'daily')
+
+        # Resample daily → monthly for stability
+        if frequency == 'daily':
+            ts = (
+                df.set_index('Timestamp')['Value']
+                .resample('MS').mean().dropna().reset_index()
+            )
+            ts.columns = ['Timestamp', 'Value']
+        else:
+            ts = df[['Timestamp', 'Value']].dropna().reset_index(drop=True)
+
+        n = len(ts)
+        if n < 10:
+            raise ValueError(f'Need at least 10 observations for change-point detection (got {n}).')
+
+        values = ts['Value'].values
+        dates = ts['Timestamp'].values
+
+        # Adaptive number of breakpoints
+        span_years = max(1.0, (ts['Timestamp'].iloc[-1] - ts['Timestamp'].iloc[0]).days / 365.25)
+        n_bkps = min(6, max(2, int(span_years / 3)))
+        min_size = max(3, n // (2 * (n_bkps + 1)))
+
+        if _has_ruptures:
+            signal = values.reshape(-1, 1)
+            algo = rpt.Pelt(model='rbf', min_size=min_size, jump=1).fit(signal)
+            raw_bkps = algo.predict(pen=2.0)
+            breakpoints = [b for b in raw_bkps if 0 < b < n][:n_bkps]
+            method_label = 'PELT · RBF cost'
+        else:
+            breakpoints = self._cusum_breakpoints(values, n_bkps, min_size)
+            method_label = 'Binary Segmentation · CUSUM'
+
+        fig = go.Figure()
+
+        # Segment backgrounds + mean lines
+        all_bounds = [0] + breakpoints + [n]
+        seg_bg_colors = [
+            'rgba(56,189,248,0.07)', 'rgba(74,222,128,0.07)',
+            'rgba(167,139,250,0.07)', 'rgba(251,191,36,0.07)',
+            'rgba(248,113,113,0.07)', 'rgba(45,212,191,0.07)',
+            'rgba(251,146,60,0.07)',
+        ]
+        for i in range(len(all_bounds) - 1):
+            si, ei = all_bounds[i], all_bounds[i + 1]
+            seg_vals = values[si:ei]
+            seg_dates = dates[si:ei]
+            if len(seg_vals) == 0:
+                continue
+            seg_mean = float(seg_vals.mean())
+            d0, d1 = pd.Timestamp(seg_dates[0]), pd.Timestamp(seg_dates[-1])
+            fig.add_vrect(x0=d0, x1=d1,
+                          fillcolor=seg_bg_colors[i % len(seg_bg_colors)],
+                          line_width=0, layer='below')
+            fig.add_trace(go.Scatter(
+                x=[d0, d1], y=[seg_mean, seg_mean],
+                mode='lines',
+                name=f'Regime {i + 1} mean ({seg_mean:.2f} {unit})',
+                line={'width': 2.2, 'color': '#f59e0b', 'dash': 'dash'},
+                hovertemplate=f'Regime {i + 1} mean: {seg_mean:.3f} {unit}<extra></extra>',
+            ))
+
+        # Main series (on top)
+        fig.add_trace(go.Scatter(
+            x=ts['Timestamp'], y=ts['Value'],
+            mode='lines', name=request.feature.replace('_', ' '),
+            line={'width': 2, 'color': '#38bdf8'},
+            hovertemplate='<b>%{x|%Y-%m}</b><br>Value: %{y:.3f} ' + unit + '<extra></extra>',
+        ))
+
+        # Change-point vertical lines
+        for bp in breakpoints:
+            if 0 < bp < n:
+                fig.add_vline(
+                    x=pd.Timestamp(dates[bp]),
+                    line_dash='dash', line_color='rgba(239,68,68,0.8)', line_width=2,
+                )
+                fig.add_annotation(
+                    x=pd.Timestamp(dates[bp]), yref='paper', y=1.01,
+                    text='▼', showarrow=False,
+                    font={'size': 12, 'color': '#ef4444'},
+                    xanchor='center',
+                )
+
+        self._base_layout(
+            fig,
+            f"Change-Point Detection · {request.feature.replace('_', ' ')} · {request.station.replace('_', ' ')}",
+        )
+        fig.add_annotation(
+            xref='paper', yref='paper', x=0.01, y=0.99,
+            text=f'Method: {method_label} · {len(breakpoints)} regime shift(s) detected',
+            showarrow=False,
+            font={'size': 10, 'color': '#64748b'},
+            bgcolor='rgba(248,250,252,0.85)',
+            bordercolor='rgba(148,163,184,0.3)',
+            borderwidth=1,
+            xanchor='left', yanchor='top',
+        )
+        freq_note = 'resampled to monthly' if frequency == 'daily' else 'monthly'
+        fig.add_annotation(
+            xref='paper', yref='paper', x=0.99, y=0.99,
+            text=freq_note,
+            showarrow=False,
+            font={'size': 10, 'color': '#94a3b8'},
+            xanchor='right', yanchor='top',
+        )
+        fig.update_xaxes(title='Date')
+        fig.update_yaxes(title=f"{request.feature.replace('_', ' ')} ({unit})" if unit else request.feature.replace('_', ' '))
+        return fig
+
+    def _wavelet_analysis(self, request: SeriesRequest) -> go.Figure:
+        """Continuous Wavelet Transform scalogram using Morlet wavelet."""
+        try:
+            import pywt
+            _has_pywt = True
+        except ImportError:
+            _has_pywt = False
+
+        df = self.repository.get_feature_series(request)
+        unit = self.repository.feature_units.get(request.feature, '')
+        frequency = self.repository.feature_frequency.get(request.feature, 'daily')
+
+        # Always resample to monthly for speed and a natural period axis
+        ts = (
+            df.set_index('Timestamp')['Value']
+            .resample('MS').mean()
+            .interpolate(method='linear')
+            .dropna()
+        )
+        if len(ts) < 16:
+            raise ValueError(
+                f'Need at least 16 monthly observations for wavelet analysis (got {len(ts)}).'
+            )
+
+        dates = ts.index
+        n = len(ts)
+        dt = 1.0  # 1 month per step
+
+        # Normalise signal (zero-mean, unit variance)
+        signal = (ts.values - ts.values.mean()) / (ts.values.std() + 1e-10)
+
+        # Scale range: 2 → min(n//2, 120) months
+        scales = np.arange(2, min(n // 2, 121))
+
+        if _has_pywt:
+            coef, freqs = pywt.cwt(signal, scales, 'cmor1.5-1.0', sampling_period=dt)
+            power = np.abs(coef) ** 2
+            periods = (1.0 / (freqs + 1e-12)).astype(float)
+        else:
+            # Pure-numpy FFT-based Morlet CWT
+            omega0 = 6.0
+            x_fft = np.fft.fft(signal, n=n)
+            ang_freqs = 2.0 * np.pi * np.fft.fftfreq(n, d=dt)
+            power = np.zeros((len(scales), n))
+            for i, s in enumerate(scales):
+                psi_fft = (np.pi ** -0.25) * np.exp(-0.5 * (s * ang_freqs - omega0) ** 2)
+                psi_fft[ang_freqs < 0] = 0.0
+                W = np.fft.ifft(x_fft * psi_fft * np.sqrt(2.0 * np.pi * s))
+                power[i, :] = np.abs(W) ** 2
+            periods = scales.astype(float)
+
+        # Subsample periods for display (cap at 80 rows to keep heatmap readable)
+        max_rows = 80
+        if len(periods) > max_rows:
+            idx = np.round(np.linspace(0, len(periods) - 1, max_rows)).astype(int)
+            periods_plot = periods[idx]
+            power_plot = power[idx, :]
+        else:
+            periods_plot = periods
+            power_plot = power
+
+        # Human-readable period labels
+        def _period_label(p: float) -> str:
+            p = int(round(p))
+            if p < 12:
+                return f'{p}m'
+            elif p == 12:
+                return '1 yr'
+            elif p % 12 == 0:
+                return f'{p // 12} yr'
+            else:
+                return f'{p // 12}yr {p % 12}m'
+
+        period_labels = [_period_label(p) for p in periods_plot]
+        date_strs = [str(d)[:7] for d in dates]
+
+        fig = make_subplots(
+            rows=2, cols=1,
+            shared_xaxes=True,
+            subplot_titles=['Original Signal (monthly)', 'Wavelet Power Spectrum · Morlet CWT'],
+            vertical_spacing=0.08,
+            row_heights=[0.28, 0.72],
+        )
+
+        # Original signal
+        fig.add_trace(go.Scatter(
+            x=dates, y=ts.values,
+            mode='lines', name='Original',
+            line={'width': 1.8, 'color': '#38bdf8'},
+            hovertemplate='<b>%{x|%Y-%m}</b><br>Value: %{y:.3f} ' + unit + '<extra></extra>',
+        ), row=1, col=1)
+
+        # Scalogram
+        fig.add_trace(go.Heatmap(
+            x=date_strs,
+            y=period_labels,
+            z=power_plot.tolist(),
+            colorscale='Plasma',
+            colorbar={
+                'title': {'text': 'Power', 'side': 'right', 'font': {'size': 10}},
+                'thickness': 14,
+                'len': 0.65,
+                'y': 0.28,
+                'tickfont': {'size': 9},
+            },
+            hovertemplate='<b>%{x}</b><br>Period: %{y}<br>Power: %{z:.4f}<extra></extra>',
+        ), row=2, col=1)
+
+        # Annotate reference periods on scalogram via shape + annotation
+        for ref_p, ref_label in [(12, '1 yr'), (24, '2 yr'), (60, '5 yr')]:
+            nearest_label = _period_label(ref_p)
+            if nearest_label in period_labels:
+                fig.add_shape(
+                    type='line',
+                    xref='paper', x0=0, x1=1,
+                    yref='y2', y0=nearest_label, y1=nearest_label,
+                    line={'dash': 'dot', 'color': 'rgba(255,255,255,0.45)', 'width': 1},
+                )
+                fig.add_annotation(
+                    xref='paper', x=1.01,
+                    yref='y2', y=nearest_label,
+                    text=ref_label,
+                    showarrow=False,
+                    font={'size': 9, 'color': 'rgba(200,200,200,0.85)'},
+                    xanchor='left',
+                )
+
+        wavelet_lib = 'pywt · cmor1.5-1.0' if _has_pywt else 'NumPy FFT · Morlet'
+        freq_note = 'resampled to monthly' if frequency == 'daily' else 'monthly'
+
+        fig.update_layout(
+            template='plotly_white',
+            title={
+                'text': (
+                    f"Wavelet Analysis · {request.feature.replace('_', ' ')} · "
+                    f"{request.station.replace('_', ' ')}"
+                    f"<br><sup style='color:#64748b;font-size:10px'>"
+                    f"{wavelet_lib} · {freq_note}</sup>"
+                ),
+                'x': 0.5, 'xanchor': 'center', 'y': 0.98, 'yanchor': 'top',
+                'font': {'size': 14, 'color': '#0f172a', 'family': 'Inter, Arial, sans-serif'},
+            },
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(248,250,252,0.6)',
+            font={'family': 'Inter, Arial, sans-serif', 'size': 11, 'color': '#334155'},
+            margin={'l': 64, 'r': 80, 't': 90, 'b': 60},
+            hovermode='x unified',
+            hoverlabel={'bgcolor': '#1e293b', 'bordercolor': '#334155', 'font': {'color': '#f1f5f9', 'size': 12}},
+            height=600,
+            legend={
+                'orientation': 'h', 'yanchor': 'top', 'y': -0.06,
+                'xanchor': 'center', 'x': 0.5,
+                'font': {'size': 11, 'color': '#475569'},
+            },
+        )
+        fig.update_xaxes(
+            showgrid=True, gridcolor='rgba(148,163,184,0.18)',
+            tickfont={'size': 10, 'color': '#64748b'},
+        )
+        fig.update_yaxes(
+            showgrid=False,
+            tickfont={'size': 10, 'color': '#64748b'},
+            title_font={'size': 11, 'color': '#475569'},
+        )
+        fig.update_yaxes(title_text=unit or 'Value', row=1, col=1)
+        fig.update_yaxes(title_text='Period', autorange='reversed', row=2, col=1)
+        fig.update_xaxes(title_text='Date', row=2, col=1)
+        return fig
+
+    def _granger_causality(self, requests: List[SeriesRequest]) -> go.Figure:
+        """Test Granger causality between two features — both directions."""
+        from statsmodels.tsa.stattools import grangercausalitytests
+
+        station = requests[0].station
+        feat_x, feat_y = requests[0].feature, requests[1].feature
+        label_x = feat_x.replace('_', ' ')
+        label_y = feat_y.replace('_', ' ')
+
+        df_x = self.repository.get_feature_series(requests[0])
+        df_y = self.repository.get_feature_series(requests[1])
+        frequency = self.repository.feature_frequency.get(feat_x, 'daily')
+
+        merged = pd.merge(
+            df_x[['Timestamp', 'Value']].rename(columns={'Value': feat_x}),
+            df_y[['Timestamp', 'Value']].rename(columns={'Value': feat_y}),
+            on='Timestamp', how='inner',
+        ).sort_values('Timestamp').dropna()
+
+        # For daily data resample to monthly to keep test well-powered
+        if frequency == 'daily':
+            merged = (
+                merged.set_index('Timestamp')
+                .resample('MS').mean()
+                .dropna()
+                .reset_index()
+            )
+
+        n = len(merged)
+        if n < 30:
+            raise ValueError(
+                f'Need at least 30 overlapping observations for Granger causality (got {n}).'
+            )
+
+        max_lag = min(12, n // 5)
+        lags = list(range(1, max_lag + 1))
+
+        # X → Y
+        data_xy = merged[[feat_y, feat_x]].values
+        res_xy = grangercausalitytests(data_xy, maxlag=max_lag, verbose=False)
+        # Y → X
+        data_yx = merged[[feat_x, feat_y]].values
+        res_yx = grangercausalitytests(data_yx, maxlag=max_lag, verbose=False)
+
+        def _extract(res, lag_list):
+            f_stats, p_vals = [], []
+            for lag in lag_list:
+                f_stat, p_val, _, _ = res[lag][0]['ssr_ftest']
+                f_stats.append(float(f_stat))
+                p_vals.append(float(p_val))
+            return f_stats, p_vals
+
+        f_xy, p_xy = _extract(res_xy, lags)
+        f_yx, p_yx = _extract(res_yx, lags)
+
+        def _sig_color(p: float) -> str:
+            if p < 0.01:
+                return 'rgba(56,189,248,0.88)'   # sky blue — highly significant
+            if p < 0.05:
+                return 'rgba(74,222,128,0.88)'   # green — significant
+            if p < 0.10:
+                return 'rgba(251,191,36,0.88)'   # amber — marginal
+            return 'rgba(148,163,184,0.45)'      # grey — not significant
+
+        def _sig_stars(p: float) -> str:
+            if p < 0.01:
+                return '★★★'
+            if p < 0.05:
+                return '★★'
+            if p < 0.10:
+                return '★'
+            return 'n.s.'
+
+        fig = make_subplots(
+            rows=2, cols=1,
+            subplot_titles=[
+                f'{label_x}  →  {label_y}',
+                f'{label_y}  →  {label_x}',
+            ],
+            vertical_spacing=0.20,
+            shared_xaxes=True,
+        )
+
+        for row, (f_vals, p_vals, name) in enumerate(
+            [(f_xy, p_xy, f'{label_x} → {label_y}'),
+             (f_yx, p_yx, f'{label_y} → {label_x}')],
+            start=1,
+        ):
+            colors = [_sig_color(p) for p in p_vals]
+            custom = [[p, _sig_stars(p)] for p in p_vals]
+            fig.add_trace(go.Bar(
+                x=lags, y=f_vals,
+                name=name,
+                marker={'color': colors, 'line': {'width': 0}},
+                customdata=custom,
+                hovertemplate=(
+                    'Lag %{x}<br>'
+                    'F-stat: %{y:.3f}<br>'
+                    'p-value: %{customdata[0]:.4f}  %{customdata[1]}'
+                    '<extra></extra>'
+                ),
+            ), row=row, col=1)
+            # p=0.05 approximate F threshold (F ≈ 3.84 for large n)
+            f_thresh = 3.84
+            fig.add_hline(
+                y=f_thresh, row=row, col=1,
+                line_dash='dash', line_color='rgba(239,68,68,0.55)', line_width=1.5,
+            )
+            fig.add_annotation(
+                xref='paper', x=1.01,
+                yref=f'y{row}' if row > 1 else 'y',
+                y=f_thresh,
+                text='p=0.05',
+                showarrow=False,
+                font={'size': 9, 'color': '#ef4444'},
+                xanchor='left',
+            )
+
+        fig.update_layout(
+            template='plotly_white',
+            title={
+                'text': (
+                    f"Granger Causality · {label_x} ↔ {label_y} · "
+                    f"{station.replace('_', ' ')}"
+                ),
+                'x': 0.5, 'xanchor': 'center', 'y': 0.98, 'yanchor': 'top',
+                'font': {'size': 14, 'color': '#0f172a', 'family': 'Inter, Arial, sans-serif'},
+            },
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(248,250,252,0.6)',
+            font={'family': 'Inter, Arial, sans-serif', 'size': 11, 'color': '#334155'},
+            margin={'l': 64, 'r': 64, 't': 90, 'b': 100},
+            hovermode='x unified',
+            hoverlabel={'bgcolor': '#1e293b', 'bordercolor': '#334155', 'font': {'color': '#f1f5f9', 'size': 12}},
+            height=560,
+            barmode='group',
+            legend={
+                'orientation': 'h', 'yanchor': 'top', 'y': -0.12,
+                'xanchor': 'center', 'x': 0.5,
+                'font': {'size': 11, 'color': '#475569'},
+            },
+        )
+        fig.add_annotation(
+            xref='paper', yref='paper', x=0.5, y=-0.16,
+            text=(
+                '<span style="color:rgba(56,189,248,0.88)">■</span> ★★★ p&lt;0.01 &nbsp;&nbsp;'
+                '<span style="color:rgba(74,222,128,0.88)">■</span> ★★ p&lt;0.05 &nbsp;&nbsp;'
+                '<span style="color:rgba(251,191,36,0.88)">■</span> ★ p&lt;0.1 &nbsp;&nbsp;'
+                '<span style="color:rgba(148,163,184,0.45)">■</span> n.s.'
+            ),
+            showarrow=False,
+            font={'size': 10, 'color': '#64748b'},
+            xanchor='center',
+        )
+        axis_style = {
+            'showgrid': True, 'gridcolor': 'rgba(148,163,184,0.18)',
+            'tickfont': {'size': 11, 'color': '#64748b'},
+            'title_font': {'size': 11, 'color': '#475569'},
+        }
+        fig.update_xaxes(**axis_style, title_text='Lag', tickmode='array', tickvals=lags, row=2, col=1)
+        fig.update_xaxes(**axis_style, tickmode='array', tickvals=lags, row=1, col=1)
+        fig.update_yaxes(**axis_style, title_text='F-statistic')
+        lag_unit = 'months' if frequency == 'monthly' else 'months (resampled)'
+        fig.add_annotation(
+            xref='paper', yref='paper', x=0.5, y=1.04,
+            text=f'n={n} observations · lags 1–{max_lag} {lag_unit}',
+            showarrow=False,
+            font={'size': 10, 'color': '#94a3b8'},
+            xanchor='center',
+        )
+        return fig
+
+    def _cross_correlation_function(self, requests: List[SeriesRequest]) -> go.Figure:
+        """Cross-Correlation Function (CCF) with 95% confidence bands and peak annotation."""
+        req_a, req_b = requests[0], requests[1]
+        df_a = self.repository.get_feature_series(req_a)
+        df_b = self.repository.get_feature_series(req_b)
+
+        label_a = f"{req_a.station.replace('_', ' ')} · {req_a.feature.replace('_', ' ')}"
+        label_b = f"{req_b.station.replace('_', ' ')} · {req_b.feature.replace('_', ' ')}"
+        frequency = self.repository.feature_frequency.get(req_a.feature, 'daily')
+
+        merged = pd.merge(
+            df_a[['Timestamp', 'Value']].rename(columns={'Value': 'A'}),
+            df_b[['Timestamp', 'Value']].rename(columns={'Value': 'B'}),
+            on='Timestamp', how='inner',
+        ).sort_values('Timestamp').dropna()
+
+        # Resample daily → monthly so lags are interpretable
+        if frequency == 'daily':
+            merged = (
+                merged.set_index('Timestamp')
+                .resample('MS').mean()
+                .dropna()
+                .reset_index()
+            )
+
+        n = len(merged)
+        if n < 20:
+            raise ValueError(
+                f'Need at least 20 overlapping observations for CCF (got {n}).'
+            )
+
+        max_lag = min(30, n // 4)
+        lags = list(range(-max_lag, max_lag + 1))
+
+        # Standardise
+        a = ((merged['A'] - merged['A'].mean()) / (merged['A'].std() + 1e-10)).values
+        b = ((merged['B'] - merged['B'].mean()) / (merged['B'].std() + 1e-10)).values
+
+        # Compute CCF at each lag
+        ccf_vals = []
+        for lag in lags:
+            if lag >= 0:
+                x, y = a[: n - lag], b[lag:]
+            else:
+                shift = -lag
+                x, y = a[shift:], b[: n - shift]
+            if len(x) > 1:
+                val = float(np.corrcoef(x, y)[0, 1])
+                ccf_vals.append(0.0 if np.isnan(val) else val)
+            else:
+                ccf_vals.append(0.0)
+
+        ci = 1.96 / np.sqrt(n)
+
+        # Find peak (ignoring lag-0 to avoid trivial self-correlation when same feature)
+        abs_ccf = np.abs(ccf_vals)
+        peak_idx = int(np.argmax(abs_ccf))
+        peak_lag = lags[peak_idx]
+        peak_corr = ccf_vals[peak_idx]
+
+        lag_unit = 'months'
+        if peak_lag > 0:
+            direction = f"{label_a.split('·')[1].strip()} leads {label_b.split('·')[1].strip()} by {peak_lag} {lag_unit}"
+        elif peak_lag < 0:
+            direction = f"{label_b.split('·')[1].strip()} leads {label_a.split('·')[1].strip()} by {abs(peak_lag)} {lag_unit}"
+        else:
+            direction = 'Simultaneous — peak at lag 0'
+
+        # Bar colors
+        colors = []
+        for i, v in enumerate(ccf_vals):
+            if i == peak_idx:
+                colors.append('#f59e0b')           # amber — peak
+            elif abs(v) > ci:
+                colors.append('rgba(56,189,248,0.8)' if v >= 0 else 'rgba(248,113,113,0.8)')
+            else:
+                colors.append('rgba(148,163,184,0.4)')
+
+        fig = go.Figure()
+
+        # CI band
+        fig.add_hrect(
+            y0=-ci, y1=ci,
+            fillcolor='rgba(148,163,184,0.1)', line_width=0,
+        )
+        fig.add_hline(y=ci, line_dash='dot', line_color='rgba(148,163,184,0.55)', line_width=1)
+        fig.add_hline(y=-ci, line_dash='dot', line_color='rgba(148,163,184,0.55)', line_width=1)
+        fig.add_hline(y=0, line_color='rgba(100,116,139,0.4)', line_width=1)
+
+        # CCF bars
+        fig.add_trace(go.Bar(
+            x=lags, y=ccf_vals,
+            name='CCF',
+            marker={'color': colors, 'line': {'width': 0}},
+            hovertemplate='Lag %{x}<br>r = %{y:.4f}<extra></extra>',
+        ))
+
+        # Peak marker
+        fig.add_trace(go.Scatter(
+            x=[peak_lag], y=[peak_corr],
+            mode='markers+text',
+            name=f'Peak r={peak_corr:.3f} @ lag {peak_lag}',
+            marker={'color': '#f59e0b', 'size': 14, 'symbol': 'star',
+                    'line': {'width': 1.5, 'color': 'white'}},
+            text=[f'  r={peak_corr:.3f}'],
+            textposition='middle right',
+            textfont={'size': 10, 'color': '#f59e0b'},
+            hovertemplate=f'Peak: r={peak_corr:.3f} at lag {peak_lag}<extra></extra>',
+        ))
+
+        title = f"Cross-Correlation · {label_a} vs {label_b}"
+        self._base_layout(fig, title)
+        fig.update_layout(
+            hovermode='x unified',
+            height=440,
+        )
+        fig.add_annotation(
+            xref='paper', yref='paper', x=0.5, y=1.08,
+            text=f'↑ {direction}  ·  95% CI ±{ci:.3f}  ·  n={n}',
+            showarrow=False,
+            font={'size': 11, 'color': '#f59e0b', 'family': 'Inter, Arial, sans-serif'},
+            xanchor='center',
+        )
+        fig.add_annotation(
+            xref='paper', yref='paper', x=0.99, y=0.99,
+            text=f'95% CI band',
+            showarrow=False,
+            font={'size': 9, 'color': '#94a3b8'},
+            xanchor='right', yanchor='top',
+        )
+        lag_label = f'Lag ({lag_unit})'
+        if frequency == 'daily':
+            lag_label += ' — resampled to monthly'
+        fig.update_xaxes(
+            title=lag_label,
+            zeroline=True, zerolinewidth=1.5,
+            zerolinecolor='rgba(148,163,184,0.5)',
+        )
+        fig.update_yaxes(title='Pearson r', range=[-1.1, 1.1])
         return fig
