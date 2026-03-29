@@ -17,6 +17,7 @@
         },
         analysisMode: 'free',
         focusedStation: null,
+        compareDataset: 'mekong',
         cardCounters: {
             visualize: 0,
             analysis: 0,
@@ -58,6 +59,7 @@
         detailStationName: document.getElementById('detailStationName'),
         stationMetaGrid: document.getElementById('stationMetaGrid'),
         stationFeatureBadges: document.getElementById('stationFeatureBadges'),
+        stationIndicesSection: document.getElementById('stationIndicesSection'),
         closeStationCardBtn: document.getElementById('closeStationCardBtn'),
         dock: document.getElementById('dock'),
         dockHandle: document.getElementById('dockHandle'),
@@ -71,6 +73,26 @@
         clearVisualizationsBtn: document.getElementById('clearVisualizationsBtn'),
         clearAnalysisBtn: document.getElementById('clearAnalysisBtn'),
         clearPredictionBtn: document.getElementById('clearPredictionBtn'),
+        clearCompareBtn: document.getElementById('clearCompareBtn'),
+        compareDatasetPicker: document.getElementById('compareDatasetPicker'),
+        compareFeatureSelect: document.getElementById('compareFeatureSelect'),
+        compareYearInput: document.getElementById('compareYearInput'),
+        compareComponentSelect: document.getElementById('compareComponentSelect'),
+        runCompareBtn: document.getElementById('runCompareBtn'),
+        compareMessage: document.getElementById('compareMessage'),
+        compareWorkspace: document.getElementById('compareWorkspace'),
+        // Network
+        clearNetworkBtn: document.getElementById('clearNetworkBtn'),
+        runNetworkBtn: document.getElementById('runNetworkBtn'),
+        networkMessage: document.getElementById('networkMessage'),
+        networkWorkspace: document.getElementById('networkWorkspace'),
+        networkViewSelect: document.getElementById('networkViewSelect'),
+        networkContribGroup: document.getElementById('networkContribGroup'),
+        networkContribStation: document.getElementById('networkContribStation'),
+        netChipNodes: document.getElementById('netChipNodes'),
+        netChipEdges: document.getElementById('netChipEdges'),
+        netChipStem: document.getElementById('netChipStem'),
+        exportPdfBtn: document.getElementById('exportPdfBtn'),
         predictModePicker: document.getElementById('predictModePicker'),
         predictHorizonLabel: document.getElementById('predictHorizonLabel'),
         predictDatasetPicker: document.getElementById('predictDatasetPicker'),
@@ -379,6 +401,21 @@
         els.clearVisualizationsBtn.addEventListener('click', () => setEmptyState(els.visualizationCards, 'No visualizations yet. Use the Explore section on the left to add your first chart.'));
         els.clearAnalysisBtn.addEventListener('click', () => setEmptyState(els.analysisCards, 'No analysis cards yet. Build a selection and choose “Add to analyse”.'));
         els.clearPredictionBtn.addEventListener('click', () => setEmptyState(els.predictionCards, 'No predictions yet. Configure a station, feature, and horizon on the left.'));
+        els.clearCompareBtn?.addEventListener('click', () => {
+            if (els.compareWorkspace) els.compareWorkspace.innerHTML = '';
+        });
+        els.runCompareBtn?.addEventListener('click', runComparison);
+        els.exportPdfBtn?.addEventListener('click', generateSessionPDF);
+
+        // Network
+        els.clearNetworkBtn?.addEventListener('click', () => {
+            if (els.networkWorkspace) els.networkWorkspace.innerHTML = '';
+        });
+        els.runNetworkBtn?.addEventListener('click', runNetworkAnalysis);
+        els.networkViewSelect?.addEventListener('change', () => {
+            const isContrib = els.networkViewSelect.value === 'contribution';
+            els.networkContribGroup?.classList.toggle('hidden', !isContrib);
+        });
 
         els.dockTabs.forEach((tab) => {
             tab.addEventListener('click', () => activateDockTab(tab.dataset.dockTab));
@@ -601,6 +638,27 @@
                 container.appendChild(btn);
             });
         });
+
+        // Compare panel has its own independent dataset picker (no 'all')
+        if (els.compareDatasetPicker) {
+            state.compareDataset = datasets[0]?.key ?? 'mekong';
+            els.compareDatasetPicker.innerHTML = '';
+            datasets.forEach(({ label, key }) => {
+                const btn = document.createElement('button');
+                btn.className = `feature-chip${key === state.compareDataset ? ' active' : ''}`;
+                btn.dataset.dsKey = key;
+                btn.textContent = label;
+                btn.addEventListener('click', () => {
+                    if (state.compareDataset === key) return;
+                    state.compareDataset = key;
+                    Array.from(els.compareDatasetPicker.children).forEach(c =>
+                        c.classList.toggle('active', c.dataset.dsKey === key));
+                    populateCompareFeatures();
+                });
+                els.compareDatasetPicker.appendChild(btn);
+            });
+            populateCompareFeatures();
+        }
 
         // Prediction panel has its own independent dataset picker
         if (els.predictDatasetPicker) {
@@ -1296,8 +1354,8 @@
             </div>
             <div class="workspace-card-body report-body" id="${cardId}"></div>
         `;
-        card.querySelector('.expand-btn').addEventListener('click', () => openFullscreen(card));
-        card.querySelector('.delete-btn').addEventListener('click', () => {
+        card.querySelector('.expand-btn')?.addEventListener('click', () => openFullscreen(card));
+        card.querySelector('.delete-btn')?.addEventListener('click', () => {
             const parent = card.parentElement;
             card.remove();
             if (!parent.children.length) {
@@ -1990,6 +2048,7 @@
                 showMessage(targetMessage, 'Visualization card added.', 'success');
             }
         } catch (error) {
+            console.error('[submitSeriesRequest] error:', error);
             showMessage(targetMessage, error.message || 'Something went wrong.', 'error');
         }
     }
@@ -2026,6 +2085,7 @@
         clearEmptyStateIfNeeded(els.visualizationCards);
         const cardId = `visual-${++state.cardCounters.visualize}`;
         const card = buildBaseCard(cardId, result.title, describeSeries(result.series));
+        addCsvButton(card, result.series);
         els.visualizationCards.prepend(card);
         renderPlot(card.querySelector('.plot-container'), result.figure);
     }
@@ -2080,6 +2140,7 @@
         clearEmptyStateIfNeeded(els.analysisCards);
         const cardId = `analysis-${++state.cardCounters.analysis}`;
         const card = buildBaseCard(cardId, result.title, describeSeries(result.series));
+        addCsvButton(card, result.series);
         const body = card.querySelector('.workspace-card-body');
         const analysis = result.analysis;
         const analysisBlock = document.createElement('div');
@@ -2183,24 +2244,83 @@
     function buildBaseCard(cardId, title, subtitle) {
         const card = document.createElement('article');
         card.className = 'workspace-card';
-        card.innerHTML = `
-            <div class="workspace-card-header">
-                <div style="flex: 1; min-width: 0;">
-                    <h3 class="workspace-card-title">${escapeHtml(title)}</h3>
-                    <div class="workspace-card-subtitle">${escapeHtml(subtitle)}</div>
-                </div>
-                <div class="card-header-actions" style="display: flex; gap: 8px; flex-shrink: 0; align-items: start;">
-                    <button class="expand-btn ghost-btn icon-only" type="button" title="Expand to fullscreen">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
-                    </button>
-                    <button class="delete-btn ghost-btn" type="button">Delete</button>
-                </div>
-            </div>
-            <div class="workspace-card-body">
-                <div class="plot-container" id="${cardId}"></div>
-            </div>
-        `;
-        card.querySelector('.delete-btn').addEventListener('click', () => {
+
+        // ── Header ────────────────────────────────────────────────────────────
+        const header = document.createElement('div');
+        header.className = 'workspace-card-header';
+
+        // Title block (left)
+        const titleBlock = document.createElement('div');
+        titleBlock.className = 'workspace-card-title-block';
+
+        const titleEl = document.createElement('h3');
+        titleEl.className = 'workspace-card-title';
+        titleEl.textContent = title;
+
+        const subtitleEl = document.createElement('div');
+        subtitleEl.className = 'workspace-card-subtitle';
+        subtitleEl.textContent = subtitle;
+
+        titleBlock.appendChild(titleEl);
+        titleBlock.appendChild(subtitleEl);
+
+        // Actions (right)
+        const actions = document.createElement('div');
+        actions.className = 'card-header-actions';
+
+        // Export button group: SVG · PDF  (CSV added later via addCsvButton)
+        const imgBtns = document.createElement('div');
+        imgBtns.className = 'card-img-btns';
+
+        ['svg', 'pdf'].forEach(fmt => {
+            const imgBtn = document.createElement('button');
+            imgBtn.className = 'card-img-btn';
+            imgBtn.dataset.fmt = fmt;
+            imgBtn.type = 'button';
+            imgBtn.title = `Download ${fmt.toUpperCase()}`;
+            imgBtn.textContent = fmt.toUpperCase();
+            imgBtns.appendChild(imgBtn);
+        });
+
+        // Thin separator between export group and action buttons
+        const sep = document.createElement('div');
+        sep.className = 'card-actions-sep';
+
+        // Expand button
+        const expandBtn = document.createElement('button');
+        expandBtn.className = 'card-action-btn';
+        expandBtn.type = 'button';
+        expandBtn.title = 'Expand to fullscreen';
+        expandBtn.innerHTML = '<svg width=”13” height=”13” viewBox=”0 0 24 24” fill=”none” stroke=”currentColor” stroke-width=”2.2” stroke-linecap=”round” stroke-linejoin=”round”><polyline points=”15 3 21 3 21 9”/><polyline points=”9 21 3 21 3 15”/><line x1=”21” y1=”3” x2=”14” y2=”10”/><line x1=”3” y1=”21” x2=”10” y2=”14”/></svg>';
+
+        // Delete button
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'card-action-btn card-delete-btn';
+        deleteBtn.type = 'button';
+        deleteBtn.title = 'Remove card';
+        deleteBtn.innerHTML = '<svg width=”13” height=”13” viewBox=”0 0 24 24” fill=”none” stroke=”currentColor” stroke-width=”2.2” stroke-linecap=”round” stroke-linejoin=”round”><polyline points=”3 6 5 6 21 6”/><path d=”M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6”/><path d=”M10 11v6”/><path d=”M14 11v6”/><path d=”M9 6V4h6v2”/></svg>';
+
+        actions.appendChild(imgBtns);
+        actions.appendChild(sep);
+        actions.appendChild(expandBtn);
+        actions.appendChild(deleteBtn);
+        header.appendChild(titleBlock);
+        header.appendChild(actions);
+
+        // ── Body ──────────────────────────────────────────────────────────────
+        const body = document.createElement('div');
+        body.className = 'workspace-card-body';
+
+        const plotContainer = document.createElement('div');
+        plotContainer.className = 'plot-container';
+        plotContainer.id = cardId;
+
+        body.appendChild(plotContainer);
+        card.appendChild(header);
+        card.appendChild(body);
+
+        // ── Event listeners ───────────────────────────────────────────────────
+        deleteBtn.addEventListener('click', () => {
             const parent = card.parentElement;
             card.remove();
             if (!parent.children.length) {
@@ -2213,8 +2333,49 @@
                 }
             }
         });
-        card.querySelector('.expand-btn').addEventListener('click', () => openFullscreen(card));
+        expandBtn.addEventListener('click', () => openFullscreen(card));
+        imgBtns.querySelectorAll('.card-img-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const plot = card.querySelector('.plot-container');
+                if (!plot || !plot.data) return;
+                if (btn.dataset.fmt === 'pdf') {
+                    downloadCardAsPDF(plot, title);
+                } else {
+                    downloadChartImage(plot, btn.dataset.fmt, title);
+                }
+            });
+        });
+
         return card;
+    }
+
+    function addCsvButton(card, series) {
+        card._exportSeries = series;
+        const btn = document.createElement('button');
+        btn.className = 'card-img-btn';
+        btn.dataset.fmt = 'csv';
+        btn.type = 'button';
+        btn.title = 'Export data as CSV';
+        btn.textContent = 'CSV';
+        btn.addEventListener('click', () => exportCardCSV(card._exportSeries, card.querySelector('.workspace-card-title')?.textContent || 'export'));
+        card.querySelector('.card-img-btns')?.appendChild(btn);
+    }
+
+    async function downloadCardAsPDF(plotDiv, title) {
+        const jsPDF = window.jspdf?.jsPDF;
+        if (!jsPDF) { alert('PDF library not loaded — please refresh and try again.'); return; }
+        if (!plotDiv.data) { alert('No chart data to export.'); return; }
+        try {
+            const imgData = await Plotly.toImage(plotDiv, { format: 'png', width: 1400, height: 700 });
+            const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+            const w = pdf.internal.pageSize.getWidth();
+            const h = pdf.internal.pageSize.getHeight();
+            pdf.addImage(imgData, 'PNG', 0, 0, w, h);
+            const safe = title.replace(/[^a-z0-9_\- ]/gi, '').trim().replace(/\s+/g, '_') || 'chart';
+            pdf.save(`${safe}.pdf`);
+        } catch (err) {
+            alert('PDF export failed: ' + err.message);
+        }
     }
 
     function openFullscreen(card) {
@@ -2364,7 +2525,95 @@
             badge.textContent = `${prettyFeature(feature)} · ${detail.start_date} → ${detail.end_date}`;
             els.stationFeatureBadges.appendChild(badge);
         });
+        // Show loading state immediately, then fetch asynchronously
+        els.stationIndicesSection.innerHTML = `
+            <div class="indices-loading">
+                <span class="indices-spinner"></span> Computing hydro-status…
+            </div>`;
         els.stationDetailCard.classList.remove('hidden');
+        fetchAndRenderIndices(stationMeta.station);
+    }
+
+    async function fetchAndRenderIndices(stationName) {
+        try {
+            const res = await fetch(`/api/indices?station=${encodeURIComponent(stationName)}`);
+            const data = await res.json();
+            // Guard: card may have been closed / switched to another station
+            if (state.focusedStation !== stationName) return;
+            if (!data.ok) throw new Error(data.error);
+            renderIndices(els.stationIndicesSection, data.result);
+            updateMarkerAlertLevel(stationName, data.result.worst_level);
+        } catch (_) {
+            if (state.focusedStation === stationName) {
+                els.stationIndicesSection.innerHTML =
+                    '<div class="indices-empty">Hydro-status unavailable for this station.</div>';
+            }
+        }
+    }
+
+    function renderIndices(container, result) {
+        const { spi, flow, worst_level } = result;
+        if (!spi && !flow) {
+            container.innerHTML = '<div class="indices-empty">No index data available for this station.</div>';
+            return;
+        }
+
+        const levelMeta = {
+            normal:  { bg: 'rgba(34,197,94,0.12)',  border: 'rgba(34,197,94,0.28)',  text: '#4ade80', dot: '#22c55e', badge: '#16a34a' },
+            watch:   { bg: 'rgba(251,191,36,0.12)', border: 'rgba(251,191,36,0.3)',  text: '#fbbf24', dot: '#f59e0b', badge: '#b45309' },
+            warning: { bg: 'rgba(249,115,22,0.12)', border: 'rgba(249,115,22,0.3)',  text: '#fb923c', dot: '#f97316', badge: '#c2410c' },
+            critical:{ bg: 'rgba(239,68,68,0.12)',  border: 'rgba(239,68,68,0.3)',   text: '#f87171', dot: '#ef4444', badge: '#b91c1c' },
+        };
+        const wm = levelMeta[worst_level] || levelMeta.normal;
+        const worstLabel = { normal: 'Normal', watch: 'Watch', warning: 'Warning', critical: 'Critical' }[worst_level] || worst_level;
+
+        let html = `
+            <div class="indices-header">
+                <span class="indices-title">Hydro-Status</span>
+                <span class="alert-badge" style="background:${wm.badge};color:#fff;">${worstLabel.toUpperCase()}</span>
+            </div>`;
+
+        if (spi) {
+            const m = levelMeta[spi.level] || levelMeta.normal;
+            const sign = spi.value >= 0 ? '+' : '';
+            html += `
+            <div class="index-row" style="background:${m.bg};border-color:${m.border};">
+                <div class="index-row-main">
+                    <span class="index-dot" style="background:${m.dot};"></span>
+                    <div class="index-info">
+                        <div class="index-name">SPI-${spi.scale} · ${prettyFeature(spi.feature)}</div>
+                        <div class="index-sub">${spi.label} · as of ${spi.latest_date}</div>
+                    </div>
+                </div>
+                <div class="index-value" style="color:${m.text};">${sign}${spi.value.toFixed(2)}</div>
+            </div>`;
+        }
+
+        if (flow) {
+            const m = levelMeta[flow.level] || levelMeta.normal;
+            const sign = flow.anomaly_pct >= 0 ? '+' : '';
+            const trendIcon = { rising: '↑', falling: '↓', stable: '→' }[flow.trend] || '→';
+            html += `
+            <div class="index-row" style="background:${m.bg};border-color:${m.border};">
+                <div class="index-row-main">
+                    <span class="index-dot" style="background:${m.dot};"></span>
+                    <div class="index-info">
+                        <div class="index-name">Flow Anomaly · ${prettyFeature(flow.feature)}</div>
+                        <div class="index-sub">${flow.label} · ${flow.current_value.toFixed(1)} ${flow.unit} · P${flow.percentile.toFixed(0)} · ${trendIcon} ${flow.trend}</div>
+                    </div>
+                </div>
+                <div class="index-value" style="color:${m.text};">${sign}${flow.anomaly_pct.toFixed(1)}%</div>
+            </div>`;
+        }
+
+        container.innerHTML = html;
+    }
+
+    function updateMarkerAlertLevel(stationName, level) {
+        const stationMeta = state.stationsByName.get(stationName);
+        if (stationMeta) stationMeta._alertLevel = level;
+        const marker = state.markers.get(stationName);
+        if (marker) marker.setStyle(markerStyleForStation(stationName));
     }
 
     function seedBuilderFromStation(stationName) {
@@ -2395,6 +2644,8 @@
     // LamaH: orange palette (semi-transparent, thinner border)
     const LAMAH_COLORS = { 1: '#fb923c', 2: '#f472b6', 3: '#34d399', 4: '#facc15' };
 
+    const ALERT_BORDER = { watch: '#f59e0b', warning: '#f97316', critical: '#ef4444' };
+
     function markerStyleForStation(stationName) {
         const station = state.stationsByName.get(stationName);
         const isFocused = state.focusedStation === stationName;
@@ -2403,19 +2654,20 @@
         if (isFocused) {
             return { radius: 9, color: '#ef4444', weight: 2.2, fillColor: '#ef4444', fillOpacity: 0.95 };
         }
+        const alertBorder = ALERT_BORDER[station?._alertLevel];
         if (isLamaH) {
             return {
-                radius: 3,
-                color: '#f54842', //'#94a3b8',
-                weight: 0.5,
+                radius: alertBorder ? 4 : 3,
+                color: alertBorder || '#f54842',
+                weight: alertBorder ? 2 : 0.5,
                 fillColor: LAMAH_COLORS[featureCount] || '#f54842',
                 fillOpacity: 0.5,
             };
         }
         return {
-            radius: 6,
-            color: '#e2e8f0',
-            weight: 1.2,
+            radius: alertBorder ? 7 : 6,
+            color: alertBorder || '#e2e8f0',
+            weight: alertBorder ? 2.5 : 1.2,
             fillColor: MEKONG_COLORS[featureCount] || '#60a5fa',
             fillOpacity: 0.82,
         };
@@ -2456,6 +2708,9 @@
         // Show/hide analysis mode switcher
         els.analysisModeSwitch.classList.toggle('hidden', tabName !== 'analysis');
 
+        // Update rail active state
+        document.querySelectorAll('.rail-nav-btn').forEach(b => b.classList.toggle('active', b.dataset.railTab === tabName));
+
         // Toggle sidebar panels
         document.querySelectorAll('[data-sidebar-panel]').forEach(panel => {
             const key = panel.dataset.sidebarPanel;
@@ -2464,12 +2719,16 @@
                 if (tabName === 'analysis') {
                     panel.classList.toggle('hidden', state.analysisMode !== 'charted');
                 } else {
-                    panel.classList.toggle('hidden', tabName === 'prediction');
+                    panel.classList.toggle('hidden', tabName === 'prediction' || tabName === 'compare' || tabName === 'network');
                 }
             } else if (key === 'analysis') {
                 panel.classList.toggle('hidden', tabName !== 'analysis' || state.analysisMode !== 'free');
             } else if (key === 'prediction') {
                 panel.classList.toggle('hidden', tabName !== 'prediction');
+            } else if (key === 'compare') {
+                panel.classList.toggle('hidden', tabName !== 'compare');
+            } else if (key === 'network') {
+                panel.classList.toggle('hidden', tabName !== 'network');
             }
         });
 
@@ -2578,4 +2837,603 @@
             .replaceAll('"', '&quot;')
             .replaceAll("'", '&#039;');
     }
+
+    // ── Export helpers ─────────────────────────────────────────────────────
+
+    function downloadChartImage(plotDiv, format, title) {
+        const safe = title.replace(/[^a-z0-9_\- ]/gi, '').trim().replace(/\s+/g, '_') || 'chart';
+        Plotly.downloadImage(plotDiv, { format, filename: safe, width: 1400, height: 700 });
+    }
+
+    async function exportCardCSV(series, title) {
+        try {
+            const res = await fetch('/api/export-csv', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ series }),
+            });
+            if (!res.ok) {
+                const err = await res.json();
+                alert('CSV export failed: ' + (err.error || res.statusText));
+                return;
+            }
+            const blob = await res.blob();
+            const safe = title.replace(/[^a-z0-9_\- ]/gi, '').trim().replace(/\s+/g, '_') || 'export';
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${safe}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            alert('CSV export failed: ' + err.message);
+        }
+    }
+
+    async function generateSessionPDF() {
+        const jsPDF = window.jspdf?.jsPDF;
+        if (!jsPDF) { alert('PDF library not loaded — please refresh and try again.'); return; }
+
+        const btn = els.exportPdfBtn;
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Building PDF…';
+
+        try {
+            const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+            const PW = 210, PH = 297, M = 14, CW = PW - M * 2;
+
+            // ── Title page ──────────────────────────────────────────────
+            doc.setFillColor(15, 23, 42);
+            doc.rect(0, 0, PW, PH, 'F');
+            doc.setTextColor(248, 250, 252);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(30);
+            doc.text('HydroVision', PW / 2, 90, { align: 'center' });
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(13);
+            doc.setTextColor(148, 163, 184);
+            doc.text('Session Report', PW / 2, 103, { align: 'center' });
+            doc.setFontSize(10);
+            doc.text(new Date().toLocaleString(), PW / 2, 114, { align: 'center' });
+
+            const panelInfo = [
+                { id: 'visualizationCards', label: 'Visualization' },
+                { id: 'analysisCards',      label: 'AI Analysis' },
+                { id: 'predictionCards',    label: 'Prediction' },
+            ];
+            const counts = panelInfo.map(p => document.getElementById(p.id)?.querySelectorAll('.workspace-card').length ?? 0);
+            doc.setFontSize(10);
+            doc.setTextColor(100, 116, 139);
+            doc.text(
+                panelInfo.map((p, i) => `${counts[i]} ${p.label}`).join('  ·  '),
+                PW / 2, 128, { align: 'center' }
+            );
+
+            // ── One page per card ────────────────────────────────────────
+            for (const { id, label } of panelInfo) {
+                const cards = Array.from(document.getElementById(id)?.querySelectorAll('.workspace-card') ?? []);
+                for (const card of cards) {
+                    const title    = card.querySelector('.workspace-card-title')?.textContent ?? '';
+                    const subtitle = card.querySelector('.workspace-card-subtitle')?.textContent ?? '';
+                    doc.addPage();
+                    doc.setFillColor(255, 255, 255);
+                    doc.rect(0, 0, PW, PH, 'F');
+
+                    // Section badge
+                    doc.setFillColor(226, 232, 240);
+                    doc.roundedRect(M, M, 22, 6, 1.5, 1.5, 'F');
+                    doc.setFontSize(7);
+                    doc.setTextColor(71, 85, 105);
+                    doc.setFont('helvetica', 'bold');
+                    doc.text(label.toUpperCase(), M + 11, M + 4.3, { align: 'center' });
+
+                    // Title
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(14);
+                    doc.setTextColor(15, 23, 42);
+                    doc.text(title, M, M + 14);
+
+                    // Subtitle (wrap)
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(8);
+                    doc.setTextColor(100, 116, 139);
+                    const subLines = doc.splitTextToSize(subtitle, CW);
+                    doc.text(subLines, M, M + 21);
+
+                    let yPos = M + 21 + subLines.length * 4 + 4;
+
+                    // Charts
+                    const plots = Array.from(card.querySelectorAll('.plot-container')).filter(p => p.data?.length);
+                    for (const plot of plots) {
+                        try {
+                            const imgData = await window.Plotly.toImage(plot, { format: 'png', width: 1400, height: 620 });
+                            const imgH = CW * 620 / 1400;
+                            if (yPos + imgH > PH - M) { doc.addPage(); doc.setFillColor(255,255,255); doc.rect(0,0,PW,PH,'F'); yPos = M; }
+                            doc.addImage(imgData, 'PNG', M, yPos, CW, imgH);
+                            yPos += imgH + 6;
+                        } catch (_) { /* skip unrendered plot */ }
+                    }
+
+                    // Analysis narrative text
+                    const summaryEl = card.querySelector('.analysis-summary');
+                    if (summaryEl?.innerText?.trim()) {
+                        const text = summaryEl.innerText.trim();
+                        doc.setFont('helvetica', 'normal');
+                        doc.setFontSize(8.5);
+                        doc.setTextColor(30, 41, 59);
+                        const lines = doc.splitTextToSize(text, CW);
+                        let li = 0;
+                        while (li < lines.length) {
+                            const chunk = lines.slice(li, li + 35);
+                            if (yPos + chunk.length * 4.2 > PH - M) { doc.addPage(); doc.setFillColor(255,255,255); doc.rect(0,0,PW,PH,'F'); yPos = M; }
+                            doc.text(chunk, M, yPos);
+                            yPos += chunk.length * 4.2 + 2;
+                            li += 35;
+                        }
+                    }
+                }
+            }
+
+            const dateStr = new Date().toISOString().slice(0, 10);
+            doc.save(`hydrovision_report_${dateStr}.pdf`);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    }
+
+    // ── Compare workspace ──────────────────────────────────────────────────
+
+    function populateCompareFeatures() {
+        if (!els.compareFeatureSelect || !state.bootstrap) return;
+        const ds = state.compareDataset;
+        const datasetFeatures = state.bootstrap.dataset_features || {};
+        const features = datasetFeatures[ds] || state.bootstrap.features || [];
+        els.compareFeatureSelect.innerHTML = '';
+        features.forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f;
+            opt.textContent = f.replaceAll('_', ' ');
+            els.compareFeatureSelect.appendChild(opt);
+        });
+    }
+
+    async function runComparison() {
+        const feature = els.compareFeatureSelect?.value;
+        if (!feature) {
+            showMessage(els.compareMessage, 'Please select a feature.', 'error');
+            return;
+        }
+        const yearRaw = els.compareYearInput?.value?.trim();
+        const year = yearRaw ? parseInt(yearRaw, 10) : null;
+        const component = els.compareComponentSelect?.value ?? 'all';
+
+        showMessage(els.compareMessage, 'Running comparison…', '');
+        els.runCompareBtn.disabled = true;
+
+        try {
+            const res = await fetch('/api/compare', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dataset: state.compareDataset, feature, year, component }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.ok) throw new Error(data.error || 'Comparison failed.');
+
+            activateDockTab('compare');
+            renderCompareResult(data.result, component);
+            showMessage(els.compareMessage, 'Done.', 'success');
+        } catch (err) {
+            showMessage(els.compareMessage, err.message || 'Something went wrong.', 'error');
+        } finally {
+            els.runCompareBtn.disabled = false;
+        }
+    }
+
+    function renderCompareResult(result, component) {
+        if (!els.compareWorkspace) return;
+        els.compareWorkspace.innerHTML = '';
+
+        if (component === 'all') {
+            if (result.errors?.length) {
+                const errDiv = document.createElement('div');
+                errDiv.className = 'compare-errors';
+                errDiv.innerHTML = result.errors.map(e => `<div class="compare-error-item">${escapeHtml(e)}</div>`).join('');
+                els.compareWorkspace.appendChild(errDiv);
+            }
+            if (result.correlation) renderCorrelationMatrix(result.correlation);
+            if (result.leaderboard) renderAnomalyLeaderboard(result.leaderboard);
+            if (result.summary) renderBasinSummary(result.summary);
+        } else if (component === 'correlation') {
+            renderCorrelationMatrix(result);
+        } else if (component === 'leaderboard') {
+            renderAnomalyLeaderboard(result);
+        } else if (component === 'summary') {
+            renderBasinSummary(result);
+        }
+    }
+
+    function renderCorrelationMatrix(data) {
+        const section = document.createElement('div');
+        section.className = 'compare-section';
+
+        const header = `
+            <div class="compare-section-header">
+                <h4>Correlation Matrix — ${escapeHtml(data.feature.replaceAll('_', ' '))} (${escapeHtml(data.dataset)})</h4>
+                <span class="compare-section-meta">${data.n_stations} stations${data.capped ? ` (capped from ${data.total_available})` : ''}</span>
+            </div>`;
+
+        // Build heatmap via Plotly
+        const plotDiv = document.createElement('div');
+        plotDiv.className = 'compare-heatmap-plot';
+        section.innerHTML = header;
+        section.appendChild(plotDiv);
+        els.compareWorkspace.appendChild(section);
+
+        const labels = data.stations;
+        const matrix = data.matrix;
+
+        Plotly.newPlot(plotDiv, [{
+            type: 'heatmap',
+            z: matrix,
+            x: labels,
+            y: labels,
+            colorscale: 'RdBu',
+            zmin: -1, zmax: 1,
+            showscale: true,
+            hoverongaps: false,
+            hovertemplate: '%{y} × %{x}: <b>%{z:.3f}</b><extra></extra>',
+        }], {
+            paper_bgcolor: 'transparent',
+            plot_bgcolor: 'transparent',
+            font: { color: 'var(--text)', size: 10 },
+            margin: { t: 20, b: 120, l: 120, r: 20 },
+            xaxis: { tickangle: -45, tickfont: { size: 9 } },
+            yaxis: { tickfont: { size: 9 } },
+            height: Math.max(320, Math.min(600, data.n_stations * 12 + 140)),
+        }, { responsive: true, displayModeBar: false });
+
+        // Mean correlation table
+        const sortedMean = data.station_ids
+            .map((id, i) => ({ id, name: data.stations[i], mean: data.mean_correlations[i] }))
+            .filter(r => r.mean !== null)
+            .sort((a, b) => b.mean - a.mean);
+
+        const tableWrap = document.createElement('div');
+        tableWrap.className = 'compare-table-wrap';
+        tableWrap.innerHTML = `
+            <div class="compare-subsection-title">Mean pairwise correlation per station</div>
+            <table class="compare-table">
+                <thead><tr><th>Station</th><th>Mean r</th><th>Bar</th></tr></thead>
+                <tbody>${sortedMean.slice(0, 20).map(r => {
+                    const pct = Math.round(Math.abs(r.mean) * 100);
+                    const color = r.mean >= 0 ? '#34d399' : '#f87171';
+                    return `<tr>
+                        <td>${escapeHtml(r.name)}</td>
+                        <td class="compare-num ${r.mean >= 0 ? 'pos' : 'neg'}">${r.mean.toFixed(3)}</td>
+                        <td><div class="compare-bar-bg"><div class="compare-bar-fill" style="width:${pct}%;background:${color}"></div></div></td>
+                    </tr>`;
+                }).join('')}</tbody>
+            </table>`;
+        section.appendChild(tableWrap);
+    }
+
+    const LEVEL_COLORS = { normal: '#64748b', watch: '#f59e0b', warning: '#f97316', critical: '#ef4444' };
+
+    function renderAnomalyLeaderboard(data) {
+        const section = document.createElement('div');
+        section.className = 'compare-section';
+
+        const featureLabel = data.feature.replaceAll('_', ' ');
+        const unitStr = data.unit ? ` (${escapeHtml(data.unit)})` : '';
+        section.innerHTML = `
+            <div class="compare-section-header">
+                <h4>Anomaly Leaderboard — ${escapeHtml(featureLabel)}${unitStr} · ${data.year ?? '—'}</h4>
+                <span class="compare-section-meta">${data.total_stations} stations · ${data.above_normal} above / ${data.below_normal} below normal</span>
+            </div>
+            <div class="compare-leaderboard">
+                ${data.rows.map((r, i) => {
+                    const color = LEVEL_COLORS[r.level] ?? '#64748b';
+                    const arrow = r.direction === 'above' ? '▲' : '▼';
+                    const sign = r.anomaly_pct >= 0 ? '+' : '';
+                    const barPct = Math.min(100, Math.abs(r.anomaly_pct));
+                    return `<div class="lb-row">
+                        <span class="lb-rank">${i + 1}</span>
+                        <div class="lb-info">
+                            <span class="lb-name">${escapeHtml(r.name || r.station)}</span>
+                            <div class="lb-bar-bg"><div class="lb-bar-fill" style="width:${barPct}%;background:${color}"></div></div>
+                        </div>
+                        <span class="lb-pct" style="color:${color}">${arrow} ${sign}${r.anomaly_pct.toFixed(1)}%</span>
+                        <span class="lb-badge" style="background:${color}20;color:${color};border:1px solid ${color}40">${r.level}</span>
+                    </div>`;
+                }).join('')}
+            </div>`;
+        els.compareWorkspace.appendChild(section);
+    }
+
+    function renderBasinSummary(data) {
+        const section = document.createElement('div');
+        section.className = 'compare-section';
+
+        const featureLabel = data.feature.replaceAll('_', ' ');
+        const u = data.unit ? ` ${escapeHtml(data.unit)}` : '';
+        const fmt = v => (v == null ? '—' : Number(v).toFixed(3));
+
+        const chips = [
+            { label: 'Mean', value: `${fmt(data.basin_mean)}${u}` },
+            { label: 'Median', value: `${fmt(data.basin_median)}${u}` },
+            { label: 'Std dev', value: `${fmt(data.basin_std)}${u}` },
+            { label: 'Min', value: `${fmt(data.basin_min)}${u}` },
+            { label: 'Max', value: `${fmt(data.basin_max)}${u}` },
+            { label: 'CV', value: `${data.spatial_cv_pct}%` },
+            { label: 'P10', value: `${fmt(data.p10)}${u}` },
+            { label: 'P25', value: `${fmt(data.p25)}${u}` },
+            { label: 'P75', value: `${fmt(data.p75)}${u}` },
+            { label: 'P90', value: `${fmt(data.p90)}${u}` },
+            { label: 'Stations', value: `${data.active_stations} / ${data.total_stations}` },
+            { label: 'Observations', value: data.total_observations?.toLocaleString() ?? '—' },
+            { label: 'Imputation', value: `${data.avg_imputation_pct}%` },
+        ].map(c => `<div class="basin-chip"><span class="basin-chip-label">${c.label}</span><span class="basin-chip-value">${c.value}</span></div>`).join('');
+
+        const trendsHtml = data.trends_computed ? `
+            <div class="compare-trend-row">
+                <span class="trend-item rising">▲ ${data.trends.rising} rising</span>
+                <span class="trend-item stable">— ${data.trends.stable} stable</span>
+                <span class="trend-item falling">▼ ${data.trends.falling} falling</span>
+            </div>` : '<p class="compare-note">Trend computation skipped (large dataset).</p>';
+
+        section.innerHTML = `
+            <div class="compare-section-header">
+                <h4>Basin Summary — ${escapeHtml(featureLabel)} (${escapeHtml(data.dataset)})</h4>
+                <span class="compare-section-meta">Highest: ${escapeHtml(data.highest_station.name)} · Lowest: ${escapeHtml(data.lowest_station.name)}</span>
+            </div>
+            <div class="basin-chips">${chips}</div>
+            ${trendsHtml}`;
+
+        // Histogram
+        if (data.histogram) {
+            const histDiv = document.createElement('div');
+            histDiv.className = 'compare-hist-plot';
+            section.appendChild(histDiv);
+            els.compareWorkspace.appendChild(section);
+
+            const { counts, edges } = data.histogram;
+            const xLabels = counts.map((_, i) => ((edges[i] + edges[i + 1]) / 2).toFixed(2));
+            Plotly.newPlot(histDiv, [{
+                type: 'bar',
+                x: xLabels,
+                y: counts,
+                marker: { color: '#60a5fa', opacity: 0.85 },
+                hovertemplate: 'Mean ≈ %{x}<br>Stations: %{y}<extra></extra>',
+            }], {
+                paper_bgcolor: 'transparent',
+                plot_bgcolor: 'transparent',
+                font: { color: 'var(--text)', size: 11 },
+                margin: { t: 10, b: 50, l: 50, r: 10 },
+                height: 200,
+                xaxis: { title: { text: `Station mean (${data.unit || 'value'})`, font: { size: 11 } }, gridcolor: 'rgba(148,163,184,0.1)' },
+                yaxis: { title: { text: 'Count', font: { size: 11 } }, gridcolor: 'rgba(148,163,184,0.1)' },
+                bargap: 0.05,
+            }, { responsive: true, displayModeBar: false });
+        } else {
+            els.compareWorkspace.appendChild(section);
+        }
+    }
+
+    // ── Network Analysis ─────────────────────────────────────────────────────
+
+    // Cache full network result so switching views doesn't re-fetch
+    let _networkCache = null;
+
+    async function runNetworkAnalysis() {
+        if (!els.runNetworkBtn) return;
+        const view = els.networkViewSelect?.value || 'graph';
+        showMessage(els.networkMessage, 'Loading network data…', '');
+        els.runNetworkBtn.disabled = true;
+
+        try {
+            // Fetch full network (cached after first call)
+            if (!_networkCache) {
+                const res = await fetch('/api/network?dataset=mekong');
+                const data = await res.json();
+                if (!data.ok) throw new Error(data.error);
+                _networkCache = data.result;
+                // Populate contribution station select once
+                populateNetworkContribSelect(_networkCache.nodes);
+                // Update sidebar info chips (target .network-chip-value child)
+                const setChip = (el, val) => { if (el) { const v = el.querySelector('.network-chip-value'); if (v) v.textContent = val; } };
+                setChip(els.netChipNodes, _networkCache.node_count);
+                setChip(els.netChipEdges, _networkCache.edge_count);
+                setChip(els.netChipStem, _networkCache.main_stem.length);
+            }
+
+            activateDockTab('network');
+            if (els.networkWorkspace) els.networkWorkspace.innerHTML = '';
+
+            if (view === 'graph') {
+                renderNetworkGraph(_networkCache);
+            } else if (view === 'travel') {
+                renderTravelTimes(_networkCache.travel_times);
+            } else if (view === 'contribution') {
+                const station = els.networkContribStation?.value;
+                if (!station) { showMessage(els.networkMessage, 'Select a target station.', 'error'); return; }
+                await renderContribution(station);
+            }
+
+            showMessage(els.networkMessage, 'Done.', 'success');
+        } catch (err) {
+            showMessage(els.networkMessage, err.message || 'Network analysis failed.', 'error');
+        } finally {
+            els.runNetworkBtn.disabled = false;
+        }
+    }
+
+    function populateNetworkContribSelect(nodes) {
+        if (!els.networkContribStation) return;
+        els.networkContribStation.innerHTML = '';
+        // Main stem first, then tributaries
+        const sorted = [...nodes].sort((a, b) => {
+            if (a.main_stem && !b.main_stem) return -1;
+            if (!a.main_stem && b.main_stem) return 1;
+            return a.name.localeCompare(b.name);
+        });
+        let lastGroup = null;
+        sorted.forEach(n => {
+            const group = n.main_stem ? 'Main stem' : 'Tributaries';
+            if (group !== lastGroup) {
+                const og = document.createElement('optgroup');
+                og.label = group;
+                els.networkContribStation.appendChild(og);
+                lastGroup = group;
+            }
+            const opt = document.createElement('option');
+            opt.value = n.id;
+            opt.textContent = n.name.replace(/_/g, ' ');
+            els.networkContribStation.appendChild(opt);
+        });
+    }
+
+    function renderNetworkGraph(result) {
+        if (!els.networkWorkspace) return;
+
+        const section = document.createElement('div');
+        section.className = 'network-section';
+
+        const heading = document.createElement('h4');
+        heading.className = 'network-section-title';
+        heading.textContent = 'Station Topology Graph';
+        section.appendChild(heading);
+
+        const noteEl = document.createElement('p');
+        noteEl.className = 'network-note';
+        noteEl.textContent = result.note;
+        section.appendChild(noteEl);
+
+        const plotDiv = document.createElement('div');
+        plotDiv.className = 'network-plot-container';
+        section.appendChild(plotDiv);
+
+        els.networkWorkspace.appendChild(section);
+
+        const figure = JSON.parse(result.figure);
+        Plotly.newPlot(plotDiv, figure.data, figure.layout, {
+            responsive: true,
+            displaylogo: false,
+            modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+        });
+    }
+
+    function renderTravelTimes(rows) {
+        if (!els.networkWorkspace) return;
+        const section = document.createElement('div');
+        section.className = 'network-section';
+
+        const heading = document.createElement('h4');
+        heading.className = 'network-section-title';
+        heading.textContent = 'Empirical Travel Times — Main Mekong Stem';
+        section.appendChild(heading);
+
+        const caveat = document.createElement('p');
+        caveat.className = 'network-caveat-text';
+        caveat.textContent = 'Lag at peak cross-correlation of monthly discharge series between consecutive main-stem pairs. Monthly resolution means 1 lag ≈ 30 days.';
+        section.appendChild(caveat);
+
+        if (!rows || rows.length === 0) {
+            const empty = document.createElement('p');
+            empty.className = 'network-caveat-text';
+            empty.textContent = 'Insufficient overlapping discharge data for cross-correlation.';
+            section.appendChild(empty);
+            els.networkWorkspace.appendChild(section);
+            return;
+        }
+
+        const table = document.createElement('table');
+        table.className = 'network-table';
+        table.innerHTML = `
+            <thead><tr>
+                <th>Upstream station</th>
+                <th>Downstream station</th>
+                <th>Lag (months)</th>
+                <th>Correlation</th>
+                <th>Overlap (months)</th>
+            </tr></thead>`;
+        const tbody = document.createElement('tbody');
+        rows.forEach(r => {
+            const tr = document.createElement('tr');
+            const corrClass = r.correlation >= 0.7 ? 'net-corr-high' : r.correlation >= 0.4 ? 'net-corr-mid' : 'net-corr-low';
+            tr.innerHTML = `
+                <td>${r.upstream_name.replace(/_/g, ' ')}</td>
+                <td>${r.downstream_name.replace(/_/g, ' ')}</td>
+                <td><strong>${r.lag_months}</strong></td>
+                <td class="${corrClass}">${r.correlation.toFixed(3)}</td>
+                <td>${r.overlap_months}</td>`;
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        section.appendChild(table);
+        els.networkWorkspace.appendChild(section);
+    }
+
+    async function renderContribution(station) {
+        const res = await fetch(`/api/network/contribution?station=${encodeURIComponent(station)}&dataset=mekong`);
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error);
+        const result = data.result;
+
+        const section = document.createElement('div');
+        section.className = 'network-section';
+
+        const heading = document.createElement('h4');
+        heading.className = 'network-section-title';
+        heading.textContent = `Upstream Discharge Contributions → ${result.target_name.replace(/_/g, ' ')}`;
+        section.appendChild(heading);
+
+        const meta = document.createElement('p');
+        meta.className = 'network-caveat-text';
+        meta.textContent = `Target mean discharge: ${result.target_mean_q !== null ? result.target_mean_q + ' m³/s' : 'N/A'} · ${result.upstream_count} upstream stations found.`;
+        section.appendChild(meta);
+
+        if (result.rows.length === 0) {
+            const empty = document.createElement('p');
+            empty.className = 'network-caveat-text';
+            empty.textContent = 'No upstream stations found in topology.';
+            section.appendChild(empty);
+        } else {
+            const table = document.createElement('table');
+            table.className = 'network-table';
+            table.innerHTML = `
+                <thead><tr>
+                    <th>Station</th>
+                    <th>Country</th>
+                    <th>Mean discharge (m³/s)</th>
+                    <th>Contribution (proxy %)</th>
+                </tr></thead>`;
+            const tbody = document.createElement('tbody');
+            result.rows.forEach(r => {
+                const tr = document.createElement('tr');
+                const pct = r.contrib_pct !== null ? r.contrib_pct.toFixed(1) + '%' : '—';
+                const bar = r.contrib_pct !== null
+                    ? `<div class="net-contrib-bar" style="width:${Math.min(r.contrib_pct, 100)}%"></div>`
+                    : '';
+                tr.innerHTML = `
+                    <td>${r.name.replace(/_/g, ' ')}</td>
+                    <td>${r.country}</td>
+                    <td>${r.mean_q !== null ? r.mean_q : '—'}</td>
+                    <td><div class="net-contrib-cell">${bar}<span>${pct}</span></div></td>`;
+                tbody.appendChild(tr);
+            });
+            table.appendChild(tbody);
+            section.appendChild(table);
+        }
+
+        const caveat = document.createElement('p');
+        caveat.className = 'network-caveat-text network-caveat-small';
+        caveat.textContent = result.caveat;
+        section.appendChild(caveat);
+
+        els.networkWorkspace.appendChild(section);
+    }
+
 })();
+

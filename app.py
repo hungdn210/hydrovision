@@ -3,13 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, render_template, request
+import pandas as pd
+from flask import Flask, Response, jsonify, render_template, request
 
 load_dotenv()
 
 from services.analysis_service import AnalysisService
 from services.chart_service import ChartService
-from services.data_loader import DataRepository, MultiDataRepository
+from services.comparison_service import ComparisonService
+from services.data_loader import DataRepository, MultiDataRepository, SeriesRequest
+from services.index_service import IndexService
+from services.network_service import NetworkService
 from services.prediction_service import PredictionService
 
 
@@ -42,6 +46,9 @@ repository = MultiDataRepository([mekong_repo, lamah_repo])
 chart_service = ChartService(repository)
 analysis_service = AnalysisService(repository, chart_service)
 prediction_service = PredictionService(repository, data_dir=BASE_DIR / 'data')
+index_service = IndexService(repository)
+comparison_service = ComparisonService(repository)
+network_service = NetworkService(repository)
 
 app = Flask(__name__)
 
@@ -190,6 +197,123 @@ def predict_stations():
         result['mekong']['future'] = sorted(seen)
 
     return jsonify(result)
+
+
+@app.route('/api/indices')
+def indices():
+    station = request.args.get('station', '').strip()
+    if not station:
+        return jsonify({'ok': False, 'error': 'station parameter required'}), 400
+    try:
+        result = index_service.compute_for_station(station)
+        return jsonify({'ok': True, 'result': result})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.post('/api/export-csv')
+def export_csv():
+    payload = request.get_json(silent=True) or {}
+    series_list = payload.get('series', [])
+    if not series_list:
+        return jsonify({'ok': False, 'error': 'series array required'}), 400
+    try:
+        frames = []
+        for s in series_list:
+            station = str(s.get('station', '')).strip()
+            feature = str(s.get('feature', '')).strip()
+            if not station or not feature:
+                continue
+            repo = next((r for r in repository.repos if station in r.station_index), None)
+            if repo is None:
+                continue
+            fd = repo.station_index[station]['feature_details'].get(feature)
+            if fd is None:
+                continue
+            req = SeriesRequest(
+                station=station, feature=feature,
+                start_date=s.get('start_date') or fd['start_date'],
+                end_date=s.get('end_date') or fd['end_date'],
+            )
+            df = repo.get_feature_series(req)
+            df.insert(0, 'Station', station)
+            df.insert(1, 'Feature', feature)
+            df['Unit'] = repo.feature_units.get(feature, '')
+            frames.append(df)
+        if not frames:
+            raise ValueError('No data found for the given series.')
+        combined = pd.concat(frames, ignore_index=True)
+        first = series_list[0]
+        safe = lambda v: str(v).replace('/', '_').replace(' ', '_')
+        filename = f"{safe(first.get('station', 'data'))}_{safe(first.get('feature', 'export'))}.csv"
+        return Response(
+            combined.to_csv(index=False),
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+        )
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.post('/api/compare')
+def compare():
+    payload = request.get_json(silent=True) or {}
+    dataset = str(payload.get('dataset', 'mekong')).strip()
+    feature = str(payload.get('feature', '')).strip()
+    year = payload.get('year')
+    if year is not None:
+        try:
+            year = int(year)
+        except (ValueError, TypeError):
+            year = None
+    component = str(payload.get('component', 'all')).strip()
+    if not feature:
+        return jsonify({'ok': False, 'error': 'feature parameter required'}), 400
+    try:
+        if component == 'correlation':
+            result = comparison_service.compute_correlation_matrix(dataset, feature)
+        elif component == 'leaderboard':
+            result = comparison_service.compute_anomaly_leaderboard(dataset, feature, year)
+        elif component == 'summary':
+            result = comparison_service.compute_basin_summary(dataset, feature)
+        else:
+            result = comparison_service.compare(dataset, feature, year)
+        return jsonify({'ok': True, 'result': result})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.route('/api/network')
+def network():
+    dataset = request.args.get('dataset', 'mekong').strip()
+    try:
+        result = network_service.compute_full_network(dataset)
+        return jsonify({'ok': True, 'result': result})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.route('/api/network/travel-times')
+def network_travel_times():
+    dataset = request.args.get('dataset', 'mekong').strip()
+    try:
+        result = network_service.compute_travel_times(dataset)
+        return jsonify({'ok': True, 'result': result})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.route('/api/network/contribution')
+def network_contribution():
+    station = request.args.get('station', '').strip()
+    dataset = request.args.get('dataset', 'mekong').strip()
+    if not station:
+        return jsonify({'ok': False, 'error': 'station parameter required'}), 400
+    try:
+        result = network_service.compute_contribution(station, dataset)
+        return jsonify({'ok': True, 'result': result})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
 
 
 @app.post('/api/predict')

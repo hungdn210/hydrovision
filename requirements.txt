@@ -9,3 +9,4 @@ markdown
 pyproj
 ruptures
 PyWavelets
+scipy

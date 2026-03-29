@@ -34,6 +34,14 @@
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
                     <span class="rail-label">Predict</span>
                 </button>
+                <button class="rail-nav-btn" data-rail-tab="compare" title="Compare">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="8" height="18" rx="1"/><rect x="14" y="3" width="8" height="18" rx="1"/></svg>
+                    <span class="rail-label">Compare</span>
+                </button>
+                <button class="rail-nav-btn" data-rail-tab="network" title="Network">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                    <span class="rail-label">Network</span>
+                </button>
             </div>
 
             <div class="sidebar-header">
@@ -55,6 +63,8 @@
                 <button class="workspace-pill active" data-tab-target="visualize">Explore</button>
                 <button class="workspace-pill" data-tab-target="analysis">Analyse</button>
                 <button class="workspace-pill" data-tab-target="prediction">Predict</button>
+                <button class="workspace-pill" data-tab-target="compare">Compare</button>
+                <button class="workspace-pill" data-tab-target="network">Network</button>
             </nav>
 
             <div class="mode-seg hidden" id="analysisModeSwitch">
@@ -132,6 +142,73 @@
                     <button class="primary-btn full-width" id="runFreeAnalysisBtn">Run AI Analysis</button>
                 </div>
                 <div class="inline-message" id="freeAnalysisMessage"></div>
+            </section>
+
+            <section class="panel-section hidden" data-sidebar-panel="compare">
+                <div class="section-heading">Basin comparison</div>
+                <p class="section-desc">Compute cross-station correlations, anomaly rankings, and basin-wide statistics for any feature.</p>
+                <div class="control-group">
+                    <label>Dataset</label>
+                    <div class="dataset-picker" id="compareDatasetPicker"></div>
+                </div>
+                <div class="control-group">
+                    <label for="compareFeatureSelect">Feature</label>
+                    <select id="compareFeatureSelect"></select>
+                </div>
+                <div class="control-group">
+                    <label for="compareYearInput">Anomaly year <span style="color:var(--text-soft);font-weight:400;">(blank = latest)</span></label>
+                    <input id="compareYearInput" type="number" min="1950" max="2100" placeholder="e.g. 2020" />
+                </div>
+                <div class="control-group">
+                    <label for="compareComponentSelect">Component</label>
+                    <select id="compareComponentSelect">
+                        <option value="all">All (correlation + leaderboard + summary)</option>
+                        <option value="correlation">Correlation matrix only</option>
+                        <option value="leaderboard">Anomaly leaderboard only</option>
+                        <option value="summary">Basin summary only</option>
+                    </select>
+                </div>
+                <button class="primary-btn full-width" id="runCompareBtn" style="margin-top:10px;">Run comparison</button>
+                <div class="inline-message" id="compareMessage"></div>
+            </section>
+
+            <section class="panel-section hidden" data-sidebar-panel="network">
+                <div class="section-heading">Spatial network analysis</div>
+                <p class="section-desc">Model the Mekong as a directed river graph. Visualise upstream/downstream topology, compute empirical flood-wave travel times, and estimate discharge contributions.</p>
+                <div class="network-info-chips">
+                    <div class="network-chip" id="netChipNodes">
+                        <span class="network-chip-label">Stations</span>
+                        <span class="network-chip-value">—</span>
+                    </div>
+                    <div class="network-chip" id="netChipEdges">
+                        <span class="network-chip-label">Connections</span>
+                        <span class="network-chip-value">—</span>
+                    </div>
+                    <div class="network-chip" id="netChipStem">
+                        <span class="network-chip-label">Main stem</span>
+                        <span class="network-chip-value">—</span>
+                    </div>
+                </div>
+                <div class="control-group" style="margin-top:14px;">
+                    <label for="networkViewSelect">View</label>
+                    <select id="networkViewSelect">
+                        <option value="graph">Network graph</option>
+                        <option value="travel">Travel-time table</option>
+                        <option value="contribution">Upstream contribution</option>
+                    </select>
+                </div>
+                <div class="control-group hidden" id="networkContribGroup">
+                    <label for="networkContribStation">Target station</label>
+                    <select id="networkContribStation"></select>
+                </div>
+                <button class="primary-btn full-width" id="runNetworkBtn" style="margin-top:10px;">Analyse network</button>
+                <div class="inline-message" id="networkMessage"></div>
+                <div class="network-caveats">
+                    <p class="network-caveat-title">Methodology notes</p>
+                    <p class="network-caveat-text">Topology based on MRC basin maps — tributary assignments are approximate.</p>
+                    <p class="network-caveat-text">Travel times use monthly discharge cross-correlation (empirical, not hydraulic routing).</p>
+                    <p class="network-caveat-small">Contribution % is a discharge-ratio proxy, not a flow-routing model.</p>
+                </div>
             </section>
 
             <section class="panel-section hidden" data-sidebar-panel="prediction">
@@ -250,6 +327,7 @@
                     </div>
                     <div class="station-meta-grid" id="stationMetaGrid"></div>
                     <div class="feature-badges" id="stationFeatureBadges"></div>
+                    <div class="station-indices-section" id="stationIndicesSection"></div>
                 </div>
             </section>
 
@@ -260,8 +338,14 @@
                         <button class="dock-tab active" data-dock-tab="visualize">Visualize</button>
                         <button class="dock-tab" data-dock-tab="analysis">AI Analysis</button>
                         <button class="dock-tab" data-dock-tab="prediction">Prediction</button>
+                        <button class="dock-tab" data-dock-tab="compare">Compare</button>
+                        <button class="dock-tab" data-dock-tab="network">Network</button>
                     </div>
                     <div class="dock-actions">
+                        <button class="export-pdf-btn" id="exportPdfBtn" type="button" title="Generate PDF report for entire session">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+                            Export PDF
+                        </button>
                         <button class="dock-clear-btn" id="clearVisualizationsBtn" data-dock-clear="visualize">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                             Clear all
@@ -271,6 +355,14 @@
                             Clear all
                         </button>
                         <button class="dock-clear-btn hidden" id="clearPredictionBtn" data-dock-clear="prediction">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            Clear all
+                        </button>
+                        <button class="dock-clear-btn hidden" id="clearNetworkBtn" data-dock-clear="network">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            Clear
+                        </button>
+                        <button class="dock-clear-btn hidden" id="clearCompareBtn" data-dock-clear="compare">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                             Clear all
                         </button>
@@ -300,6 +392,22 @@
                             <p>Forecasts use pre-trained deep learning models. The prediction cards remain here until deleted.</p>
                         </div>
                         <div class="card-grid" id="predictionCards"></div>
+                    </section>
+
+                    <section class="dock-panel network-dock-panel" data-dock-panel="network">
+                        <div class="panel-intro">
+                            <h3>Mekong River Network</h3>
+                            <p>Directed graph of Mekong gauging stations. Blue = main stem, gray = tributaries. Node size reflects number of incoming tributaries; colour reflects mean discharge.</p>
+                        </div>
+                        <div id="networkWorkspace" class="network-workspace"></div>
+                    </section>
+
+                    <section class="dock-panel compare-dock-panel" data-dock-panel="compare">
+                        <div class="panel-intro">
+                            <h3>Basin comparison workspace</h3>
+                            <p>Cross-station correlations, ranked anomaly leaderboards, and basin-wide aggregate statistics. Select a dataset + feature in the sidebar and click <em>Run comparison</em>.</p>
+                        </div>
+                        <div id="compareWorkspace" class="compare-workspace"></div>
                     </section>
                 </div>
             </section>
@@ -391,6 +499,7 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

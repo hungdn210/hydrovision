@@ -19,6 +19,9 @@
     --radius-lg: 18px;
     --radius-md: 14px;
     --radius-sm: 10px;
+    /* Aliases for legacy usage */
+    --text-muted: #9db0d1;
+    --card-bg: rgba(14, 24, 46, 0.92);
 }
 
 * {
@@ -1432,20 +1435,32 @@ html[data-theme="light"] .station-suggest-item:hover {
     display: flex;
     justify-content: space-between;
     gap: 12px;
-    align-items: flex-start;
-    padding: 16px 18px 12px;
+    align-items: center;
+    padding: 14px 16px;
     border-bottom: 1px solid var(--line);
+    min-height: 56px;
+}
+
+.workspace-card-title-block {
+    flex: 1 1 0%;
+    min-width: 0;
+    overflow-x: hidden;
+    overflow-y: visible;
 }
 
 .workspace-card-title {
     font-size: 16px;
     font-weight: 800;
-    margin: 0 0 6px;
+    color: var(--text);
+    margin: 0 0 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .workspace-card-subtitle {
     color: var(--text-soft);
-    font-size: 13px;
+    font-size: 12px;
     line-height: 1.5;
     white-space: pre-line;
 }
@@ -1979,6 +1994,8 @@ html[data-theme="light"] {
     --primary-2: #1d4ed8;
     --shadow-lg: 0 24px 60px rgba(15, 23, 42, 0.10);
     --shadow-md: 0 16px 36px rgba(15, 23, 42, 0.08);
+    --text-muted: #475569;
+    --card-bg: rgba(255, 255, 255, 0.97);
 }
 
 html[data-theme="light"],
@@ -2121,6 +2138,11 @@ html[data-theme="light"] .workspace-card {
     background: rgba(255, 255, 255, 0.90);
 }
 
+html[data-theme="light"] .card-action-btn:hover {
+    background: rgba(0, 0, 0, 0.06);
+    border-color: rgba(0, 0, 0, 0.15);
+}
+
 html[data-theme="light"] .series-row {
     background: rgba(0, 0, 0, 0.02);
 }
@@ -2219,4 +2241,659 @@ html[data-theme="light"] .theme-toggle-btn:hover {
     background: rgba(2, 132, 199, 0.08);
     border-color: rgba(2, 132, 199, 0.35);
     color: var(--primary);
+}
+
+/* ── Hydro-Status / Indices section ────────────────────────────────────── */
+
+.station-indices-section {
+    margin-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.indices-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 2px;
+}
+
+.indices-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+}
+
+.alert-badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+}
+
+.index-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    padding: 10px 12px;
+    transition: background 0.2s;
+}
+
+.index-row-main {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.index-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.index-info {
+    min-width: 0;
+}
+
+.index-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.index-sub {
+    font-size: 11px;
+    color: var(--text-soft);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.index-value {
+    font-size: 18px;
+    font-weight: 800;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+}
+
+/* Loading / empty states */
+.indices-loading,
+.indices-empty {
+    font-size: 12px;
+    color: var(--text-soft);
+    padding: 8px 2px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+@keyframes indices-spin {
+    to { transform: rotate(360deg); }
+}
+
+.indices-spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(148, 163, 184, 0.25);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: indices-spin 0.8s linear infinite;
+    flex-shrink: 0;
+}
+
+/* ── Card header actions ─────────────────────────────────────────────────── */
+
+.card-header-actions {
+    display: flex;
+    gap: 5px;
+    flex-shrink: 0;
+    align-items: center;
+}
+
+/* Export button group: SVG · PDF · CSV */
+.card-img-btns {
+    display: flex;
+    gap: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: 7px;
+    overflow: hidden;
+}
+
+.card-img-btn {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 3px 9px;
+    border: none;
+    border-right: 1px solid var(--line-strong);
+    background: transparent;
+    color: var(--text-soft);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    line-height: 1.6;
+}
+
+.card-img-btn:last-child {
+    border-right: none;
+}
+
+.card-img-btn:hover {
+    background: var(--primary);
+    color: #fff;
+}
+
+/* Thin divider between export group and icon buttons */
+.card-actions-sep {
+    width: 1px;
+    height: 16px;
+    background: var(--line-strong);
+    margin: 0 1px;
+    flex-shrink: 0;
+}
+
+/* Icon-only action buttons (expand / delete) */
+.card-action-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-soft);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.card-action-btn:hover {
+    background: var(--panel-3);
+    color: var(--text);
+    border-color: var(--line-strong);
+}
+
+.card-delete-btn:hover {
+    background: rgba(239, 68, 68, 0.12);
+    color: var(--danger);
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+/* PDF export button in dock header */
+.export-pdf-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--text-soft);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+}
+
+.export-pdf-btn:hover {
+    background: #6366f1;
+    color: #fff;
+    border-color: #6366f1;
+}
+
+.export-pdf-btn:disabled {
+    opacity: 0.5;
+    cursor: wait;
+}
+
+/* ── Compare workspace ───────────────────────────────────────────────────── */
+
+.compare-dock-panel .panel-intro { margin-bottom: 16px; }
+
+.compare-workspace {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    padding-bottom: 32px;
+}
+
+.compare-section {
+    background: var(--card-bg);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 20px 22px;
+    overflow: hidden;
+}
+
+.compare-section-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.compare-section-header h4 {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+    margin: 0;
+}
+
+.compare-section-meta {
+    font-size: 11px;
+    color: var(--text-soft);
+    flex-shrink: 0;
+}
+
+.compare-errors {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    border-radius: 10px;
+    padding: 10px 14px;
+}
+
+.compare-error-item {
+    font-size: 12px;
+    color: #f87171;
+}
+
+/* Heatmap */
+.compare-heatmap-plot {
+    width: 100%;
+    min-height: 200px;
+}
+
+/* Mean correlation table */
+.compare-table-wrap {
+    margin-top: 18px;
+    overflow-x: auto;
+}
+
+.compare-subsection-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-soft);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.compare-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.compare-table th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-soft);
+    padding: 4px 10px 8px 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.compare-table td {
+    padding: 5px 10px 5px 0;
+    color: var(--text);
+    border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+    vertical-align: middle;
+}
+
+.compare-num {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+}
+
+.compare-num.pos { color: #34d399; }
+.compare-num.neg { color: #f87171; }
+
+.compare-bar-bg {
+    width: 80px;
+    height: 6px;
+    background: rgba(148, 163, 184, 0.15);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.compare-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.4s ease;
+}
+
+/* Leaderboard */
+.compare-leaderboard {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.lb-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    background: rgba(148, 163, 184, 0.04);
+    transition: background 0.15s;
+}
+
+.lb-row:hover { background: rgba(148, 163, 184, 0.09); }
+
+.lb-rank {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-soft);
+    width: 22px;
+    flex-shrink: 0;
+    text-align: right;
+}
+
+.lb-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.lb-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 3px;
+}
+
+.lb-bar-bg {
+    width: 100%;
+    height: 4px;
+    background: rgba(148, 163, 184, 0.15);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.lb-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.4s ease;
+}
+
+.lb-pct {
+    font-size: 12px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+    min-width: 70px;
+    text-align: right;
+}
+
+.lb-badge {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 2px 7px;
+    border-radius: 999px;
+    flex-shrink: 0;
+    text-transform: uppercase;
+}
+
+/* Basin summary chips */
+.basin-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.basin-chip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: rgba(148, 163, 184, 0.07);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 8px 14px;
+    min-width: 80px;
+}
+
+.basin-chip-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 3px;
+}
+
+.basin-chip-value {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Trend row */
+.compare-trend-row {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 14px;
+}
+
+.trend-item.rising  { color: #34d399; }
+.trend-item.stable  { color: var(--text-soft); }
+.trend-item.falling { color: #f87171; }
+
+.compare-hist-plot {
+    width: 100%;
+}
+
+.compare-note {
+    font-size: 12px;
+    color: var(--text-soft);
+    margin: 0 0 12px;
+}
+/* ── Network Analysis ─────────────────────────────────────── */
+
+.network-info-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.network-chip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: rgba(148, 163, 184, 0.07);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 7px 13px;
+    min-width: 72px;
+}
+
+.network-chip-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 2px;
+    white-space: nowrap;
+}
+
+.network-chip-value {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+.network-caveats {
+    margin-top: 18px;
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+}
+
+.network-caveat-title {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-soft);
+    margin: 0 0 6px;
+}
+
+.network-caveat-text {
+    font-size: 11px;
+    color: var(--text-soft);
+    line-height: 1.55;
+    margin: 0 0 5px;
+}
+
+.network-caveat-small {
+    font-size: 10px;
+    color: rgba(157, 176, 209, 0.55);
+    line-height: 1.5;
+    margin: 0;
+}
+
+/* Network workspace / sections */
+.network-workspace {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    padding: 8px 0;
+}
+
+.network-section {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.network-section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: 0.03em;
+    padding: 12px 16px 0;
+    margin: 0 0 10px;
+}
+
+.network-note {
+    font-size: 12px;
+    color: var(--text-soft);
+    padding: 0 16px 12px;
+    margin: 0;
+    line-height: 1.5;
+}
+
+.network-plot-container {
+    width: 100%;
+    min-height: 520px;
+    padding: 0 8px 12px;
+}
+
+/* Network tables */
+.network-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.network-table th {
+    text-align: left;
+    padding: 8px 12px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-soft);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+}
+
+.network-table td {
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--line);
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    vertical-align: middle;
+}
+
+.network-table tr:last-child td {
+    border-bottom: none;
+}
+
+.network-table tr:hover td {
+    background: rgba(148, 163, 184, 0.05);
+}
+
+/* Correlation quality badges */
+.net-corr-high {
+    color: #34d399;
+    font-weight: 700;
+}
+
+.net-corr-mid {
+    color: #fbbf24;
+    font-weight: 700;
+}
+
+.net-corr-low {
+    color: #f87171;
+    font-weight: 700;
+}
+
+/* Contribution bar cell — .net-contrib-cell wraps bar + percentage span */
+.net-contrib-cell {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 140px;
+}
+
+/* The bar is the colored fill; width is set inline by JS */
+.net-contrib-bar {
+    flex: 1;
+    height: 5px;
+    min-width: 4px;
+    background: linear-gradient(90deg, #3b82f6 0%, #60a5fa 100%);
+    border-radius: 3px;
+    transition: width 0.4s ease;
+}
+
+.net-contrib-cell span {
+    font-size: 12px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    min-width: 38px;
+    text-align: right;
+    color: var(--text);
+    flex-shrink: 0;
 }
