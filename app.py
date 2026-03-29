@@ -15,6 +15,10 @@ from services.data_loader import DataRepository, MultiDataRepository, SeriesRequ
 from services.index_service import IndexService
 from services.network_service import NetworkService
 from services.prediction_service import PredictionService
+from services.extreme_service import ExtremeService
+from services.quality_service import QualityService
+from services.risk_service import RiskService
+from services.scenario_service import ScenarioService
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -49,6 +53,10 @@ prediction_service = PredictionService(repository, data_dir=BASE_DIR / 'data')
 index_service = IndexService(repository)
 comparison_service = ComparisonService(repository)
 network_service = NetworkService(repository)
+scenario_service = ScenarioService(repository, data_dir=BASE_DIR / 'data')
+quality_service = QualityService(repository, data_dir=BASE_DIR / 'data')
+extreme_service = ExtremeService(repository)
+risk_service = RiskService(repository)
 
 app = Flask(__name__)
 
@@ -327,6 +335,127 @@ def predict():
     analysis = bool(payload.get('analysis', True))
     try:
         result = prediction_service.predict(station, feature, horizon, model, mode, analysis)
+        return jsonify({'ok': True, 'result': result})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.post('/api/scenario')
+def scenario():
+    payload = request.get_json(silent=True) or {}
+    station = str(payload.get('station', '')).strip()
+    target_feature = str(payload.get('target_feature', '')).strip()
+    driver_feature = str(payload.get('driver_feature', target_feature)).strip()
+    scale_pct = float(payload.get('scale_pct', 20))
+    duration_months = int(payload.get('duration_months', 3))
+    start_offset = int(payload.get('start_offset', 0))
+    model = str(payload.get('model', 'FlowNet')).strip()
+    horizon = int(payload.get('horizon', 12))
+    if not station or not target_feature:
+        return jsonify({'ok': False, 'error': 'station and target_feature required'}), 400
+    try:
+        result = scenario_service.run_scenario(
+            station, target_feature, driver_feature,
+            scale_pct, duration_months, start_offset, model, horizon,
+        )
+        return jsonify({'ok': True, 'result': result})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.route('/api/quality/completeness')
+def quality_completeness():
+    station = request.args.get('station', '').strip()
+    feature = request.args.get('feature', '').strip()
+    if not station or not feature:
+        return jsonify({'ok': False, 'error': 'station and feature required'}), 400
+    try:
+        return jsonify({'ok': True, 'result': quality_service.completeness(station, feature)})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.route('/api/quality/imputation')
+def quality_imputation():
+    dataset = request.args.get('dataset', 'mekong').strip()
+    feature = request.args.get('feature', '').strip() or None
+    try:
+        return jsonify({'ok': True, 'result': quality_service.imputation_summary(dataset, feature)})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.route('/api/quality/gaps')
+def quality_gaps():
+    station = request.args.get('station', '').strip()
+    feature = request.args.get('feature', '').strip()
+    if not station or not feature:
+        return jsonify({'ok': False, 'error': 'station and feature required'}), 400
+    try:
+        return jsonify({'ok': True, 'result': quality_service.gaps(station, feature)})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.route('/api/quality/anomalies')
+def quality_anomalies():
+    station = request.args.get('station', '').strip()
+    feature = request.args.get('feature', '').strip()
+    z_thresh = float(request.args.get('z_thresh', 3.0))
+    if not station or not feature:
+        return jsonify({'ok': False, 'error': 'station and feature required'}), 400
+    try:
+        return jsonify({'ok': True, 'result': quality_service.anomaly_candidates(station, feature, z_thresh)})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.post('/api/quality/flag')
+def quality_flag():
+    payload = request.get_json(silent=True) or {}
+    station = str(payload.get('station', '')).strip()
+    feature = str(payload.get('feature', '')).strip()
+    date_str = str(payload.get('date', '')).strip()
+    flag = str(payload.get('flag', '')).strip()
+    if not station or not feature or not date_str or not flag:
+        return jsonify({'ok': False, 'error': 'station, feature, date, flag required'}), 400
+    try:
+        return jsonify({'ok': True, 'result': quality_service.save_flag(station, feature, date_str, flag)})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.route('/api/quality/flags')
+def quality_flags():
+    try:
+        return jsonify({'ok': True, 'result': quality_service.flag_summary()})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.route('/api/extreme')
+def extreme():
+    station = request.args.get('station', '').strip()
+    feature = request.args.get('feature', '').strip()
+    distribution = request.args.get('distribution', 'gev').strip()
+    if not station or not feature:
+        return jsonify({'ok': False, 'error': 'station and feature required'}), 400
+    try:
+        result = extreme_service.compute(station, feature, distribution)
+        return jsonify({'ok': True, 'result': result})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.route('/api/risk')
+def risk():
+    dataset = request.args.get('dataset', 'mekong').strip()
+    feature = request.args.get('feature', '').strip()
+    lookback = int(request.args.get('lookback', 30))
+    if not feature:
+        return jsonify({'ok': False, 'error': 'feature parameter required'}), 400
+    try:
+        result = risk_service.compute_risk_map(dataset, feature, lookback)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400

@@ -2897,3 +2897,479 @@ html[data-theme="light"] .theme-toggle-btn:hover {
     color: var(--text);
     flex-shrink: 0;
 }
+
+/* ── Scenario Modeling ────────────────────────────────────────── */
+
+/* Slider group */
+.scenario-slider-group {
+    margin: 12px 0 4px;
+}
+
+.scenario-slider-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+}
+
+.scenario-slider-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-soft);
+}
+
+.scenario-slider-value {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--primary);
+    font-variant-numeric: tabular-nums;
+    min-width: 52px;
+    text-align: right;
+}
+
+.scenario-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--line-strong);
+    outline: none;
+    cursor: pointer;
+}
+
+.scenario-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--primary);
+    border: 2px solid var(--panel);
+    cursor: pointer;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+    transition: box-shadow 0.15s;
+}
+
+.scenario-slider::-webkit-slider-thumb:hover {
+    box-shadow: 0 0 0 5px rgba(56, 189, 248, 0.3);
+}
+
+.scenario-slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--primary);
+    border: 2px solid var(--panel);
+    cursor: pointer;
+}
+
+.scenario-slider-ticks {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--text-soft);
+    opacity: 0.6;
+    margin-top: 3px;
+}
+
+/* Stats bar inside scenario card */
+.scenario-stats-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.scenario-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: rgba(148, 163, 184, 0.07);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 6px 12px;
+    min-width: 70px;
+    flex: 1;
+}
+
+.scenario-stat-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 2px;
+    white-space: nowrap;
+}
+
+.scenario-stat-value {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+.scenario-stat-value.positive { color: #34d399; }
+.scenario-stat-value.negative { color: #f87171; }
+
+.scenario-stat--source {
+    opacity: 0.7;
+}
+
+/* Light theme adjustments */
+html[data-theme="light"] .scenario-slider {
+    background: rgba(100, 116, 139, 0.25);
+}
+
+html[data-theme="light"] .scenario-slider::-webkit-slider-thumb {
+    border-color: var(--panel);
+}
+
+/* ── Data Quality Dashboard ───────────────────────────────────── */
+
+.quality-workspace {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    padding: 8px 0;
+}
+
+.quality-section {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.quality-section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: 0.03em;
+    padding: 12px 16px 0;
+    margin: 0 0 10px;
+}
+
+.quality-note {
+    font-size: 12px;
+    color: var(--text-soft);
+    padding: 0 16px 10px;
+    margin: 0;
+    line-height: 1.5;
+}
+
+.quality-plot {
+    width: 100%;
+    min-height: 320px;
+    padding: 0 8px 12px;
+}
+
+/* Stat chips */
+.quality-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 0 16px 12px;
+}
+
+.quality-chip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: rgba(148, 163, 184, 0.07);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 6px 12px;
+    min-width: 72px;
+    flex: 1;
+}
+
+.quality-chip-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 2px;
+    white-space: nowrap;
+}
+
+.quality-chip-value {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Scrollable table wrapper */
+.quality-table-wrap {
+    overflow-x: auto;
+    max-height: 340px;
+    overflow-y: auto;
+    margin: 0 0 4px;
+    border-top: 1px solid var(--line);
+}
+
+.quality-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.quality-table th {
+    position: sticky;
+    top: 0;
+    background: var(--panel-2);
+    text-align: left;
+    padding: 7px 12px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-soft);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+    z-index: 1;
+}
+
+.quality-table td {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--line);
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    vertical-align: middle;
+}
+
+.quality-table tr:last-child td { border-bottom: none; }
+.quality-table tr:hover td { background: rgba(148, 163, 184, 0.05); }
+
+/* Gap severity badges */
+.quality-severity-badge {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 999px;
+}
+
+.quality-sev-major    { background: rgba(239,68,68,0.15);  color: #ef4444; }
+.quality-sev-moderate { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.quality-sev-minor    { background: rgba(148,163,184,0.12); color: var(--text-soft); }
+
+/* Imputation bar inside table */
+.quality-imp-bar-cell {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 100px;
+}
+
+.quality-imp-bar-bg {
+    flex: 1;
+    height: 5px;
+    background: rgba(148, 163, 184, 0.15);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.quality-imp-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+/* Anomaly table specifics */
+.quality-anomaly-table .quality-z-val { font-weight: 600; }
+
+.quality-zscore {
+    font-weight: 700;
+    color: #fb923c;
+    font-variant-numeric: tabular-nums;
+}
+
+.quality-dir {
+    font-size: 11px;
+    color: var(--text-soft);
+    white-space: nowrap;
+}
+
+.quality-imp-badge {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    background: rgba(56,189,248,0.12);
+    color: var(--primary);
+    border-radius: 4px;
+    padding: 1px 5px;
+    margin-left: 5px;
+    vertical-align: middle;
+}
+
+/* Flag buttons */
+.quality-flag-cell {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.quality-flag-btn {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 5px;
+    border: 1px solid var(--line-strong);
+    background: transparent;
+    color: var(--text-soft);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+}
+
+.quality-flag-btn:hover { background: var(--panel-3); color: var(--text); }
+
+.quality-flag-btn[data-flag="real"].active          { background: rgba(52,211,153,0.15); color: #34d399; border-color: #34d399; }
+.quality-flag-btn[data-flag="sensor_error"].active  { background: rgba(239,68,68,0.15);  color: #ef4444; border-color: #ef4444; }
+.quality-flag-btn[data-flag="uncertain"].active     { background: rgba(251,146,60,0.15); color: #fb923c; border-color: #fb923c; }
+
+.quality-flag-clear {
+    opacity: 0.55;
+    padding: 2px 6px;
+}
+
+/* ── Extreme Event Analysis ──────────────────────────────────────────────── */
+
+.extreme-params {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px 16px 0;
+}
+
+.extreme-param-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 9px;
+    border-radius: 5px;
+    background: rgba(56, 189, 248, 0.12);
+    color: var(--primary);
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    white-space: nowrap;
+}
+
+.extreme-table-section {
+    padding: 10px 16px 12px;
+    border-bottom: 1px solid var(--line);
+}
+
+.extreme-table-wrap {
+    overflow-x: auto;
+}
+
+.extreme-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.extreme-table th {
+    text-align: left;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--line);
+    color: var(--text-soft);
+    font-weight: 600;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+.extreme-table td {
+    padding: 5px 12px;
+    color: var(--text);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+}
+
+.extreme-table tr:last-child td { border-bottom: none; }
+.extreme-table tbody tr:hover td { background: var(--panel-3); }
+
+.extreme-ci {
+    color: var(--text-muted) !important;
+    font-size: 11px;
+}
+
+[data-theme="light"] .extreme-param-badge {
+    background: rgba(14, 165, 233, 0.10);
+    border-color: rgba(14, 165, 233, 0.30);
+}
+
+/* ── Flood & Drought Risk Map ────────────────────────────────────────────── */
+
+.risk-workspace {
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.risk-summary-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.risk-chip {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 14px 5px 10px;
+    border-radius: 20px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    font-size: 12px;
+}
+
+.risk-chip-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--risk-color, #34d399);
+    flex-shrink: 0;
+}
+
+.risk-chip-label {
+    color: var(--text-soft);
+    font-weight: 500;
+}
+
+.risk-chip-count {
+    color: var(--text);
+    font-weight: 700;
+    font-size: 14px;
+    margin-left: 2px;
+}
+
+.risk-section {
+    background: var(--card-bg);
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    overflow: hidden;
+}
+
+.risk-note {
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--line);
+    margin: 0;
+}
+
+.risk-map {
+    height: 500px;
+    width: 100%;
+}
+
+.quality-flag-clear:hover { opacity: 1; color: #ef4444; border-color: #ef4444; }

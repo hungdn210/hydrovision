@@ -81,6 +81,53 @@
         runCompareBtn: document.getElementById('runCompareBtn'),
         compareMessage: document.getElementById('compareMessage'),
         compareWorkspace: document.getElementById('compareWorkspace'),
+        // Quality
+        qualityWorkspace: document.getElementById('qualityWorkspace'),
+        clearQualityBtn: document.getElementById('clearQualityBtn'),
+        qualityViewPicker: document.getElementById('qualityViewPicker'),
+        qualityStationGroup: document.getElementById('qualityStationGroup'),
+        qualityDatasetGroup: document.getElementById('qualityDatasetGroup'),
+        qualityZGroup: document.getElementById('qualityZGroup'),
+        qualityStationSelect: document.getElementById('qualityStationSelect'),
+        qualityFeatureSelect: document.getElementById('qualityFeatureSelect'),
+        qualityDatasetPicker: document.getElementById('qualityDatasetPicker'),
+        qualityImpFeatureSelect: document.getElementById('qualityImpFeatureSelect'),
+        qualityZSlider: document.getElementById('qualityZSlider'),
+        qualityZDisplay: document.getElementById('qualityZDisplay'),
+        runQualityBtn: document.getElementById('runQualityBtn'),
+        qualityMessage: document.getElementById('qualityMessage'),
+        // Scenario
+        scenarioCards: document.getElementById('scenarioCards'),
+        clearScenarioBtn: document.getElementById('clearScenarioBtn'),
+        scenarioStationSelect: document.getElementById('scenarioStationSelect'),
+        scenarioTargetSelect: document.getElementById('scenarioTargetSelect'),
+        scenarioDriverSelect: document.getElementById('scenarioDriverSelect'),
+        scenarioModelSelect: document.getElementById('scenarioModelSelect'),
+        scenarioScaleSlider: document.getElementById('scenarioScaleSlider'),
+        scenarioScaleDisplay: document.getElementById('scenarioScaleDisplay'),
+        scenarioDurationSlider: document.getElementById('scenarioDurationSlider'),
+        scenarioDurationDisplay: document.getElementById('scenarioDurationDisplay'),
+        scenarioOffsetSlider: document.getElementById('scenarioOffsetSlider'),
+        scenarioOffsetDisplay: document.getElementById('scenarioOffsetDisplay'),
+        runScenarioBtn: document.getElementById('runScenarioBtn'),
+        scenarioMessage: document.getElementById('scenarioMessage'),
+        // Extreme Events
+        extremeCards: document.getElementById('extremeCards'),
+        clearExtremeBtn: document.getElementById('clearExtremeBtn'),
+        extremeStationSelect: document.getElementById('extremeStationSelect'),
+        extremeFeatureSelect: document.getElementById('extremeFeatureSelect'),
+        extremeDistSelect: document.getElementById('extremeDistSelect'),
+        runExtremeBtn: document.getElementById('runExtremeBtn'),
+        extremeMessage: document.getElementById('extremeMessage'),
+        // Risk Map
+        riskWorkspace: document.getElementById('riskWorkspace'),
+        clearRiskBtn: document.getElementById('clearRiskBtn'),
+        riskDatasetSelect: document.getElementById('riskDatasetSelect'),
+        riskFeatureSelect: document.getElementById('riskFeatureSelect'),
+        riskLookbackSlider: document.getElementById('riskLookbackSlider'),
+        riskLookbackDisplay: document.getElementById('riskLookbackDisplay'),
+        runRiskBtn: document.getElementById('runRiskBtn'),
+        riskMessage: document.getElementById('riskMessage'),
         // Network
         clearNetworkBtn: document.getElementById('clearNetworkBtn'),
         runNetworkBtn: document.getElementById('runNetworkBtn'),
@@ -267,6 +314,12 @@
         await populateModelDropdown();
         await fetchPredictStations(els.predictModelSelect?.value || 'FlowNet');
         populatePredictionControls();
+        populateScenarioControls();
+        setEmptyState(els.scenarioCards, 'No scenarios yet. Configure a station and driver above, then click Run scenario.');
+        populateQualityControls();
+        populateExtremeControls();
+        setEmptyState(els.extremeCards, 'No analyses yet. Select a station and feature, then click Run analysis.');
+        populateRiskControls();
         addSeriesRow();
         addFreeSeriesRow();
         syncSeriesBuilderUI();
@@ -406,6 +459,59 @@
         });
         els.runCompareBtn?.addEventListener('click', runComparison);
         els.exportPdfBtn?.addEventListener('click', generateSessionPDF);
+
+        // Quality
+        els.clearQualityBtn?.addEventListener('click', () => {
+            if (els.qualityWorkspace) els.qualityWorkspace.innerHTML = '';
+        });
+        els.runQualityBtn?.addEventListener('click', runQualityAnalysis);
+        els.qualityZSlider?.addEventListener('input', () => {
+            if (els.qualityZDisplay) els.qualityZDisplay.textContent = Number(els.qualityZSlider.value).toFixed(1);
+        });
+        els.qualityViewPicker?.querySelectorAll('.mode-seg-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                els.qualityViewPicker.querySelectorAll('.mode-seg-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                updateQualityControls(btn.dataset.view);
+            });
+        });
+        els.qualityStationSelect?.addEventListener('change', updateQualityFeatureOptions);
+
+        // Scenario
+        els.clearScenarioBtn?.addEventListener('click', () =>
+            setEmptyState(els.scenarioCards, 'No scenarios yet. Configure a station and driver above, then click Run scenario.')
+        );
+        els.scenarioStationSelect?.addEventListener('change', updateScenarioFeatureOptions);
+        els.scenarioScaleSlider?.addEventListener('input', () => {
+            const v = Number(els.scenarioScaleSlider.value);
+            els.scenarioScaleDisplay.textContent = (v >= 0 ? '+' : '') + v + '%';
+        });
+        els.scenarioDurationSlider?.addEventListener('input', () => {
+            const v = Number(els.scenarioDurationSlider.value);
+            els.scenarioDurationDisplay.textContent = v + (v === 1 ? ' month' : ' months');
+        });
+        els.scenarioOffsetSlider?.addEventListener('input', () => {
+            const v = Number(els.scenarioOffsetSlider.value);
+            els.scenarioOffsetDisplay.textContent = 'month ' + (v + 1);
+        });
+        els.runScenarioBtn?.addEventListener('click', runScenario);
+
+        // Extreme Events
+        els.clearExtremeBtn?.addEventListener('click', () =>
+            setEmptyState(els.extremeCards, 'No analyses yet. Select a station and feature, then click Run analysis.')
+        );
+        els.extremeStationSelect?.addEventListener('change', updateExtremeFeatureOptions);
+        els.runExtremeBtn?.addEventListener('click', runExtremeAnalysis);
+
+        // Risk Map
+        els.clearRiskBtn?.addEventListener('click', () => {
+            if (els.riskWorkspace) els.riskWorkspace.innerHTML = '';
+        });
+        els.riskDatasetSelect?.addEventListener('change', updateRiskFeatureOptions);
+        els.riskLookbackSlider?.addEventListener('input', () => {
+            if (els.riskLookbackDisplay) els.riskLookbackDisplay.textContent = els.riskLookbackSlider.value + ' pts';
+        });
+        els.runRiskBtn?.addEventListener('click', runRiskMap);
 
         // Network
         els.clearNetworkBtn?.addEventListener('click', () => {
@@ -2719,7 +2825,7 @@
                 if (tabName === 'analysis') {
                     panel.classList.toggle('hidden', state.analysisMode !== 'charted');
                 } else {
-                    panel.classList.toggle('hidden', tabName === 'prediction' || tabName === 'compare' || tabName === 'network');
+                    panel.classList.toggle('hidden', tabName === 'prediction' || tabName === 'compare' || tabName === 'network' || tabName === 'scenario' || tabName === 'quality' || tabName === 'extreme' || tabName === 'risk');
                 }
             } else if (key === 'analysis') {
                 panel.classList.toggle('hidden', tabName !== 'analysis' || state.analysisMode !== 'free');
@@ -2727,8 +2833,16 @@
                 panel.classList.toggle('hidden', tabName !== 'prediction');
             } else if (key === 'compare') {
                 panel.classList.toggle('hidden', tabName !== 'compare');
+            } else if (key === 'quality') {
+                panel.classList.toggle('hidden', tabName !== 'quality');
+            } else if (key === 'scenario') {
+                panel.classList.toggle('hidden', tabName !== 'scenario');
             } else if (key === 'network') {
                 panel.classList.toggle('hidden', tabName !== 'network');
+            } else if (key === 'extreme') {
+                panel.classList.toggle('hidden', tabName !== 'extreme');
+            } else if (key === 'risk') {
+                panel.classList.toggle('hidden', tabName !== 'risk');
             }
         });
 
@@ -2901,6 +3015,7 @@
                 { id: 'visualizationCards', label: 'Visualization' },
                 { id: 'analysisCards',      label: 'AI Analysis' },
                 { id: 'predictionCards',    label: 'Prediction' },
+                { id: 'scenarioCards',      label: 'Scenario' },
             ];
             const counts = panelInfo.map(p => document.getElementById(p.id)?.querySelectorAll('.workspace-card').length ?? 0);
             doc.setFontSize(10);
@@ -3433,6 +3548,685 @@
         section.appendChild(caveat);
 
         els.networkWorkspace.appendChild(section);
+    }
+
+    // ── Scenario ─────────────────────────────────────────────────────────────
+
+    function populateScenarioControls() {
+        if (!els.scenarioStationSelect) return;
+        // Populate station select — Mekong only (needs multi-feature stations for cross-feature sensitivity)
+        const stations = Object.values(state.bootstrap?.stations || [])
+            .filter(s => s.dataset === 'mekong' && s.features.length >= 1)
+            .sort((a, b) => a.name.localeCompare(b.name));
+
+        els.scenarioStationSelect.innerHTML = stations
+            .map(s => `<option value="${escapeHtml(s.station)}">${escapeHtml(s.name.replace(/_/g, ' '))}</option>`)
+            .join('');
+
+        // Populate model select from predict models
+        if (els.scenarioModelSelect) {
+            const models = Array.from(els.predictModelSelect?.options || []).map(o => o.value);
+            els.scenarioModelSelect.innerHTML = models
+                .map(m => `<option value="${escapeHtml(m)}"${m === 'FlowNet' ? ' selected' : ''}>${escapeHtml(m)}</option>`)
+                .join('');
+        }
+
+        updateScenarioFeatureOptions();
+    }
+
+    function updateScenarioFeatureOptions() {
+        if (!els.scenarioStationSelect || !els.scenarioTargetSelect || !els.scenarioDriverSelect) return;
+        const station = els.scenarioStationSelect.value;
+        const stInfo = (state.bootstrap?.stations || []).find(s => s.station === station);
+        const features = stInfo?.features || [];
+
+        const opts = features.map(f => `<option value="${escapeHtml(f)}">${escapeHtml(f.replace(/_/g, ' '))}</option>`).join('');
+        els.scenarioTargetSelect.innerHTML = opts;
+        els.scenarioDriverSelect.innerHTML = opts;
+
+        // Default: target=Discharge (or first), driver=Rainfall (or same)
+        const setVal = (sel, preferred) => {
+            const match = [...sel.options].find(o => o.value === preferred);
+            if (match) sel.value = preferred;
+        };
+        setVal(els.scenarioTargetSelect, 'Discharge');
+        setVal(els.scenarioDriverSelect, 'Rainfall');
+        if (els.scenarioDriverSelect.value === els.scenarioTargetSelect.value) {
+            // If same, try Rainfall or Precipitation
+            const fallback = features.find(f => f === 'Rainfall' || f === 'Precipitation');
+            if (fallback) els.scenarioDriverSelect.value = fallback;
+        }
+    }
+
+    async function runScenario() {
+        if (!els.runScenarioBtn) return;
+        const station = els.scenarioStationSelect?.value;
+        const targetFeature = els.scenarioTargetSelect?.value;
+        const driverFeature = els.scenarioDriverSelect?.value;
+        const scalePct = Number(els.scenarioScaleSlider?.value || 20);
+        const durationMonths = Number(els.scenarioDurationSlider?.value || 3);
+        const startOffset = Number(els.scenarioOffsetSlider?.value || 0);
+        const model = els.scenarioModelSelect?.value || 'FlowNet';
+
+        if (!station || !targetFeature) {
+            showMessage(els.scenarioMessage, 'Select a station and target feature.', 'error');
+            return;
+        }
+        showMessage(els.scenarioMessage, 'Running scenario…', '');
+        els.runScenarioBtn.disabled = true;
+
+        try {
+            const res = await fetch('/api/scenario', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ station, target_feature: targetFeature, driver_feature: driverFeature,
+                    scale_pct: scalePct, duration_months: durationMonths, start_offset: startOffset,
+                    model, horizon: 12 }),
+            });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error);
+            appendScenarioCard(data.result);
+            activateDockTab('scenario');
+            showMessage(els.scenarioMessage, 'Done.', 'success');
+        } catch (err) {
+            showMessage(els.scenarioMessage, err.message || 'Scenario failed.', 'error');
+        } finally {
+            els.runScenarioBtn.disabled = false;
+        }
+    }
+
+    function appendScenarioCard(result) {
+        clearEmptyStateIfNeeded(els.scenarioCards);
+        const sign = result.scale_pct >= 0 ? '+' : '';
+        const driver = result.driver_feature.replace(/_/g, ' ');
+        const target = result.target_feature.replace(/_/g, ' ');
+        const stName = result.station.replace(/_/g, ' ');
+        const title = `What-If · ${target} · ${stName}`;
+        const subtitle = `${sign}${result.scale_pct}% ${driver} for ${result.duration_months} month(s) · ${result.model}`;
+
+        const cardId = `scenario-${Date.now()}`;
+        const card = buildBaseCard(cardId, title, subtitle);
+        const body = card.querySelector('.workspace-card-body');
+        const plot = body.querySelector('.plot-container');
+
+        // Stats bar
+        const stats = result.stats;
+        const statsEl = document.createElement('div');
+        statsEl.className = 'scenario-stats-bar';
+        const fmt = v => (v >= 0 ? '+' : '') + v.toFixed(2);
+        const fmtPct = v => (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+        statsEl.innerHTML = `
+            <div class="scenario-stat">
+                <span class="scenario-stat-label">Mean delta</span>
+                <span class="scenario-stat-value">${fmt(stats.mean_delta)} ${escapeHtml(result.unit)}</span>
+            </div>
+            <div class="scenario-stat">
+                <span class="scenario-stat-label">Peak delta</span>
+                <span class="scenario-stat-value">${fmt(stats.max_delta)} ${escapeHtml(result.unit)}</span>
+            </div>
+            <div class="scenario-stat">
+                <span class="scenario-stat-label">Mean Δ%</span>
+                <span class="scenario-stat-value ${stats.mean_delta_pct >= 0 ? 'positive' : 'negative'}">${fmtPct(stats.mean_delta_pct)}</span>
+            </div>
+            ${!result.sensitivity.direct ? `
+            <div class="scenario-stat">
+                <span class="scenario-stat-label">Elasticity</span>
+                <span class="scenario-stat-value">${result.sensitivity.elasticity.toFixed(2)}</span>
+            </div>
+            <div class="scenario-stat">
+                <span class="scenario-stat-label">R (driver↔target)</span>
+                <span class="scenario-stat-value">${result.sensitivity.r_value.toFixed(2)}</span>
+            </div>` : ''}
+            <div class="scenario-stat scenario-stat--source">
+                <span class="scenario-stat-label">Baseline</span>
+                <span class="scenario-stat-value">${result.csv_used ? 'Model CSV' : 'Exp. smoothing'}</span>
+            </div>`;
+        body.insertBefore(statsEl, plot);
+
+        els.scenarioCards.prepend(card);
+        renderPlot(plot, result.figure);
+    }
+
+    // ── Quality Dashboard ─────────────────────────────────────────────────────
+
+    function populateQualityControls() {
+        if (!els.qualityStationSelect) return;
+        const stations = (state.bootstrap?.stations || [])
+            .filter(s => s.dataset === 'mekong')
+            .sort((a, b) => a.name.localeCompare(b.name));
+        els.qualityStationSelect.innerHTML = stations
+            .map(s => `<option value="${escapeHtml(s.station)}">${escapeHtml(s.name.replace(/_/g, ' '))}</option>`)
+            .join('');
+
+        // Imputation feature select — all known features
+        const features = state.bootstrap?.features || [];
+        if (els.qualityImpFeatureSelect) {
+            els.qualityImpFeatureSelect.innerHTML = '<option value="">All features</option>' +
+                features.map(f => `<option value="${escapeHtml(f)}">${escapeHtml(f.replace(/_/g, ' '))}</option>`).join('');
+        }
+
+        // Dataset picker for imputation view
+        if (els.qualityDatasetPicker) {
+            ['mekong', 'lamah'].forEach(ds => {
+                const btn = document.createElement('button');
+                btn.className = 'dataset-btn' + (ds === 'mekong' ? ' active' : '');
+                btn.dataset.dataset = ds;
+                btn.textContent = ds === 'mekong' ? 'Mekong' : 'LamaH-CE';
+                btn.addEventListener('click', () => {
+                    els.qualityDatasetPicker.querySelectorAll('.dataset-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                });
+                els.qualityDatasetPicker.appendChild(btn);
+            });
+        }
+
+        updateQualityFeatureOptions();
+        updateQualityControls('completeness');
+    }
+
+    function updateQualityFeatureOptions() {
+        if (!els.qualityStationSelect || !els.qualityFeatureSelect) return;
+        const station = els.qualityStationSelect.value;
+        const stInfo = (state.bootstrap?.stations || []).find(s => s.station === station);
+        const features = stInfo?.features || [];
+        els.qualityFeatureSelect.innerHTML = features
+            .map(f => `<option value="${escapeHtml(f)}">${escapeHtml(f.replace(/_/g, ' '))}</option>`)
+            .join('');
+    }
+
+    function updateQualityControls(view) {
+        const isStation = view === 'completeness' || view === 'gaps' || view === 'anomalies';
+        els.qualityStationGroup?.classList.toggle('hidden', !isStation);
+        els.qualityDatasetGroup?.classList.toggle('hidden', view !== 'imputation');
+        els.qualityZGroup?.classList.toggle('hidden', view !== 'anomalies');
+    }
+
+    function qualityActiveView() {
+        return els.qualityViewPicker?.querySelector('.mode-seg-btn.active')?.dataset.view || 'completeness';
+    }
+
+    async function runQualityAnalysis() {
+        if (!els.runQualityBtn) return;
+        const view = qualityActiveView();
+        showMessage(els.qualityMessage, 'Running…', '');
+        els.runQualityBtn.disabled = true;
+
+        try {
+            if (view === 'completeness') {
+                const station = els.qualityStationSelect?.value;
+                const feature = els.qualityFeatureSelect?.value;
+                if (!station || !feature) throw new Error('Select a station and feature.');
+                const res = await fetch(`/api/quality/completeness?station=${encodeURIComponent(station)}&feature=${encodeURIComponent(feature)}`);
+                const data = await res.json();
+                if (!data.ok) throw new Error(data.error);
+                renderQualityCompleteness(data.result);
+            } else if (view === 'imputation') {
+                const dataset = els.qualityDatasetPicker?.querySelector('.dataset-btn.active')?.dataset.dataset || 'mekong';
+                const feature = els.qualityImpFeatureSelect?.value || '';
+                const params = new URLSearchParams({ dataset });
+                if (feature) params.set('feature', feature);
+                const res = await fetch(`/api/quality/imputation?${params}`);
+                const data = await res.json();
+                if (!data.ok) throw new Error(data.error);
+                renderQualityImputation(data.result);
+            } else if (view === 'gaps') {
+                const station = els.qualityStationSelect?.value;
+                const feature = els.qualityFeatureSelect?.value;
+                if (!station || !feature) throw new Error('Select a station and feature.');
+                const res = await fetch(`/api/quality/gaps?station=${encodeURIComponent(station)}&feature=${encodeURIComponent(feature)}`);
+                const data = await res.json();
+                if (!data.ok) throw new Error(data.error);
+                renderQualityGaps(data.result);
+            } else if (view === 'anomalies') {
+                const station = els.qualityStationSelect?.value;
+                const feature = els.qualityFeatureSelect?.value;
+                const zThresh = els.qualityZSlider?.value || 3;
+                if (!station || !feature) throw new Error('Select a station and feature.');
+                const res = await fetch(`/api/quality/anomalies?station=${encodeURIComponent(station)}&feature=${encodeURIComponent(feature)}&z_thresh=${zThresh}`);
+                const data = await res.json();
+                if (!data.ok) throw new Error(data.error);
+                renderQualityAnomalies(data.result);
+            }
+            activateDockTab('quality');
+            showMessage(els.qualityMessage, 'Done.', 'success');
+        } catch (err) {
+            showMessage(els.qualityMessage, err.message || 'Analysis failed.', 'error');
+        } finally {
+            els.runQualityBtn.disabled = false;
+        }
+    }
+
+    function qualitySection(title, note) {
+        const section = document.createElement('div');
+        section.className = 'quality-section';
+        const h = document.createElement('h4');
+        h.className = 'quality-section-title';
+        h.textContent = title;
+        section.appendChild(h);
+        if (note) {
+            const p = document.createElement('p');
+            p.className = 'quality-note';
+            p.textContent = note;
+            section.appendChild(p);
+        }
+        return section;
+    }
+
+    function qualityStatChips(chips) {
+        const bar = document.createElement('div');
+        bar.className = 'quality-chips';
+        chips.forEach(({ label, value, color }) => {
+            const chip = document.createElement('div');
+            chip.className = 'quality-chip';
+            chip.innerHTML = `<span class="quality-chip-label">${escapeHtml(label)}</span>
+                              <span class="quality-chip-value" style="${color ? `color:${color}` : ''}">${escapeHtml(String(value))}</span>`;
+            bar.appendChild(chip);
+        });
+        return bar;
+    }
+
+    function renderQualityCompleteness(r) {
+        if (!els.qualityWorkspace) return;
+        const section = qualitySection(
+            `Completeness · ${r.feature.replace(/_/g,' ')} · ${r.station.replace(/_/g,' ')}`,
+            null
+        );
+        section.appendChild(qualityStatChips([
+            { label: 'Overall', value: r.overall_pct + '%', color: r.overall_pct >= 80 ? '#34d399' : r.overall_pct >= 50 ? '#f59e0b' : '#ef4444' },
+            { label: 'Missing months', value: r.missing_months },
+            { label: 'Low (<50%)', value: r.low_months },
+            { label: 'Total months', value: r.total_months },
+        ]));
+        const plotDiv = document.createElement('div');
+        plotDiv.className = 'quality-plot';
+        section.appendChild(plotDiv);
+        els.qualityWorkspace.prepend(section);
+        renderPlot(plotDiv, r.figure);
+    }
+
+    function renderQualityImputation(r) {
+        if (!els.qualityWorkspace) return;
+        const featLabel = r.feature ? r.feature.replace(/_/g,' ') : 'all features';
+        const section = qualitySection(
+            `Imputation Summary · ${r.dataset} · ${featLabel}`,
+            null
+        );
+        section.appendChild(qualityStatChips([
+            { label: 'Overall imp.', value: r.overall_imp_pct + '%', color: r.overall_imp_pct >= 20 ? '#ef4444' : r.overall_imp_pct >= 5 ? '#f59e0b' : '#34d399' },
+            { label: 'Total obs.', value: r.total_observations.toLocaleString() },
+            { label: 'Total imputed', value: r.total_imputed.toLocaleString() },
+            { label: 'Stations w/ imp.', value: r.stations_with_imputation },
+            { label: 'High imp. (≥20%)', value: r.high_imputation_stations },
+        ]));
+        const plotDiv = document.createElement('div');
+        plotDiv.className = 'quality-plot';
+        section.appendChild(plotDiv);
+
+        // Full table (scrollable, capped at 50)
+        const tableWrap = document.createElement('div');
+        tableWrap.className = 'quality-table-wrap';
+        const rows = r.rows.slice(0, 50);
+        tableWrap.innerHTML = `<table class="quality-table">
+            <thead><tr><th>Station</th><th>Feature</th><th>Observations</th><th>Imputed</th><th>Rate</th></tr></thead>
+            <tbody>${rows.map(row => `
+                <tr>
+                    <td>${escapeHtml(row.name)}</td>
+                    <td>${escapeHtml(row.feature.replace(/_/g,' '))}</td>
+                    <td>${row.observations.toLocaleString()}</td>
+                    <td>${row.imputed.toLocaleString()}</td>
+                    <td><div class="quality-imp-bar-cell">
+                        <div class="quality-imp-bar-bg"><div class="quality-imp-bar-fill" style="width:${Math.min(row.imp_pct,100)}%;background:${row.imp_pct>=20?'#ef4444':row.imp_pct>=5?'#f59e0b':'#38bdf8'}"></div></div>
+                        <span>${row.imp_pct.toFixed(1)}%</span>
+                    </div></td>
+                </tr>`).join('')}
+            </tbody></table>`;
+        section.appendChild(tableWrap);
+        els.qualityWorkspace.prepend(section);
+        renderPlot(plotDiv, r.figure);
+    }
+
+    function renderQualityGaps(r) {
+        if (!els.qualityWorkspace) return;
+        const section = qualitySection(
+            `Gap Detection · ${r.feature.replace(/_/g,' ')} · ${r.station.replace(/_/g,' ')}`,
+            'Shaded regions on the chart mark the 5 largest gaps. Red = major (≥30 days), amber = moderate (7–29 days), gray = minor.'
+        );
+        section.appendChild(qualityStatChips([
+            { label: 'Missing', value: r.missing_pct + '%', color: r.missing_pct >= 20 ? '#ef4444' : r.missing_pct >= 5 ? '#f59e0b' : '#34d399' },
+            { label: 'Total gaps', value: r.gap_count },
+            { label: 'Major', value: r.major, color: r.major > 0 ? '#ef4444' : undefined },
+            { label: 'Moderate', value: r.moderate, color: r.moderate > 0 ? '#f59e0b' : undefined },
+            { label: 'Minor', value: r.minor },
+        ]));
+        const plotDiv = document.createElement('div');
+        plotDiv.className = 'quality-plot';
+        section.appendChild(plotDiv);
+
+        if (r.gaps.length) {
+            const tableWrap = document.createElement('div');
+            tableWrap.className = 'quality-table-wrap';
+            tableWrap.innerHTML = `<table class="quality-table">
+                <thead><tr><th>Start</th><th>End</th><th>Length</th><th>Severity</th></tr></thead>
+                <tbody>${r.gaps.map(g => `
+                    <tr>
+                        <td>${g.start}</td><td>${g.end}</td>
+                        <td>${g.length} ${g.unit}</td>
+                        <td><span class="quality-severity-badge quality-sev-${g.severity}">${g.severity}</span></td>
+                    </tr>`).join('')}
+                </tbody></table>`;
+            section.appendChild(tableWrap);
+        }
+        els.qualityWorkspace.prepend(section);
+        renderPlot(plotDiv, r.figure);
+    }
+
+    function renderQualityAnomalies(r) {
+        if (!els.qualityWorkspace) return;
+        const section = qualitySection(
+            `Anomaly Candidates · ${r.feature.replace(/_/g,' ')} · ${r.station.replace(/_/g,' ')}`,
+            `Z-score threshold: ${r.z_thresh}  ·  Mean: ${r.mean}  ·  Std: ${r.std}  ·  ${r.unflagged} unflagged of ${r.total} candidates.`
+        );
+
+        if (!r.candidates.length) {
+            const p = document.createElement('p');
+            p.className = 'quality-note';
+            p.textContent = 'No anomaly candidates found at this threshold.';
+            section.appendChild(p);
+            els.qualityWorkspace.prepend(section);
+            return;
+        }
+
+        section.appendChild(qualityStatChips([
+            { label: 'Total candidates', value: r.total },
+            { label: 'Unflagged', value: r.unflagged },
+            { label: 'Flagged', value: r.total - r.unflagged },
+        ]));
+
+        const tableWrap = document.createElement('div');
+        tableWrap.className = 'quality-table-wrap';
+        const tbody = r.candidates.map(c => {
+            const direction = c.above_mean ? '▲ above' : '▼ below';
+            const impBadge = c.is_imputed ? '<span class="quality-imp-badge">Imputed</span>' : '';
+            return `<tr data-station="${escapeHtml(r.station)}" data-feature="${escapeHtml(r.feature)}" data-date="${escapeHtml(c.date)}">
+                <td>${c.date}${impBadge}</td>
+                <td class="quality-z-val">${c.value} ${escapeHtml(r.unit)}</td>
+                <td><span class="quality-zscore">${c.z_score}</span></td>
+                <td class="quality-dir">${direction}</td>
+                <td class="quality-flag-cell">
+                    <button class="quality-flag-btn ${c.flag === 'real' ? 'active' : ''}" data-flag="real" title="Real event">Real</button>
+                    <button class="quality-flag-btn ${c.flag === 'sensor_error' ? 'active' : ''}" data-flag="sensor_error" title="Sensor error">Error</button>
+                    <button class="quality-flag-btn ${c.flag === 'uncertain' ? 'active' : ''}" data-flag="uncertain" title="Uncertain">?</button>
+                    ${c.flag !== 'none' ? `<button class="quality-flag-btn quality-flag-clear" data-flag="none" title="Clear flag">✕</button>` : ''}
+                </td>
+            </tr>`;
+        }).join('');
+        tableWrap.innerHTML = `<table class="quality-table quality-anomaly-table">
+            <thead><tr><th>Date</th><th>Value</th><th>|Z|</th><th>Direction</th><th>Flag</th></tr></thead>
+            <tbody>${tbody}</tbody></table>`;
+
+        // Delegate flag button clicks
+        tableWrap.addEventListener('click', async (e) => {
+            const btn = e.target.closest('.quality-flag-btn');
+            if (!btn) return;
+            const row = btn.closest('tr');
+            const station = row.dataset.station;
+            const feature = row.dataset.feature;
+            const date = row.dataset.date;
+            const flag = btn.dataset.flag;
+            try {
+                const res = await fetch('/api/quality/flag', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ station, feature, date, flag }),
+                });
+                const data = await res.json();
+                if (!data.ok) throw new Error(data.error);
+                // Update button states in this row
+                row.querySelectorAll('.quality-flag-btn:not(.quality-flag-clear)').forEach(b => b.classList.toggle('active', b.dataset.flag === flag && flag !== 'none'));
+                // Show/hide clear button
+                let clearBtn = row.querySelector('.quality-flag-clear');
+                if (flag === 'none') {
+                    clearBtn?.remove();
+                } else if (!clearBtn) {
+                    clearBtn = document.createElement('button');
+                    clearBtn.className = 'quality-flag-btn quality-flag-clear';
+                    clearBtn.dataset.flag = 'none';
+                    clearBtn.title = 'Clear flag';
+                    clearBtn.textContent = '✕';
+                    row.querySelector('.quality-flag-cell').appendChild(clearBtn);
+                }
+            } catch (err) {
+                console.error('Flag save failed:', err.message);
+            }
+        });
+
+        section.appendChild(tableWrap);
+        els.qualityWorkspace.prepend(section);
+    }
+
+    // ── Extreme Event Analysis ────────────────────────────────────────────────
+
+    function populateExtremeControls() {
+        if (!els.extremeStationSelect) return;
+        const mekong = (state.bootstrap?.stations || [])
+            .filter(s => s.dataset === 'mekong')
+            .sort((a, b) => a.name.localeCompare(b.name));
+        const lamah = (state.bootstrap?.stations || [])
+            .filter(s => s.dataset === 'lamah')
+            .sort((a, b) => a.name.localeCompare(b.name));
+
+        const mkOpts = mekong.map(s =>
+            `<option value="${escapeHtml(s.station)}">${escapeHtml(s.name.replace(/_/g, ' '))}</option>`
+        ).join('');
+        const laOpts = lamah.map(s =>
+            `<option value="${escapeHtml(s.station)}">${escapeHtml(s.name)}</option>`
+        ).join('');
+
+        els.extremeStationSelect.innerHTML =
+            `<optgroup label="Mekong">${mkOpts}</optgroup>` +
+            `<optgroup label="LamaH-CE">${laOpts}</optgroup>`;
+
+        updateExtremeFeatureOptions();
+    }
+
+    function updateExtremeFeatureOptions() {
+        if (!els.extremeStationSelect || !els.extremeFeatureSelect) return;
+        const station = els.extremeStationSelect.value;
+        const stInfo = (state.bootstrap?.stations || []).find(s => s.station === station);
+        const features = stInfo?.features || [];
+        els.extremeFeatureSelect.innerHTML = features
+            .map(f => `<option value="${escapeHtml(f)}"${f === 'Discharge' ? ' selected' : ''}>${escapeHtml(f.replace(/_/g, ' '))}</option>`)
+            .join('');
+    }
+
+    async function runExtremeAnalysis() {
+        if (!els.runExtremeBtn) return;
+        const station = els.extremeStationSelect?.value;
+        const feature = els.extremeFeatureSelect?.value;
+        const distribution = els.extremeDistSelect?.value || 'gev';
+
+        if (!station || !feature) {
+            showMessage(els.extremeMessage, 'Select a station and feature.', 'error');
+            return;
+        }
+        showMessage(els.extremeMessage, 'Fitting distributions…', '');
+        els.runExtremeBtn.disabled = true;
+
+        try {
+            const params = new URLSearchParams({ station, feature, distribution });
+            const res = await fetch(`/api/extreme?${params}`);
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error);
+            appendExtremeCard(data.result);
+            activateDockTab('extreme');
+            showMessage(els.extremeMessage, `Done — ${data.result.n_years} yr of data fitted.`, 'success');
+        } catch (err) {
+            showMessage(els.extremeMessage, err.message || 'Analysis failed.', 'error');
+        } finally {
+            els.runExtremeBtn.disabled = false;
+        }
+    }
+
+    function appendExtremeCard(result) {
+        clearEmptyStateIfNeeded(els.extremeCards);
+        const featureLabel = result.feature.replace(/_/g, ' ');
+        const title = `Extreme Events · ${featureLabel} · ${result.station.replace(/_/g, ' ')}`;
+        const subtitle = `${result.n_years} years (${result.year_range[0]}–${result.year_range[1]}) · ${result.unit || 'no unit'}`;
+
+        const cardId = `extreme-${Date.now()}`;
+        const card = buildBaseCard(cardId, title, subtitle);
+        const body = card.querySelector('.workspace-card-body');
+        const plot = body.querySelector('.plot-container');
+
+        // Distribution parameter badges
+        const paramsEl = document.createElement('div');
+        paramsEl.className = 'extreme-params';
+        if (result.gev_params) {
+            const xi = result.gev_params.shape;
+            const distType = xi > 0.05 ? 'Fréchet tail' : (xi < -0.05 ? 'Weibull tail' : 'Gumbel-approx');
+            paramsEl.innerHTML += `<span class="extreme-param-badge">GEV ξ=${xi.toFixed(3)} (${escapeHtml(distType)})</span>`;
+        }
+        if (result.gumbel_params) {
+            paramsEl.innerHTML += `<span class="extreme-param-badge">Gumbel μ=${result.gumbel_params.loc.toFixed(2)}, σ=${result.gumbel_params.scale.toFixed(2)}</span>`;
+        }
+
+        // Return levels table
+        const hasGev = result.return_levels.some(r => 'gev' in r);
+        const hasGumbel = result.return_levels.some(r => 'gumbel' in r);
+        const hasCi = hasGev && result.ci_lower && result.ci_upper;
+
+        let headerCols = '<th>Return Period</th>';
+        if (hasGev) headerCols += `<th>GEV (${escapeHtml(result.unit)})</th>`;
+        if (hasCi) headerCols += '<th>95% CI</th>';
+        if (hasGumbel) headerCols += `<th>Gumbel (${escapeHtml(result.unit)})</th>`;
+
+        const tableRows = result.return_levels.map((row, i) => {
+            let cells = `<td><strong>${row.return_period} yr</strong></td>`;
+            if (hasGev) cells += `<td>${row.gev !== undefined ? row.gev.toFixed(2) : '—'}</td>`;
+            if (hasCi) {
+                const lo = result.ci_lower[i] !== undefined ? result.ci_lower[i].toFixed(2) : '—';
+                const hi = result.ci_upper[i] !== undefined ? result.ci_upper[i].toFixed(2) : '—';
+                cells += `<td class="extreme-ci">[${lo}, ${hi}]</td>`;
+            }
+            if (hasGumbel) cells += `<td>${row.gumbel !== undefined ? row.gumbel.toFixed(2) : '—'}</td>`;
+            return `<tr>${cells}</tr>`;
+        }).join('');
+
+        const tableSection = document.createElement('div');
+        tableSection.className = 'extreme-table-section';
+        tableSection.innerHTML = `
+            <div class="extreme-table-wrap">
+                <table class="extreme-table">
+                    <thead><tr>${headerCols}</tr></thead>
+                    <tbody>${tableRows}</tbody>
+                </table>
+            </div>`;
+
+        body.insertBefore(paramsEl, plot);
+        body.insertBefore(tableSection, plot);
+
+        els.extremeCards.prepend(card);
+        renderPlot(plot, result.figure);
+    }
+
+    // ── Flood & Drought Risk Map ──────────────────────────────────────────────
+
+    function populateRiskControls() {
+        if (!els.riskFeatureSelect) return;
+        updateRiskFeatureOptions();
+    }
+
+    function updateRiskFeatureOptions() {
+        if (!els.riskFeatureSelect || !els.riskDatasetSelect) return;
+        const dataset = els.riskDatasetSelect.value || 'mekong';
+        const stations = (state.bootstrap?.stations || []).filter(s => s.dataset === dataset);
+        const features = [...new Set(stations.flatMap(s => s.features))].sort();
+        els.riskFeatureSelect.innerHTML = features
+            .map(f => `<option value="${escapeHtml(f)}"${f === 'Discharge' ? ' selected' : ''}>${escapeHtml(f.replace(/_/g, ' '))}</option>`)
+            .join('');
+    }
+
+    async function runRiskMap() {
+        if (!els.runRiskBtn) return;
+        const dataset = els.riskDatasetSelect?.value || 'mekong';
+        const feature = els.riskFeatureSelect?.value;
+        const lookback = Number(els.riskLookbackSlider?.value || 30);
+
+        if (!feature) {
+            showMessage(els.riskMessage, 'Select a feature.', 'error');
+            return;
+        }
+        showMessage(els.riskMessage, 'Computing risk levels…', '');
+        els.runRiskBtn.disabled = true;
+
+        try {
+            const params = new URLSearchParams({ dataset, feature, lookback });
+            const res = await fetch(`/api/risk?${params}`);
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error);
+            renderRiskMap(data.result);
+            activateDockTab('risk');
+            showMessage(els.riskMessage, `${data.result.n_stations} stations classified.`, 'success');
+        } catch (err) {
+            showMessage(els.riskMessage, err.message || 'Risk map failed.', 'error');
+        } finally {
+            els.runRiskBtn.disabled = false;
+        }
+    }
+
+    function renderRiskMap(r) {
+        if (!els.riskWorkspace) return;
+        els.riskWorkspace.innerHTML = '';
+
+        const riskConfig = [
+            { key: 'flood',          color: '#f87171', label: 'Flood Risk' },
+            { key: 'flood_watch',    color: '#60a5fa', label: 'Flood Watch' },
+            { key: 'normal',         color: '#34d399', label: 'Normal' },
+            { key: 'drought',        color: '#fb923c', label: 'Drought' },
+            { key: 'severe_drought', color: '#b91c1c', label: 'Severe Drought' },
+        ];
+
+        // Summary chips
+        const chipsEl = document.createElement('div');
+        chipsEl.className = 'risk-summary-chips';
+        riskConfig.forEach(({ key, color, label }) => {
+            const count = r.summary[key] || 0;
+            const chip = document.createElement('div');
+            chip.className = 'risk-chip';
+            chip.style.setProperty('--risk-color', color);
+            chip.innerHTML = `
+                <span class="risk-chip-dot"></span>
+                <span class="risk-chip-label">${escapeHtml(label)}</span>
+                <span class="risk-chip-count">${count}</span>`;
+            chipsEl.appendChild(chip);
+        });
+
+        // Map section
+        const mapSection = document.createElement('div');
+        mapSection.className = 'risk-section';
+
+        const meta = document.createElement('p');
+        meta.className = 'risk-note';
+        meta.textContent = `${r.n_stations} stations · ${r.feature.replace(/_/g, ' ')} · lookback ${r.lookback} data points`;
+
+        const plotDiv = document.createElement('div');
+        plotDiv.className = 'risk-map';
+
+        mapSection.appendChild(meta);
+        mapSection.appendChild(plotDiv);
+
+        els.riskWorkspace.appendChild(chipsEl);
+        els.riskWorkspace.appendChild(mapSection);
+
+        // Render Plotly map
+        const figure = JSON.parse(r.figure);
+        requestAnimationFrame(() => {
+            Plotly.newPlot(plotDiv, figure.data, figure.layout, {
+                responsive: true,
+                displaylogo: false,
+                modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+            });
+        });
     }
 
 })();

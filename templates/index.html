@@ -38,9 +38,25 @@
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="8" height="18" rx="1"/><rect x="14" y="3" width="8" height="18" rx="1"/></svg>
                     <span class="rail-label">Compare</span>
                 </button>
+                <button class="rail-nav-btn" data-rail-tab="scenario" title="Scenario">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                    <span class="rail-label">Scenario</span>
+                </button>
+                <button class="rail-nav-btn" data-rail-tab="quality" title="Data Quality">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    <span class="rail-label">Quality</span>
+                </button>
                 <button class="rail-nav-btn" data-rail-tab="network" title="Network">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
                     <span class="rail-label">Network</span>
+                </button>
+                <button class="rail-nav-btn" data-rail-tab="extreme" title="Extreme Events">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                    <span class="rail-label">Extreme</span>
+                </button>
+                <button class="rail-nav-btn" data-rail-tab="risk" title="Risk Map">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    <span class="rail-label">Risk</span>
                 </button>
             </div>
 
@@ -64,7 +80,11 @@
                 <button class="workspace-pill" data-tab-target="analysis">Analyse</button>
                 <button class="workspace-pill" data-tab-target="prediction">Predict</button>
                 <button class="workspace-pill" data-tab-target="compare">Compare</button>
+                <button class="workspace-pill" data-tab-target="quality">Quality</button>
+                <button class="workspace-pill" data-tab-target="scenario">Scenario</button>
                 <button class="workspace-pill" data-tab-target="network">Network</button>
+                <button class="workspace-pill" data-tab-target="extreme">Extreme</button>
+                <button class="workspace-pill" data-tab-target="risk">Risk</button>
             </nav>
 
             <div class="mode-seg hidden" id="analysisModeSwitch">
@@ -211,6 +231,197 @@
                 </div>
             </section>
 
+            <section class="panel-section hidden" data-sidebar-panel="quality">
+                <div class="section-heading">Data Quality</div>
+                <p class="section-desc">Audit completeness, imputation rates, data gaps, and anomaly candidates across the Mekong and LamaH datasets.</p>
+
+                <div class="control-group">
+                    <label>View</label>
+                    <div class="mode-seg" id="qualityViewPicker">
+                        <button class="mode-seg-btn active" data-view="completeness">Completeness</button>
+                        <button class="mode-seg-btn" data-view="imputation">Imputation</button>
+                        <button class="mode-seg-btn" data-view="gaps">Gaps</button>
+                        <button class="mode-seg-btn" data-view="anomalies">Anomalies</button>
+                    </div>
+                </div>
+
+                <!-- Station+Feature controls (completeness / gaps / anomalies) -->
+                <div id="qualityStationGroup">
+                    <div class="control-group">
+                        <label for="qualityStationSelect">Station</label>
+                        <select id="qualityStationSelect"></select>
+                    </div>
+                    <div class="control-group">
+                        <label for="qualityFeatureSelect">Feature</label>
+                        <select id="qualityFeatureSelect"></select>
+                    </div>
+                </div>
+
+                <!-- Dataset+Feature controls (imputation) -->
+                <div id="qualityDatasetGroup" class="hidden">
+                    <div class="control-group">
+                        <label>Dataset</label>
+                        <div class="dataset-picker" id="qualityDatasetPicker"></div>
+                    </div>
+                    <div class="control-group">
+                        <label for="qualityImpFeatureSelect">Feature (optional)</label>
+                        <select id="qualityImpFeatureSelect">
+                            <option value="">All features</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Anomaly z-threshold -->
+                <div id="qualityZGroup" class="hidden">
+                    <div class="scenario-slider-group">
+                        <div class="scenario-slider-row">
+                            <label class="scenario-slider-label">Z-score threshold</label>
+                            <span class="scenario-slider-value" id="qualityZDisplay">3.0</span>
+                        </div>
+                        <input class="scenario-slider" id="qualityZSlider" type="range" min="2" max="5" step="0.5" value="3" />
+                        <div class="scenario-slider-ticks"><span>2</span><span>3.5</span><span>5</span></div>
+                    </div>
+                </div>
+
+                <button class="primary-btn full-width" id="runQualityBtn" style="margin-top:12px;">Run analysis</button>
+                <div class="inline-message" id="qualityMessage"></div>
+            </section>
+
+            <section class="panel-section hidden" data-sidebar-panel="scenario">
+                <div class="section-heading">What-If Scenario</div>
+                <p class="section-desc">Scale a driver feature and estimate the impact on a target over a forecast window using historical sensitivity analysis.</p>
+
+                <div class="control-group">
+                    <label for="scenarioStationSelect">Station</label>
+                    <select id="scenarioStationSelect"></select>
+                </div>
+                <div class="control-grid two-col">
+                    <div class="control-group">
+                        <label for="scenarioTargetSelect">Target</label>
+                        <select id="scenarioTargetSelect"></select>
+                    </div>
+                    <div class="control-group">
+                        <label for="scenarioDriverSelect">Driver</label>
+                        <select id="scenarioDriverSelect"></select>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label for="scenarioModelSelect">Model (baseline)</label>
+                    <select id="scenarioModelSelect"></select>
+                </div>
+
+                <div class="scenario-slider-group">
+                    <div class="scenario-slider-row">
+                        <label class="scenario-slider-label">Scale factor</label>
+                        <span class="scenario-slider-value" id="scenarioScaleDisplay">+20%</span>
+                    </div>
+                    <input class="scenario-slider" id="scenarioScaleSlider" type="range" min="-80" max="100" step="5" value="20" />
+                    <div class="scenario-slider-ticks">
+                        <span>−80%</span><span>0%</span><span>+100%</span>
+                    </div>
+                </div>
+
+                <div class="scenario-slider-group">
+                    <div class="scenario-slider-row">
+                        <label class="scenario-slider-label">Duration</label>
+                        <span class="scenario-slider-value" id="scenarioDurationDisplay">3 months</span>
+                    </div>
+                    <input class="scenario-slider" id="scenarioDurationSlider" type="range" min="1" max="12" step="1" value="3" />
+                    <div class="scenario-slider-ticks">
+                        <span>1 mo</span><span>6 mo</span><span>12 mo</span>
+                    </div>
+                </div>
+
+                <div class="scenario-slider-group">
+                    <div class="scenario-slider-row">
+                        <label class="scenario-slider-label">Start offset</label>
+                        <span class="scenario-slider-value" id="scenarioOffsetDisplay">month 1</span>
+                    </div>
+                    <input class="scenario-slider" id="scenarioOffsetSlider" type="range" min="0" max="11" step="1" value="0" />
+                    <div class="scenario-slider-ticks">
+                        <span>mo 1</span><span>mo 6</span><span>mo 12</span>
+                    </div>
+                </div>
+
+                <button class="primary-btn full-width" id="runScenarioBtn" style="margin-top:12px;">Run scenario</button>
+                <div class="inline-message" id="scenarioMessage"></div>
+
+                <div class="network-caveats" style="margin-top:14px;">
+                    <p class="network-caveat-title">Methodology</p>
+                    <p class="network-caveat-text">Baseline uses pre-trained model predictions where available, otherwise exponential smoothing.</p>
+                    <p class="network-caveat-text">Impact estimated from historical linear regression between driver and target (monthly means).</p>
+                    <p class="network-caveat-small">Results are first-order sensitivity estimates, not hydraulic simulations.</p>
+                </div>
+            </section>
+
+            <section class="panel-section hidden" data-sidebar-panel="extreme">
+                <div class="section-heading">Extreme Event Analysis</div>
+                <p class="section-desc">Fit GEV and Gumbel distributions to annual maxima. Compute return levels for 2–200 year events with bootstrap confidence intervals.</p>
+
+                <div class="control-group">
+                    <label for="extremeStationSelect">Station</label>
+                    <select id="extremeStationSelect"></select>
+                </div>
+                <div class="control-group">
+                    <label for="extremeFeatureSelect">Feature</label>
+                    <select id="extremeFeatureSelect"></select>
+                </div>
+                <div class="control-group">
+                    <label for="extremeDistSelect">Distribution</label>
+                    <select id="extremeDistSelect">
+                        <option value="gev">GEV (Generalized Extreme Value)</option>
+                        <option value="gumbel">Gumbel</option>
+                        <option value="both">Both (overlay)</option>
+                    </select>
+                </div>
+
+                <button class="primary-btn full-width" id="runExtremeBtn" style="margin-top:12px;">Run analysis</button>
+                <div class="inline-message" id="extremeMessage"></div>
+
+                <div class="network-caveats" style="margin-top:14px;">
+                    <p class="network-caveat-title">Methodology</p>
+                    <p class="network-caveat-text">Annual maxima extracted year-by-year. GEV and Gumbel parameters estimated by MLE via SciPy. Bootstrap CI uses 150 resamples.</p>
+                    <p class="network-caveat-small">Return levels are statistical estimates — not hydraulic flood routing.</p>
+                </div>
+            </section>
+
+            <section class="panel-section hidden" data-sidebar-panel="risk">
+                <div class="section-heading">Flood &amp; Drought Risk Map</div>
+                <p class="section-desc">Compare recent observations against the full historical distribution to classify each station by current risk level.</p>
+
+                <div class="control-group">
+                    <label for="riskDatasetSelect">Dataset</label>
+                    <select id="riskDatasetSelect">
+                        <option value="mekong">Mekong</option>
+                        <option value="lamah">LamaH-CE</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="riskFeatureSelect">Feature</label>
+                    <select id="riskFeatureSelect"></select>
+                </div>
+
+                <div class="scenario-slider-group">
+                    <div class="scenario-slider-row">
+                        <label class="scenario-slider-label">Lookback</label>
+                        <span class="scenario-slider-value" id="riskLookbackDisplay">30 pts</span>
+                    </div>
+                    <input class="scenario-slider" id="riskLookbackSlider" type="range" min="7" max="90" step="1" value="30" />
+                    <div class="scenario-slider-ticks">
+                        <span>7</span><span>30</span><span>90</span>
+                    </div>
+                </div>
+
+                <button class="primary-btn full-width" id="runRiskBtn" style="margin-top:12px;">Generate risk map</button>
+                <div class="inline-message" id="riskMessage"></div>
+
+                <div class="network-caveats" style="margin-top:14px;">
+                    <p class="network-caveat-title">Methodology</p>
+                    <p class="network-caveat-text">Risk = percentile rank of the recent mean (last N data points) vs. the full historical record.</p>
+                    <p class="network-caveat-small">LamaH-CE (857 stations) may take 10–20 s on the first run.</p>
+                </div>
+            </section>
+
             <section class="panel-section hidden" data-sidebar-panel="prediction">
                 <div class="section-heading">Prediction setup</div>
                 <div class="control-group">
@@ -339,7 +550,11 @@
                         <button class="dock-tab" data-dock-tab="analysis">AI Analysis</button>
                         <button class="dock-tab" data-dock-tab="prediction">Prediction</button>
                         <button class="dock-tab" data-dock-tab="compare">Compare</button>
+                        <button class="dock-tab" data-dock-tab="quality">Quality</button>
+                        <button class="dock-tab" data-dock-tab="scenario">Scenario</button>
                         <button class="dock-tab" data-dock-tab="network">Network</button>
+                        <button class="dock-tab" data-dock-tab="extreme">Extreme</button>
+                        <button class="dock-tab" data-dock-tab="risk">Risk</button>
                     </div>
                     <div class="dock-actions">
                         <button class="export-pdf-btn" id="exportPdfBtn" type="button" title="Generate PDF report for entire session">
@@ -358,6 +573,14 @@
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                             Clear all
                         </button>
+                        <button class="dock-clear-btn hidden" id="clearQualityBtn" data-dock-clear="quality">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            Clear
+                        </button>
+                        <button class="dock-clear-btn hidden" id="clearScenarioBtn" data-dock-clear="scenario">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            Clear all
+                        </button>
                         <button class="dock-clear-btn hidden" id="clearNetworkBtn" data-dock-clear="network">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                             Clear
@@ -365,6 +588,14 @@
                         <button class="dock-clear-btn hidden" id="clearCompareBtn" data-dock-clear="compare">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                             Clear all
+                        </button>
+                        <button class="dock-clear-btn hidden" id="clearExtremeBtn" data-dock-clear="extreme">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            Clear all
+                        </button>
+                        <button class="dock-clear-btn hidden" id="clearRiskBtn" data-dock-clear="risk">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            Clear
                         </button>
                     </div>
                 </div>
@@ -394,12 +625,44 @@
                         <div class="card-grid" id="predictionCards"></div>
                     </section>
 
+                    <section class="dock-panel" data-dock-panel="quality">
+                        <div class="panel-intro">
+                            <h3>Data Quality Dashboard</h3>
+                            <p>Completeness heatmaps, imputation summaries, gap timelines, and anomaly review. Use the sidebar to select a view and station.</p>
+                        </div>
+                        <div id="qualityWorkspace" class="quality-workspace"></div>
+                    </section>
+
+                    <section class="dock-panel" data-dock-panel="scenario">
+                        <div class="panel-intro">
+                            <h3>Scenario workspace</h3>
+                            <p>Each scenario card shows the baseline forecast, the scaled scenario, and a delta chart. Cards persist until removed.</p>
+                        </div>
+                        <div class="card-grid" id="scenarioCards"></div>
+                    </section>
+
                     <section class="dock-panel network-dock-panel" data-dock-panel="network">
                         <div class="panel-intro">
                             <h3>Mekong River Network</h3>
                             <p>Directed graph of Mekong gauging stations. Blue = main stem, gray = tributaries. Node size reflects number of incoming tributaries; colour reflects mean discharge.</p>
                         </div>
                         <div id="networkWorkspace" class="network-workspace"></div>
+                    </section>
+
+                    <section class="dock-panel" data-dock-panel="extreme">
+                        <div class="panel-intro">
+                            <h3>Extreme Event Analysis</h3>
+                            <p>GEV and Gumbel return-period curves with empirical Weibull plotting positions and bootstrap confidence intervals. Each card adds a new station/feature analysis.</p>
+                        </div>
+                        <div class="card-grid" id="extremeCards"></div>
+                    </section>
+
+                    <section class="dock-panel" data-dock-panel="risk">
+                        <div class="panel-intro">
+                            <h3>Flood &amp; Drought Risk Map</h3>
+                            <p>Station markers coloured by current risk level relative to their full historical record. Green = normal, blue = flood watch/risk, orange/red = drought.</p>
+                        </div>
+                        <div id="riskWorkspace" class="risk-workspace"></div>
                     </section>
 
                     <section class="dock-panel compare-dock-panel" data-dock-panel="compare">
