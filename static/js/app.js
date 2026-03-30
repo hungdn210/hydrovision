@@ -65,7 +65,6 @@
         dockHandle: document.getElementById('dockHandle'),
         dockTabs: Array.from(document.querySelectorAll('.dock-tab')),
         dockPanels: Array.from(document.querySelectorAll('.dock-panel')),
-        workspacePills: Array.from(document.querySelectorAll('.workspace-pill')),
         dockClearBtns: Array.from(document.querySelectorAll('.dock-clear-btn')),
         visualizationCards: document.getElementById('visualizationCards'),
         analysisCards: document.getElementById('analysisCards'),
@@ -324,6 +323,8 @@
         addFreeSeriesRow();
         syncSeriesBuilderUI();
         refreshMarkerVisibility();
+        // Show Visualize tab by default
+        activateDockTab('visualize');
     }
 
     function invalidateMapAfterTransition() {
@@ -351,15 +352,8 @@
         document.querySelectorAll('.rail-nav-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const tab = btn.dataset.railTab;
-                els.sidebar.classList.remove('collapsed');
                 invalidateMapAfterTransition();
-                // Switch to the clicked tab
-                document.querySelectorAll('.workspace-pill').forEach(p => p.classList.remove('active'));
-                const pill = document.querySelector(`.workspace-pill[data-tab-target="${tab}"]`);
-                if (pill) pill.click();
-                // Update rail active state
-                document.querySelectorAll('.rail-nav-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
+                activateDockTab(tab);
             });
         });
 
@@ -525,9 +519,6 @@
 
         els.dockTabs.forEach((tab) => {
             tab.addEventListener('click', () => activateDockTab(tab.dataset.dockTab));
-        });
-        els.workspacePills.forEach((pill) => {
-            pill.addEventListener('click', () => activateDockTab(pill.dataset.tabTarget));
         });
 
         els.predictStationSelect.addEventListener('change', updatePredictionFeatureOptions);
@@ -1416,7 +1407,7 @@
         const originalText = btn.textContent;
         btn.disabled = true;
         btn.textContent = 'Analysing…';
-        showMessage(els.freeAnalysisMessage, 'Generating 3 charts and AI analysis… this may take a moment.', '');
+        showMessage(els.freeAnalysisMessage, 'Processing analysis… this may take a moment.', '');
         try {
             const response = await fetch('/api/analyze-free-multi', {
                 method: 'POST',
@@ -1448,7 +1439,7 @@
         card.innerHTML = `
             <div class="workspace-card-header">
                 <div style="flex:1;min-width:0;">
-                    <h3 class="workspace-card-title">🧠 AI Analysis Report</h3>
+                    <h3 class="workspace-card-title">📊 Analysis Report</h3>
                     <div class="workspace-card-subtitle">${escapeHtml(describeSeries(graphs[0].series))} · ${graphs.length} complementary views</div>
                 </div>
                 <div class="card-header-actions" style="display:flex;gap:8px;flex-shrink:0;align-items:start;">
@@ -2252,7 +2243,7 @@
         const analysisBlock = document.createElement('div');
         analysisBlock.className = 'analysis-block';
         analysisBlock.innerHTML = `
-            <h4>🧠 AI Summary</h4>
+            <h4>📊 Summary</h4>
             <div class="analysis-summary"></div>
             <div class="analysis-findings"></div>
             <div class="analysis-comparisons"></div>
@@ -2324,14 +2315,14 @@
             body.appendChild(metricsEl);
         }
 
-        // AI analysis block
+        // Analysis block
         const block = document.createElement('div');
         block.className = 'analysis-block';
         block.innerHTML = `<h4>🧠 Prediction Analysis</h4><div class="analysis-summary"></div>`;
         const summaryEl = block.querySelector('.analysis-summary');
         if (result.summary) {
             if (result.summary.includes('<p>') || result.summary.includes('<ul>') || result.summary.includes('<li>')) {
-                summaryEl.innerHTML = result.summary.replace(/^🧠 \*\*AI Analysis\*\*\n\n/, '').replace(/^🧠 Analysis:\n/, '');
+                summaryEl.innerHTML = result.summary.replace(/^🧠 \*\*AI Analysis\*\*\n\n/, '').replace(/^🧠 Analysis:\n/, '').replace(/^Analysis:\n/, '');
             } else {
                 summaryEl.textContent = result.summary;
             }
@@ -2397,14 +2388,14 @@
         expandBtn.className = 'card-action-btn';
         expandBtn.type = 'button';
         expandBtn.title = 'Expand to fullscreen';
-        expandBtn.innerHTML = '<svg width=”13” height=”13” viewBox=”0 0 24 24” fill=”none” stroke=”currentColor” stroke-width=”2.2” stroke-linecap=”round” stroke-linejoin=”round”><polyline points=”15 3 21 3 21 9”/><polyline points=”9 21 3 21 3 15”/><line x1=”21” y1=”3” x2=”14” y2=”10”/><line x1=”3” y1=”21” x2=”10” y2=”14”/></svg>';
+        expandBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
 
         // Delete button
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'card-action-btn card-delete-btn';
         deleteBtn.type = 'button';
         deleteBtn.title = 'Remove card';
-        deleteBtn.innerHTML = '<svg width=”13” height=”13” viewBox=”0 0 24 24” fill=”none” stroke=”currentColor” stroke-width=”2.2” stroke-linecap=”round” stroke-linejoin=”round”><polyline points=”3 6 5 6 21 6”/><path d=”M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6”/><path d=”M10 11v6”/><path d=”M14 11v6”/><path d=”M9 6V4h6v2”/></svg>';
+        deleteBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>';
 
         actions.appendChild(imgBtns);
         actions.appendChild(sep);
@@ -2807,7 +2798,6 @@
 
     function activateDockTab(tabName) {
         els.dockTabs.forEach((tab) => tab.classList.toggle('active', tab.dataset.dockTab === tabName));
-        els.workspacePills.forEach((pill) => pill.classList.toggle('active', pill.dataset.tabTarget === tabName));
         els.dockPanels.forEach((panel) => panel.classList.toggle('active', panel.dataset.dockPanel === tabName));
         els.dockClearBtns.forEach((btn) => btn.classList.toggle('hidden', btn.dataset.dockClear !== tabName));
 
@@ -3013,7 +3003,7 @@
 
             const panelInfo = [
                 { id: 'visualizationCards', label: 'Visualization' },
-                { id: 'analysisCards',      label: 'AI Analysis' },
+                { id: 'analysisCards',      label: 'Analysis' },
                 { id: 'predictionCards',    label: 'Prediction' },
                 { id: 'scenarioCards',      label: 'Scenario' },
             ];

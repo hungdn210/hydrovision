@@ -60,6 +60,7 @@
                 </button>
             </div>
 
+            <div class="sidebar-content">
             <div class="sidebar-header">
                 <div class="brand-block">
                     <img src="{{ url_for('static', filename='images/Logo.png') }}" alt="Hydrovision Logo" class="brand-logo">
@@ -75,17 +76,6 @@
                 </button>
             </div>
 
-            <nav class="workspace-switcher">
-                <button class="workspace-pill active" data-tab-target="visualize">Explore</button>
-                <button class="workspace-pill" data-tab-target="analysis">Analyse</button>
-                <button class="workspace-pill" data-tab-target="prediction">Predict</button>
-                <button class="workspace-pill" data-tab-target="compare">Compare</button>
-                <button class="workspace-pill" data-tab-target="quality">Quality</button>
-                <button class="workspace-pill" data-tab-target="scenario">Scenario</button>
-                <button class="workspace-pill" data-tab-target="network">Network</button>
-                <button class="workspace-pill" data-tab-target="extreme">Extreme</button>
-                <button class="workspace-pill" data-tab-target="risk">Risk</button>
-            </nav>
 
             <div class="mode-seg hidden" id="analysisModeSwitch">
                 <button class="mode-seg-btn active" data-mode="free">Deep Dive</button>
@@ -464,6 +454,7 @@
                 <button class="primary-btn full-width" id="runPredictionBtn" style="margin-top: 10px;">Run prediction</button>
                 <div class="inline-message" id="predictionMessage"></div>
             </section>
+            </div><!-- .sidebar-content -->
         </aside>
 
         <main class="workspace">
@@ -547,7 +538,7 @@
                 <div class="dock-header">
                     <div class="dock-tabs">
                         <button class="dock-tab active" data-dock-tab="visualize">Visualize</button>
-                        <button class="dock-tab" data-dock-tab="analysis">AI Analysis</button>
+                        <button class="dock-tab" data-dock-tab="analysis">Analysis</button>
                         <button class="dock-tab" data-dock-tab="prediction">Prediction</button>
                         <button class="dock-tab" data-dock-tab="compare">Compare</button>
                         <button class="dock-tab" data-dock-tab="quality">Quality</button>

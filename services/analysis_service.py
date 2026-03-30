@@ -63,7 +63,7 @@ class AnalysisService:
         return self.analyse({'graph_type': graph_type, 'series': series})
 
     def analyse_free_multi(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Free-form analysis producing 3 complementary graphs with per-graph AI analysis."""
+        """Free-form analysis producing 3 complementary graphs with per-graph analysis."""
         series = payload.get('series', [])
         if not series:
             raise ValueError('At least one series is required.')
@@ -203,7 +203,7 @@ class AnalysisService:
         """One Gemini call producing N graph-specific analysis sections. Returns list of HTML strings."""
         api_key = os.environ.get("GEMINI_API_KEY")
         fallback = [
-            f"<p><em>{g['label']}: Set GEMINI_API_KEY to enable AI analysis.</em></p>"
+            f"<p><em>{g['label']}: Set GEMINI_API_KEY to enable enhanced analysis.</em></p>"
             for g in graph_meta
         ]
         if not api_key or api_key == "your_google_gemini_api_key_here" or not api_key.strip():
@@ -253,7 +253,7 @@ class AnalysisService:
             return [markdown.markdown(s) if s else '' for s in sections[:n]]
         except Exception as e:
             return [
-                f"<p><em>{g['label']}: AI analysis failed — {e}</em></p>"
+                f"<p><em>{g['label']}: Analysis generation failed — {e}</em></p>"
                 for g in graph_meta
             ]
 
@@ -269,7 +269,7 @@ class AnalysisService:
         summary = self._compose_summary(series_frames, findings, comparisons, climatology, benchmark)
         benchmark_analysis = self._compose_benchmark_summary(benchmark)
 
-        # If we have a successful AI summary, suppress the raw findings cards to reduce clutter
+        # If we have a successful summary, suppress the raw findings cards to reduce clutter
         if '<p>' in summary or '<ul>' in summary or '<li>' in summary:
             findings = []
 
@@ -340,7 +340,7 @@ class AnalysisService:
             html_content = markdown.markdown(_gemini_generate(api_key, prompt))
             return html_content
         except Exception as e:
-            return base_summary + f"\n\n*(AI Summary Generation Failed: {str(e)})*"
+            return base_summary + f"\n\n*(Summary Generation Failed: {str(e)})*"
 
     def _format_findings_for_prompt(self, findings: List[Dict]) -> str:
         """Format the rich findings dict into a readable block for the Gemini prompt."""
@@ -542,7 +542,7 @@ class AnalysisService:
         return results
 
     def _compose_benchmark_summary(self, benchmark: List[Dict]) -> str:
-        """Short AI paragraph interpreting the dataset benchmark comparisons."""
+        """Short paragraph interpreting the dataset benchmark comparisons."""
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key or api_key == "your_google_gemini_api_key_here" or not api_key.strip() or not benchmark:
             return ''
