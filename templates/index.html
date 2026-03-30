@@ -58,6 +58,18 @@
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                     <span class="rail-label">Risk</span>
                 </button>
+                <button class="rail-nav-btn" data-rail-tab="climate" title="Climate Projections">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h2M20 12h2M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/><circle cx="12" cy="12" r="4"/></svg>
+                    <span class="rail-label">Climate</span>
+                </button>
+                <button class="rail-nav-btn" data-rail-tab="changepoint" title="Change Point Detection">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    <span class="rail-label">Breaks</span>
+                </button>
+                <button class="rail-nav-btn" data-rail-tab="animate" title="Animated Map">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    <span class="rail-label">Animate</span>
+                </button>
             </div>
 
             <div class="sidebar-content">
@@ -454,6 +466,110 @@
                 <button class="primary-btn full-width" id="runPredictionBtn" style="margin-top: 10px;">Run prediction</button>
                 <div class="inline-message" id="predictionMessage"></div>
             </section>
+
+            <!-- ── Climate Change Impact Projector ─────────────────────────── -->
+            <section class="panel-section hidden" data-sidebar-panel="climate">
+                <div class="section-heading">Climate Impact Projector</div>
+                <p class="section-desc">Project future water availability under different warming scenarios using delta-change methodology applied to the historical record.</p>
+                <div class="control-group">
+                    <label for="climateDatasetSelect">Dataset</label>
+                    <select id="climateDatasetSelect">
+                        <option value="mekong">Mekong</option>
+                        <option value="lamah">LamaH-CE</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="climateStationSelect">Station</label>
+                    <select id="climateStationSelect"></select>
+                </div>
+                <div class="control-group">
+                    <label for="climateFeatureSelect">Feature</label>
+                    <select id="climateFeatureSelect"></select>
+                </div>
+                <div class="scenario-slider-group">
+                    <div class="scenario-slider-row">
+                        <label class="scenario-slider-label">Projection window</label>
+                        <span class="scenario-slider-value" id="climateYearsDisplay">30 yrs</span>
+                    </div>
+                    <input class="scenario-slider" id="climateYearsSlider" type="range" min="10" max="80" step="5" value="30" />
+                    <div class="scenario-slider-ticks"><span>10</span><span>30</span><span>80</span></div>
+                </div>
+                <div class="action-row sticky-actions" data-sidebar-action="climate">
+                    <button class="primary-btn full-width" id="runClimateBtn">Generate projection</button>
+                </div>
+                <div class="inline-message" id="climateMessage"></div>
+                <div class="network-caveats" style="margin-top:14px;">
+                    <p class="network-caveat-title">Scenarios</p>
+                    <p class="network-caveat-text"><b style="color:#34d399">SSP1-2.6</b> +1.5°C · <b style="color:#60a5fa">SSP2-4.5</b> +2.5°C · <b style="color:#f87171">SSP5-8.5</b> +4.5°C warming above pre-industrial.</p>
+                </div>
+            </section>
+
+            <!-- ── Change Point Detection ──────────────────────────────────── -->
+            <section class="panel-section hidden" data-sidebar-panel="changepoint">
+                <div class="section-heading">Change Point Detection</div>
+                <p class="section-desc">Identify statistically significant regime shifts in hydrological time series using PELT or Binary Segmentation algorithms.</p>
+                <div class="control-group">
+                    <label for="cpDatasetSelect">Dataset</label>
+                    <select id="cpDatasetSelect">
+                        <option value="mekong">Mekong</option>
+                        <option value="lamah">LamaH-CE</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="cpStationSelect">Station</label>
+                    <select id="cpStationSelect"></select>
+                </div>
+                <div class="control-group">
+                    <label for="cpFeatureSelect">Feature</label>
+                    <select id="cpFeatureSelect"></select>
+                </div>
+                <div class="control-group">
+                    <label>Algorithm</label>
+                    <div class="mode-seg" id="cpMethodPicker">
+                        <button class="mode-seg-btn active" data-method="pelt">PELT</button>
+                        <button class="mode-seg-btn" data-method="binseg">BinSeg</button>
+                    </div>
+                </div>
+                <div class="scenario-slider-group">
+                    <div class="scenario-slider-row">
+                        <label class="scenario-slider-label">Max breakpoints</label>
+                        <span class="scenario-slider-value" id="cpBreaksDisplay">3</span>
+                    </div>
+                    <input class="scenario-slider" id="cpBreaksSlider" type="range" min="1" max="6" step="1" value="3" />
+                    <div class="scenario-slider-ticks"><span>1</span><span>3</span><span>6</span></div>
+                </div>
+                <div class="action-row sticky-actions" data-sidebar-action="changepoint">
+                    <button class="primary-btn full-width" id="runCpBtn">Detect change points</button>
+                </div>
+                <div class="inline-message" id="cpMessage"></div>
+            </section>
+
+            <!-- ── Animated Time-Series Map ────────────────────────────────── -->
+            <section class="panel-section hidden" data-sidebar-panel="animate">
+                <div class="section-heading">Animated Basin Map</div>
+                <p class="section-desc">Animate station conditions year-by-year to reveal how hydrological regimes evolve across the basin over decades.</p>
+                <div class="control-group">
+                    <label for="animateDatasetSelect">Dataset</label>
+                    <select id="animateDatasetSelect">
+                        <option value="mekong">Mekong</option>
+                        <option value="lamah">LamaH-CE</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="animateFeatureSelect">Feature</label>
+                    <select id="animateFeatureSelect"></select>
+                </div>
+                <div class="action-row sticky-actions" data-sidebar-action="animate">
+                    <button class="primary-btn full-width" id="runAnimateBtn">Build animation</button>
+                </div>
+                <div class="inline-message" id="animateMessage"></div>
+                <div class="network-caveats" style="margin-top:14px;">
+                    <p class="network-caveat-title">How it works</p>
+                    <p class="network-caveat-text">Each station is coloured by its annual value percentile vs its own history. Use the play button and slider on the map to navigate through time.</p>
+                    <p class="network-caveat-small">LamaH-CE may take 20–40 s to build the animation.</p>
+                </div>
+            </section>
+
             </div><!-- .sidebar-content -->
         </aside>
 
@@ -546,6 +662,9 @@
                         <button class="dock-tab" data-dock-tab="network">Network</button>
                         <button class="dock-tab" data-dock-tab="extreme">Extreme</button>
                         <button class="dock-tab" data-dock-tab="risk">Risk</button>
+                        <button class="dock-tab" data-dock-tab="climate">Climate</button>
+                        <button class="dock-tab" data-dock-tab="changepoint">Change Points</button>
+                        <button class="dock-tab" data-dock-tab="animate">Animate</button>
                     </div>
                     <div class="dock-actions">
                         <button class="export-pdf-btn" id="exportPdfBtn" type="button" title="Generate PDF report for entire session">
@@ -585,6 +704,18 @@
                             Clear all
                         </button>
                         <button class="dock-clear-btn hidden" id="clearRiskBtn" data-dock-clear="risk">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            Clear
+                        </button>
+                        <button class="dock-clear-btn hidden" id="clearClimateBtn" data-dock-clear="climate">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            Clear all
+                        </button>
+                        <button class="dock-clear-btn hidden" id="clearChangepointBtn" data-dock-clear="changepoint">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            Clear all
+                        </button>
+                        <button class="dock-clear-btn hidden" id="clearAnimateBtn" data-dock-clear="animate">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                             Clear
                         </button>
@@ -662,6 +793,30 @@
                             <p>Cross-station correlations, ranked anomaly leaderboards, and basin-wide aggregate statistics. Select a dataset + feature in the sidebar and click <em>Run comparison</em>.</p>
                         </div>
                         <div id="compareWorkspace" class="compare-workspace"></div>
+                    </section>
+
+                    <section class="dock-panel" data-dock-panel="climate">
+                        <div class="panel-intro">
+                            <h3>Climate Impact Projections</h3>
+                            <p>Historical trends extended into the future under SSP1-2.6, SSP2-4.5, and SSP5-8.5 warming scenarios. Uncertainty bands widen with projection distance and scenario severity.</p>
+                        </div>
+                        <div class="card-grid" id="climateCards"></div>
+                    </section>
+
+                    <section class="dock-panel" data-dock-panel="changepoint">
+                        <div class="panel-intro">
+                            <h3>Structural Break Analysis</h3>
+                            <p>Statistically detected regime shifts in hydrological time series. Segment means and Mann-Kendall trend tests reveal how each period behaves differently.</p>
+                        </div>
+                        <div class="card-grid" id="changepointCards"></div>
+                    </section>
+
+                    <section class="dock-panel" data-dock-panel="animate">
+                        <div class="panel-intro">
+                            <h3>Animated Basin Conditions</h3>
+                            <p>Watch station risk classifications evolve year-by-year across the basin. Use the play button and year slider on the map to navigate through time.</p>
+                        </div>
+                        <div class="card-grid" id="animateCards"></div>
                     </section>
                 </div>
             </section>

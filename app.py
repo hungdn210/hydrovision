@@ -19,6 +19,9 @@ from services.extreme_service import ExtremeService
 from services.quality_service import QualityService
 from services.risk_service import RiskService
 from services.scenario_service import ScenarioService
+from services.climate_service import ClimateService
+from services.changepoint_service import ChangePointService
+from services.animation_service import AnimationService
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -57,6 +60,9 @@ scenario_service = ScenarioService(repository, data_dir=BASE_DIR / 'data')
 quality_service = QualityService(repository, data_dir=BASE_DIR / 'data')
 extreme_service = ExtremeService(repository)
 risk_service = RiskService(repository)
+climate_service = ClimateService(repository)
+changepoint_service = ChangePointService(repository)
+animation_service = AnimationService(repository)
 
 app = Flask(__name__)
 
@@ -456,6 +462,52 @@ def risk():
         return jsonify({'ok': False, 'error': 'feature parameter required'}), 400
     try:
         result = risk_service.compute_risk_map(dataset, feature, lookback)
+        return jsonify({'ok': True, 'result': result})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.post('/api/climate-project')
+def climate_project():
+    payload = request.get_json(silent=True) or {}
+    dataset = str(payload.get('dataset', 'mekong')).strip()
+    station = str(payload.get('station', '')).strip()
+    feature = str(payload.get('feature', '')).strip()
+    projection_years = int(payload.get('projection_years', 30))
+    if not station or not feature:
+        return jsonify({'ok': False, 'error': 'station and feature required'}), 400
+    try:
+        result = climate_service.project(dataset, station, feature, projection_years)
+        return jsonify({'ok': True, 'result': result})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.post('/api/changepoints')
+def changepoints():
+    payload = request.get_json(silent=True) or {}
+    dataset = str(payload.get('dataset', 'mekong')).strip()
+    station = str(payload.get('station', '')).strip()
+    feature = str(payload.get('feature', '')).strip()
+    n_breaks = int(payload.get('n_breaks', 3))
+    method = str(payload.get('method', 'pelt')).strip()
+    if not station or not feature:
+        return jsonify({'ok': False, 'error': 'station and feature required'}), 400
+    try:
+        result = changepoint_service.detect(dataset, station, feature, n_breaks, method)
+        return jsonify({'ok': True, 'result': result})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.route('/api/animate-map')
+def animate_map():
+    dataset = request.args.get('dataset', 'mekong').strip()
+    feature = request.args.get('feature', '').strip()
+    if not feature:
+        return jsonify({'ok': False, 'error': 'feature parameter required'}), 400
+    try:
+        result = animation_service.build_animation(dataset, feature)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400

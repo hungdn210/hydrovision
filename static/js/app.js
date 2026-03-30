@@ -22,6 +22,9 @@
             visualize: 0,
             analysis: 0,
             prediction: 0,
+            climate: 0,
+            changepoint: 0,
+            animate: 0,
         },
     };
 
@@ -127,6 +130,34 @@
         riskLookbackDisplay: document.getElementById('riskLookbackDisplay'),
         runRiskBtn: document.getElementById('runRiskBtn'),
         riskMessage: document.getElementById('riskMessage'),
+        // Climate Projector
+        climateCards: document.getElementById('climateCards'),
+        clearClimateBtn: document.getElementById('clearClimateBtn'),
+        climateDatasetSelect: document.getElementById('climateDatasetSelect'),
+        climateStationSelect: document.getElementById('climateStationSelect'),
+        climateFeatureSelect: document.getElementById('climateFeatureSelect'),
+        climateYearsSlider: document.getElementById('climateYearsSlider'),
+        climateYearsDisplay: document.getElementById('climateYearsDisplay'),
+        runClimateBtn: document.getElementById('runClimateBtn'),
+        climateMessage: document.getElementById('climateMessage'),
+        // Change Point Detection
+        changepointCards: document.getElementById('changepointCards'),
+        clearChangepointBtn: document.getElementById('clearChangepointBtn'),
+        cpDatasetSelect: document.getElementById('cpDatasetSelect'),
+        cpStationSelect: document.getElementById('cpStationSelect'),
+        cpFeatureSelect: document.getElementById('cpFeatureSelect'),
+        cpMethodPicker: document.getElementById('cpMethodPicker'),
+        cpBreaksSlider: document.getElementById('cpBreaksSlider'),
+        cpBreaksDisplay: document.getElementById('cpBreaksDisplay'),
+        runCpBtn: document.getElementById('runCpBtn'),
+        cpMessage: document.getElementById('cpMessage'),
+        // Animated Map
+        animateCards: document.getElementById('animateCards'),
+        clearAnimateBtn: document.getElementById('clearAnimateBtn'),
+        animateDatasetSelect: document.getElementById('animateDatasetSelect'),
+        animateFeatureSelect: document.getElementById('animateFeatureSelect'),
+        runAnimateBtn: document.getElementById('runAnimateBtn'),
+        animateMessage: document.getElementById('animateMessage'),
         // Network
         clearNetworkBtn: document.getElementById('clearNetworkBtn'),
         runNetworkBtn: document.getElementById('runNetworkBtn'),
@@ -319,6 +350,9 @@
         populateExtremeControls();
         setEmptyState(els.extremeCards, 'No analyses yet. Select a station and feature, then click Run analysis.');
         populateRiskControls();
+        initClimateControls();
+        initChangepointControls();
+        initAnimateControls();
         addSeriesRow();
         addFreeSeriesRow();
         syncSeriesBuilderUI();
@@ -506,6 +540,35 @@
             if (els.riskLookbackDisplay) els.riskLookbackDisplay.textContent = els.riskLookbackSlider.value + ' pts';
         });
         els.runRiskBtn?.addEventListener('click', runRiskMap);
+
+        // Climate Projector
+        els.clearClimateBtn?.addEventListener('click', () => setEmptyState(els.climateCards, 'No projections yet.'));
+        els.climateDatasetSelect?.addEventListener('change', () => updateSelectOptions(els.climateDatasetSelect.value, els.climateStationSelect, els.climateFeatureSelect));
+        els.climateStationSelect?.addEventListener('change', () => updateFeatureSelectForStation(els.climateDatasetSelect.value, els.climateStationSelect.value, els.climateFeatureSelect));
+        els.climateYearsSlider?.addEventListener('input', () => {
+            if (els.climateYearsDisplay) els.climateYearsDisplay.textContent = els.climateYearsSlider.value + ' yrs';
+        });
+        els.runClimateBtn?.addEventListener('click', runClimateProjection);
+
+        // Change Point Detection
+        els.clearChangepointBtn?.addEventListener('click', () => setEmptyState(els.changepointCards, 'No analyses yet.'));
+        els.cpDatasetSelect?.addEventListener('change', () => updateSelectOptions(els.cpDatasetSelect.value, els.cpStationSelect, els.cpFeatureSelect));
+        els.cpStationSelect?.addEventListener('change', () => updateFeatureSelectForStation(els.cpDatasetSelect.value, els.cpStationSelect.value, els.cpFeatureSelect));
+        els.cpBreaksSlider?.addEventListener('input', () => {
+            if (els.cpBreaksDisplay) els.cpBreaksDisplay.textContent = els.cpBreaksSlider.value;
+        });
+        els.cpMethodPicker?.querySelectorAll('.mode-seg-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                els.cpMethodPicker.querySelectorAll('.mode-seg-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            });
+        });
+        els.runCpBtn?.addEventListener('click', runChangePointDetection);
+
+        // Animated Map
+        els.clearAnimateBtn?.addEventListener('click', () => setEmptyState(els.animateCards, 'No animations yet.'));
+        els.animateDatasetSelect?.addEventListener('change', () => updateAnimateFeatureOptions());
+        els.runAnimateBtn?.addEventListener('click', runAnimatedMap);
 
         // Network
         els.clearNetworkBtn?.addEventListener('click', () => {
@@ -2491,8 +2554,12 @@
         // Re-render every plot container in the modal so all charts expand to modal size
         bodyContent.querySelectorAll('.plot-container').forEach((plot, i) => {
             plot.id = `modal-plot-container-${i}`;
-            if (plot.dataset.figure) {
-                renderPlot(plot, plot.dataset.figure);
+            const figureJson = plot.dataset.figure;
+            if (figureJson) {
+                // Clear stale Plotly internals (canvas/WebGL) copied by cloneNode
+                plot.innerHTML = '';
+                // Use setTimeout so the modal is fully painted before Plotly (especially mapbox) initialises
+                setTimeout(() => renderPlot(plot, figureJson), 80);
             }
         });
     }
@@ -2550,7 +2617,11 @@
                 displaylogo: false,
                 modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d'],
             };
-            Plotly.newPlot(container, figure.data, figure.layout, config);
+            Plotly.newPlot(container, figure.data, figure.layout, config).then(() => {
+                if (figure.frames && figure.frames.length > 0) {
+                    Plotly.addFrames(container, figure.frames);
+                }
+            });
         });
     }
 
@@ -2815,7 +2886,7 @@
                 if (tabName === 'analysis') {
                     panel.classList.toggle('hidden', state.analysisMode !== 'charted');
                 } else {
-                    panel.classList.toggle('hidden', tabName === 'prediction' || tabName === 'compare' || tabName === 'network' || tabName === 'scenario' || tabName === 'quality' || tabName === 'extreme' || tabName === 'risk');
+                    panel.classList.toggle('hidden', tabName === 'prediction' || tabName === 'compare' || tabName === 'network' || tabName === 'scenario' || tabName === 'quality' || tabName === 'extreme' || tabName === 'risk' || tabName === 'climate' || tabName === 'changepoint' || tabName === 'animate');
                 }
             } else if (key === 'analysis') {
                 panel.classList.toggle('hidden', tabName !== 'analysis' || state.analysisMode !== 'free');
@@ -2833,6 +2904,12 @@
                 panel.classList.toggle('hidden', tabName !== 'extreme');
             } else if (key === 'risk') {
                 panel.classList.toggle('hidden', tabName !== 'risk');
+            } else if (key === 'climate') {
+                panel.classList.toggle('hidden', tabName !== 'climate');
+            } else if (key === 'changepoint') {
+                panel.classList.toggle('hidden', tabName !== 'changepoint');
+            } else if (key === 'animate') {
+                panel.classList.toggle('hidden', tabName !== 'animate');
             }
         });
 
@@ -2845,6 +2922,12 @@
                 row.classList.toggle('hidden', tabName !== 'visualize');
             } else if (key === 'analysis') {
                 row.classList.toggle('hidden', tabName !== 'analysis');
+            } else if (key === 'climate') {
+                row.classList.toggle('hidden', tabName !== 'climate');
+            } else if (key === 'changepoint') {
+                row.classList.toggle('hidden', tabName !== 'changepoint');
+            } else if (key === 'animate') {
+                row.classList.toggle('hidden', tabName !== 'animate');
             }
         });
     }
@@ -4217,6 +4300,181 @@
                 modeBarButtonsToRemove: ['lasso2d', 'select2d'],
             });
         });
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // CLIMATE CHANGE IMPACT PROJECTOR
+    // ════════════════════════════════════════════════════════════════════════
+
+    function updateSelectOptions(dataset, stationSelect, featureSelect) {
+        if (!stationSelect) return;
+        const stations = (state.bootstrap?.stations || []).filter(s => s.dataset === dataset);
+        stationSelect.innerHTML = stations
+            .map(s => `<option value="${escapeHtml(s.station)}">${escapeHtml(s.name || s.station)}</option>`)
+            .join('');
+        if (stationSelect.options.length > 0) {
+            updateFeatureSelectForStation(dataset, stationSelect.value, featureSelect);
+        }
+    }
+
+    function updateFeatureSelectForStation(dataset, station, featureSelect) {
+        if (!featureSelect || !station) return;
+        const stInfo = (state.bootstrap?.stations || []).find(s => s.station === station && s.dataset === dataset);
+        const features = stInfo?.features || [];
+        featureSelect.innerHTML = features
+            .map(f => `<option value="${escapeHtml(f)}"${f === 'Discharge' ? ' selected' : ''}>${escapeHtml(f.replace(/_/g, ' '))}</option>`)
+            .join('');
+    }
+
+    function initClimateControls() {
+        if (!els.climateDatasetSelect) return;
+        updateSelectOptions(els.climateDatasetSelect.value, els.climateStationSelect, els.climateFeatureSelect);
+        setEmptyState(els.climateCards, 'No projections yet. Select a station and feature, then click Generate projection.');
+    }
+
+    async function runClimateProjection() {
+        if (!els.runClimateBtn) return;
+        const dataset = els.climateDatasetSelect?.value || 'mekong';
+        const station = els.climateStationSelect?.value;
+        const feature = els.climateFeatureSelect?.value;
+        const projection_years = Number(els.climateYearsSlider?.value || 30);
+        if (!station || !feature) {
+            showMessage(els.climateMessage, 'Select a station and feature.', 'error');
+            return;
+        }
+        showMessage(els.climateMessage, 'Projecting climate impacts… this may take a moment.', '');
+        els.runClimateBtn.disabled = true;
+        try {
+            const res = await fetch('/api/climate-project', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dataset, station, feature, projection_years }),
+            });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error);
+            appendClimateCard(data.result);
+            activateDockTab('climate');
+            const s = data.result.stats;
+            showMessage(els.climateMessage, `Projection added · trend ${s.historical_trend_per_decade > 0 ? '+' : ''}${s.historical_trend_per_decade}/decade (R²=${s.r_squared})`, 'success');
+        } catch (err) {
+            showMessage(els.climateMessage, err.message || 'Projection failed.', 'error');
+        } finally {
+            els.runClimateBtn.disabled = false;
+        }
+    }
+
+    function appendClimateCard(result) {
+        clearEmptyStateIfNeeded(els.climateCards);
+        const cardId = `climate-${++state.cardCounters.climate}`;
+        const card = buildBaseCard(cardId, result.title, result.subtitle);
+        els.climateCards.prepend(card);
+        renderPlot(card.querySelector('.plot-container'), result.figure);
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // CHANGE POINT DETECTION
+    // ════════════════════════════════════════════════════════════════════════
+
+    function initChangepointControls() {
+        if (!els.cpDatasetSelect) return;
+        updateSelectOptions(els.cpDatasetSelect.value, els.cpStationSelect, els.cpFeatureSelect);
+        setEmptyState(els.changepointCards, 'No analyses yet. Select a station and feature, then click Detect change points.');
+    }
+
+    async function runChangePointDetection() {
+        if (!els.runCpBtn) return;
+        const dataset = els.cpDatasetSelect?.value || 'mekong';
+        const station = els.cpStationSelect?.value;
+        const feature = els.cpFeatureSelect?.value;
+        const n_breaks = Number(els.cpBreaksSlider?.value || 3);
+        const method = els.cpMethodPicker?.querySelector('.mode-seg-btn.active')?.dataset.method || 'pelt';
+        if (!station || !feature) {
+            showMessage(els.cpMessage, 'Select a station and feature.', 'error');
+            return;
+        }
+        showMessage(els.cpMessage, 'Detecting structural breaks… this may take a moment.', '');
+        els.runCpBtn.disabled = true;
+        try {
+            const res = await fetch('/api/changepoints', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dataset, station, feature, n_breaks, method }),
+            });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error);
+            appendChangepointCard(data.result);
+            activateDockTab('changepoint');
+            const cps = data.result.stats.change_point_dates?.join(', ') || 'none';
+            showMessage(els.cpMessage, `${data.result.stats.n_breaks_detected} break(s) detected: ${cps}`, 'success');
+        } catch (err) {
+            showMessage(els.cpMessage, err.message || 'Detection failed.', 'error');
+        } finally {
+            els.runCpBtn.disabled = false;
+        }
+    }
+
+    function appendChangepointCard(result) {
+        clearEmptyStateIfNeeded(els.changepointCards);
+        const cardId = `cp-${++state.cardCounters.changepoint}`;
+        const card = buildBaseCard(cardId, result.title, result.subtitle);
+        els.changepointCards.prepend(card);
+        renderPlot(card.querySelector('.plot-container'), result.figure);
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // ANIMATED TIME-SERIES MAP
+    // ════════════════════════════════════════════════════════════════════════
+
+    function updateAnimateFeatureOptions() {
+        if (!els.animateFeatureSelect || !els.animateDatasetSelect) return;
+        const dataset = els.animateDatasetSelect.value || 'mekong';
+        const stations = (state.bootstrap?.stations || []).filter(s => s.dataset === dataset);
+        const features = [...new Set(stations.flatMap(s => s.features))].sort();
+        els.animateFeatureSelect.innerHTML = features
+            .map(f => `<option value="${escapeHtml(f)}"${f === 'Discharge' ? ' selected' : ''}>${escapeHtml(f.replace(/_/g, ' '))}</option>`)
+            .join('');
+    }
+
+    function initAnimateControls() {
+        if (!els.animateDatasetSelect) return;
+        updateAnimateFeatureOptions();
+        setEmptyState(els.animateCards, 'No animations yet. Select a dataset and feature, then click Build animation.');
+    }
+
+    async function runAnimatedMap() {
+        if (!els.runAnimateBtn) return;
+        const dataset = els.animateDatasetSelect?.value || 'mekong';
+        const feature = els.animateFeatureSelect?.value;
+        if (!feature) {
+            showMessage(els.animateMessage, 'Select a feature.', 'error');
+            return;
+        }
+        showMessage(els.animateMessage, 'Building animated map… this may take a moment.', '');
+        els.runAnimateBtn.disabled = true;
+        try {
+            const params = new URLSearchParams({ dataset, feature });
+            const res = await fetch(`/api/animate-map?${params}`);
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error);
+            appendAnimateCard(data.result);
+            activateDockTab('animate');
+            showMessage(els.animateMessage, `Animation ready · ${data.result.stats.n_stations} stations · ${data.result.stats.n_years} years`, 'success');
+        } catch (err) {
+            showMessage(els.animateMessage, err.message || 'Animation failed.', 'error');
+        } finally {
+            els.runAnimateBtn.disabled = false;
+        }
+    }
+
+    function appendAnimateCard(result) {
+        clearEmptyStateIfNeeded(els.animateCards);
+        const cardId = `animate-${++state.cardCounters.animate}`;
+        const card = buildBaseCard(cardId, result.title, result.subtitle);
+        // Animated Plotly maps need larger height
+        const plotContainer = card.querySelector('.plot-container');
+        if (plotContainer) plotContainer.style.minHeight = '520px';
+        els.animateCards.prepend(card);
+        renderPlot(plotContainer, result.figure);
     }
 
 })();
