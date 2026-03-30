@@ -10,7 +10,9 @@ import numpy as np
 import pandas as pd
 import plotly
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
+from statsmodels.tsa.stattools import acf, pacf
 
 from .analysis_service import _gemini_generate
 from .data_loader import DataRepository, SeriesRequest
@@ -154,12 +156,15 @@ class PredictionService:
                 raise ValueError(f'No historical predictions found for {station} / {feature} / {model}.')
             figure = self._build_historical_figure(model_frame, hist_fit_df, actual_h, station, feature)
             figure_zoom = self._build_historical_zoom_figure(model_frame, hist_fit_df, actual_h, feature)
+            diag_result = self._build_diagnostics_figure(model_frame, feature, frequency)
             insight = self._historical_summary(model_frame, hist_fit_df, rmse, mape, actual_h, station, feature) if analysis else None
             return {
                 'station': station, 'feature': feature, 'horizon': actual_h,
                 'frequency': frequency,
                 'figure': plotly.io.to_json(figure),
                 'figure_zoom': plotly.io.to_json(figure_zoom),
+                'figure_diagnostics': plotly.io.to_json(diag_result['figure']) if diag_result else None,
+                'diagnostics_summary': diag_result['summary'] if diag_result else None,
                 'title': f'Historical Fit · {feature} · {station}',
                 'summary': insight,
                 'model_metrics': {
@@ -177,12 +182,21 @@ class PredictionService:
             forecast_index = self._future_index(last_timestamp, frequency, len(csv_forecast))
             forecast_values = pd.Series(csv_forecast.values.astype(float), index=forecast_index)
             residual_std = rmse if not np.isnan(rmse) else float(np.nanstd(model_frame['Value'].values))
+            # Compute CI band from residual_std
+            step = np.sqrt(np.arange(1, len(forecast_values) + 1))
+            margin = 1.96 * residual_std * step
+            non_negative = float(model_frame['Value'].min()) >= 0
+            lower = pd.Series(forecast_values.values - margin, index=forecast_index)
+            upper = pd.Series(forecast_values.values + margin, index=forecast_index)
+            if non_negative:
+                lower = lower.clip(lower=0)
         else:
-            _, forecast_index, forecast_values, _, _, residual_std, rmse, mape = self._forecast(model_frame, frequency, effective_horizon)
+            _, forecast_index, forecast_values, lower, upper, residual_std, rmse, mape = self._forecast(model_frame, frequency, effective_horizon)
             hist_fit_df = None
 
-        figure = self._build_figure(model_frame, forecast_index, forecast_values, feature, actual_h)
-        figure_zoom = self._build_zoom_figure(model_frame, forecast_index, forecast_values, feature, frequency, actual_h)
+        figure = self._build_figure(model_frame, forecast_index, forecast_values, feature, actual_h, lower=lower, upper=upper)
+        figure_zoom = self._build_zoom_figure(model_frame, forecast_index, forecast_values, feature, frequency, actual_h, lower=lower, upper=upper)
+        diag_result = self._build_diagnostics_figure(model_frame, feature, frequency)
 
         if analysis:
             fc = model_frame.copy()
@@ -214,6 +228,8 @@ class PredictionService:
             'frequency': frequency,
             'figure': plotly.io.to_json(figure),
             'figure_zoom': plotly.io.to_json(figure_zoom),
+            'figure_diagnostics': plotly.io.to_json(diag_result['figure']) if diag_result else None,
+            'diagnostics_summary': diag_result['summary'] if diag_result else None,
             'title': f'Future Forecast · {feature} · {station}',
             'summary': insight,
             'model_metrics': {
@@ -304,6 +320,8 @@ class PredictionService:
         forecast_values,
         feature: str,
         actual_h: int = 1,
+        lower=None,
+        upper=None,
     ) -> go.Figure:
         unit = self.repository.feature_units.get(feature, '')
         figure = go.Figure()
@@ -321,6 +339,17 @@ class PredictionService:
             marker={'size': 7, 'color': '#f59e0b', 'line': {'width': 1.5, 'color': 'white'}},
             hovertemplate='<b>%{x|%Y-%m-%d}</b><br>Forecast: %{y:.3f} ' + unit + '<extra></extra>',
         ))
+        # CI band (trace index 2) — toggled by the CI toggle in the UI
+        if lower is not None and upper is not None:
+            x_band = list(forecast_index) + list(forecast_index)[::-1]
+            y_band = list(upper.values) + list(lower.values)[::-1]
+            figure.add_trace(go.Scatter(
+                x=x_band, y=y_band,
+                fill='toself', fillcolor='rgba(245,158,11,0.13)',
+                line={'color': 'rgba(245,158,11,0.3)', 'width': 0.8},
+                mode='lines', name='95% CI',
+                hoverinfo='skip',
+            ))
         figure.update_layout(
             template='plotly_white',
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(248,250,252,0.6)',
@@ -345,6 +374,8 @@ class PredictionService:
         feature: str,
         frequency: str,
         actual_h: int = 1,
+        lower=None,
+        upper=None,
     ) -> go.Figure:
         unit = self.repository.feature_units.get(feature, '')
 
@@ -377,6 +408,19 @@ class PredictionService:
             marker={'size': 8, 'color': '#f59e0b', 'line': {'width': 1.5, 'color': 'white'}},
             hovertemplate='<b>%{x|%Y-%m-%d}</b><br>Forecast: %{y:.3f} ' + unit + '<extra></extra>',
         ))
+        # CI band (trace index 2) — toggled by the CI toggle in the UI
+        if lower is not None and upper is not None:
+            bridge_upper = [last_hist_val] + list(upper.values)
+            bridge_lower = [last_hist_val] + list(lower.values)
+            x_band = bridge_x + bridge_x[::-1]
+            y_band = bridge_upper + bridge_lower[::-1]
+            figure.add_trace(go.Scatter(
+                x=x_band, y=y_band,
+                fill='toself', fillcolor='rgba(245,158,11,0.13)',
+                line={'color': 'rgba(245,158,11,0.3)', 'width': 0.8},
+                mode='lines', name='95% CI',
+                hoverinfo='skip',
+            ))
         figure.update_layout(
             template='plotly_white',
             paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(248,250,252,0.6)',
@@ -488,6 +532,236 @@ class PredictionService:
                          title=f'{feature.replace("_"," ")} ({unit})',
                          tickfont={'size': 11, 'color': '#64748b'})
         return fig
+
+    def _build_diagnostics_figure(
+        self,
+        frame: pd.DataFrame,
+        feature: str,
+        frequency: str,
+    ):
+        """
+        Residual diagnostics for the Holt-Winters in-sample fit.
+        Returns {'figure': Plotly Figure, 'summary': str} or None if fitting fails.
+        """
+        indexed = frame.set_index('Timestamp')['Value'].dropna()
+        if len(indexed) < 20:
+            return None
+
+        seasonal_periods = None
+        seasonal = None
+        if frequency == 'monthly' and len(indexed) >= 24:
+            seasonal = 'add'
+            seasonal_periods = 12
+        elif frequency == 'daily' and len(indexed) >= 60:
+            seasonal = 'add'
+            seasonal_periods = 7
+
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
+                fit = ExponentialSmoothing(
+                    indexed,
+                    trend='add', damped_trend=True,
+                    seasonal=seasonal,
+                    seasonal_periods=seasonal_periods,
+                    initialization_method='estimated',
+                ).fit(optimized=True)
+            residuals = (indexed - fit.fittedvalues.reindex(indexed.index)).dropna()
+        except Exception:
+            return None
+
+        if len(residuals) < 10:
+            return None
+
+        n_lags = min(40, len(residuals) // 2 - 1)
+        conf_bound = 1.96 / np.sqrt(len(residuals))
+
+        try:
+            acf_vals = acf(residuals, nlags=n_lags, fft=True)
+            pacf_vals = pacf(residuals, nlags=n_lags, method='ywm')
+        except Exception:
+            return None
+
+        # Exclude lag 0 from ACF/PACF plots (always 1.0 — distorts y-axis)
+        lags_plot = list(range(1, len(acf_vals)))
+        acf_plot = acf_vals[1:].tolist()
+        pacf_plot = pacf_vals[1:].tolist()
+
+        unit = self.repository.feature_units.get(feature, '')
+        LIGHT_BG = 'rgba(248,250,252,0.6)'
+
+        fig = make_subplots(
+            rows=3, cols=1,
+            subplot_titles=[
+                'Residuals over time',
+                f'ACF (lags 1–{n_lags},  95% CI ±{conf_bound:.3f})',
+                f'PACF (lags 1–{n_lags},  95% CI ±{conf_bound:.3f})',
+            ],
+            vertical_spacing=0.14,
+            row_heights=[0.38, 0.31, 0.31],
+        )
+
+        # Panel 1 — Residuals time series
+        res_vals = residuals.values.tolist()
+        res_dates = list(residuals.index)
+        colors = ['rgba(248,113,113,0.85)' if r < 0 else 'rgba(96,165,250,0.85)' for r in res_vals]
+        fig.add_trace(go.Bar(
+            x=res_dates, y=res_vals,
+            marker_color=colors,
+            name='Residual',
+            hovertemplate='%{x|%Y-%m-%d}: %{y:.3f} ' + unit + '<extra></extra>',
+        ), row=1, col=1)
+        fig.add_hline(y=0, line_color='rgba(100,116,139,0.5)', line_width=1, row=1, col=1)
+
+        # Panel 2 — ACF (lag 0 excluded)
+        sig_colors_acf = [
+            'rgba(96,165,250,0.9)' if abs(v) > conf_bound else 'rgba(96,165,250,0.45)'
+            for v in acf_plot
+        ]
+        fig.add_trace(go.Bar(
+            x=lags_plot, y=acf_plot,
+            marker_color=sig_colors_acf,
+            name='ACF',
+            hovertemplate='Lag %{x}: %{y:.3f}<extra></extra>',
+        ), row=2, col=1)
+        fig.add_hrect(y0=-conf_bound, y1=conf_bound,
+                      fillcolor='rgba(148,163,184,0.08)', line_width=0, row=2, col=1)
+        for bound in [conf_bound, -conf_bound]:
+            fig.add_hline(y=bound, line_color='rgba(245,158,11,0.7)',
+                          line_width=1.2, line_dash='dash', row=2, col=1)
+
+        # Panel 3 — PACF (lag 0 excluded)
+        sig_colors_pacf = [
+            'rgba(52,211,153,0.9)' if abs(v) > conf_bound else 'rgba(52,211,153,0.45)'
+            for v in pacf_plot
+        ]
+        fig.add_trace(go.Bar(
+            x=lags_plot, y=pacf_plot,
+            marker_color=sig_colors_pacf,
+            name='PACF',
+            hovertemplate='Lag %{x}: %{y:.3f}<extra></extra>',
+        ), row=3, col=1)
+        fig.add_hrect(y0=-conf_bound, y1=conf_bound,
+                      fillcolor='rgba(148,163,184,0.08)', line_width=0, row=3, col=1)
+        for bound in [conf_bound, -conf_bound]:
+            fig.add_hline(y=bound, line_color='rgba(245,158,11,0.7)',
+                          line_width=1.2, line_dash='dash', row=3, col=1)
+
+        fig.update_layout(
+            template='plotly_white',
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor=LIGHT_BG,
+            font={'family': 'Inter, Arial, sans-serif', 'size': 11, 'color': '#334155'},
+            showlegend=False,
+            height=580,
+            margin={'l': 55, 'r': 28, 't': 60, 'b': 44},
+            bargap=0.15,
+        )
+        for i in range(1, 4):
+            fig.update_xaxes(showgrid=True, gridcolor='rgba(148,163,184,0.15)',
+                             tickfont={'size': 10, 'color': '#64748b'}, row=i, col=1)
+            fig.update_yaxes(showgrid=True, gridcolor='rgba(148,163,184,0.15)',
+                             tickfont={'size': 10, 'color': '#64748b'}, row=i, col=1)
+        fig.update_xaxes(title_text='Lag', title_font={'size': 10}, row=2, col=1)
+        fig.update_xaxes(title_text='Lag', title_font={'size': 10}, row=3, col=1)
+        fig.update_yaxes(title_text=f'Residual ({unit})', title_font={'size': 10}, row=1, col=1)
+
+        # Style subplot titles
+        for ann in fig.layout.annotations:
+            ann.font.size = 11
+            ann.font.color = '#475569'
+
+        # ── Diagnostics summary ───────────────────────────────────────────────
+        res_mean = float(np.mean(res_vals))
+        res_std = float(np.std(res_vals))
+        sig_acf_lags = [lags_plot[i] for i, v in enumerate(acf_plot) if abs(v) > conf_bound]
+        sig_pacf_lags = [lags_plot[i] for i, v in enumerate(pacf_plot) if abs(v) > conf_bound]
+        summary = self._diagnostics_summary(
+            feature, unit, res_mean, res_std, conf_bound,
+            sig_acf_lags, sig_pacf_lags, n_lags,
+        )
+
+        return {'figure': fig, 'summary': summary}
+
+    def _diagnostics_summary(
+        self,
+        feature: str,
+        unit: str,
+        res_mean: float,
+        res_std: float,
+        conf_bound: float,
+        sig_acf_lags: list,
+        sig_pacf_lags: list,
+        n_lags: int,
+    ) -> str:
+        bias_desc = (
+            f'mean residual of {res_mean:+.3f} {unit}, indicating a slight '
+            + ('positive bias (model under-predicts on average)' if res_mean > 0 else 'negative bias (model over-predicts on average)')
+        ) if abs(res_mean) > 0.01 * res_std else f'near-zero mean residual ({res_mean:+.4f} {unit}), suggesting no systematic bias'
+
+        if not sig_acf_lags:
+            acf_desc = f'No significant ACF spikes detected across all {n_lags} lags — residuals behave as white noise.'
+        else:
+            acf_desc = (
+                f'Significant ACF at lag{"s" if len(sig_acf_lags) > 1 else ""} '
+                f'{", ".join(str(l) for l in sig_acf_lags[:5])}'
+                + (' (and more)' if len(sig_acf_lags) > 5 else '')
+                + ' — the model has not fully captured temporal structure in the data.'
+            )
+
+        if not sig_pacf_lags:
+            pacf_desc = f'No significant PACF spikes — no direct lag dependencies remain after accounting for shorter lags.'
+        else:
+            pacf_desc = (
+                f'Significant PACF at lag{"s" if len(sig_pacf_lags) > 1 else ""} '
+                f'{", ".join(str(l) for l in sig_pacf_lags[:5])}'
+                + (' (and more)' if len(sig_pacf_lags) > 5 else '')
+                + ' — consider an AR component at those lags.'
+            )
+
+        overall = 'well-specified' if (not sig_acf_lags and not sig_pacf_lags) else 'improvable'
+        base = (
+            f'**Residual Diagnostics — {feature.replace("_", " ")}**\n\n'
+            f'- **Bias**: The model shows a {bias_desc}.\n'
+            f'- **Spread**: Residual standard deviation is {res_std:.3f} {unit} '
+            f'(95% CI band = ±{conf_bound:.3f}).\n'
+            f'- **Autocorrelation (ACF)**: {acf_desc}\n'
+            f'- **Partial Autocorrelation (PACF)**: {pacf_desc}\n'
+            f'- **Overall**: The model fit appears **{overall}**. '
+            + (
+                'Residuals approximate white noise, supporting forecast reliability.'
+                if overall == 'well-specified'
+                else 'Residual structure suggests the model may benefit from higher-order components or differencing.'
+            )
+        )
+
+        api_key = os.environ.get('GEMINI_API_KEY')
+        if not api_key or api_key == 'your_google_gemini_api_key_here' or not api_key.strip():
+            return markdown.markdown(base)
+
+        try:
+            prompt = (
+                'Act as a professional hydrologist interpreting residual diagnostics from a time-series model.\n\n'
+                'RESPONSE FORMAT (STRICT — bullet points only, no intro or sign-off):\n\n'
+                '**Residual Diagnostics**\n\n'
+                '- **Bias Assessment**: [Interpret mean residual; is there systematic over/under-prediction?]\n'
+                '- **Residual Spread**: [Interpret std; is the model error large or small relative to the variable?]\n'
+                '- **Autocorrelation Structure (ACF)**: [Are residuals white noise or is temporal structure left over?]\n'
+                '- **Partial Autocorrelation (PACF)**: [What lag orders are significant? What does that suggest?]\n'
+                '- **Model Adequacy**: [Is the model well-specified or should enhancements be considered?]\n'
+                '- **Practical Implication**: [How does residual quality affect the reliability of forecasts?]\n\n'
+                'RULES: Cite numbers. Each bullet 1-2 sentences.\n\n'
+                f'Variable: {feature.replace("_", " ")} ({unit})\n'
+                f'Residual mean: {res_mean:+.4f} {unit}\n'
+                f'Residual std: {res_std:.3f} {unit}\n'
+                f'95% CI bound: ±{conf_bound:.3f}\n'
+                f'Significant ACF lags (excluding lag 0): {sig_acf_lags if sig_acf_lags else "none"}\n'
+                f'Significant PACF lags (excluding lag 0): {sig_pacf_lags if sig_pacf_lags else "none"}\n'
+                f'Total lags evaluated: {n_lags}\n'
+            )
+            return markdown.markdown(_gemini_generate(api_key, prompt))
+        except Exception:
+            return markdown.markdown(base)
 
     def _historical_summary(
         self, frame: pd.DataFrame, hist_fit_df: pd.DataFrame,

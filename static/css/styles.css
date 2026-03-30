@@ -71,14 +71,14 @@ button {
     position: sticky;
     top: 0;
     height: 100vh;
-    width: 400px;
+    width: 480px;
     flex-shrink: 0;
     overflow: hidden;
     transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sidebar.collapsed {
-    width: 58px;
+    width: 75px;
 }
 
 .sidebar-content {
@@ -108,7 +108,7 @@ button {
     align-items: center;
     gap: 4px;
     padding: 14px 0;
-    width: 58px;
+    width: 75px;
     flex-shrink: 0;
     border-right: 1px solid var(--line);
     background: rgba(255, 255, 255, 0.02);
@@ -120,7 +120,7 @@ button {
 }
 
 .rail-divider {
-    width: 32px;
+    width: 40px;
     height: 1px;
     background: var(--line);
     margin: 6px 0;
@@ -133,7 +133,7 @@ button {
     align-items: center;
     justify-content: center;
     gap: 4px;
-    width: 46px;
+    width: 56px;
     height: 56px;
     border: none;
     border-radius: var(--radius-sm);
@@ -156,14 +156,7 @@ button {
 }
 
 .rail-nav-btn.active::before {
-    content: '';
-    position: absolute;
-    left: -2px;
-    top: 20%;
-    height: 60%;
-    width: 3px;
-    border-radius: 0 3px 3px 0;
-    background: var(--primary);
+    display: none;
 }
 
 .rail-label {
@@ -374,6 +367,58 @@ button {
 label {
     font-size: 13px;
     color: var(--text-soft);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    min-width: 16px;
+    border-radius: 50%;
+    background: rgba(56, 189, 248, 0.15);
+    color: #60a5fa;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: help;
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.help-icon:hover {
+    background: rgba(56, 189, 248, 0.25);
+    border-color: rgba(56, 189, 248, 0.5);
+}
+
+.help-icon::after {
+    display: none;
+}
+
+.help-icon:hover::after {
+    display: none;
+}
+
+.tooltip-popover {
+    position: fixed;
+    background: #0f172a;
+    color: #e5eefc;
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-weight: 400;
+    white-space: nowrap;
+    z-index: 10000;
+    pointer-events: none;
+    opacity: 1;
+    visibility: visible;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    transition: opacity 0.2s ease;
 }
 
 input,
@@ -1487,6 +1532,10 @@ html[data-theme="light"] .station-suggest-item:hover {
     padding-bottom: 24px;
 }
 
+.card-grid > .workspace-card:only-child {
+    grid-column: 1 / -1;
+}
+
 .workspace-card {
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid var(--line);
@@ -1568,6 +1617,59 @@ html[data-theme="light"] .station-suggest-item:hover {
 }
 
 html[data-theme="light"] .metrics-value {
+    color: #0369a1;
+}
+
+/* ── Prediction metrics strip (top of card) ──────────────────────────── */
+.pred-metrics-strip {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    background: rgba(56, 189, 248, 0.06);
+    border: 1px solid rgba(56, 189, 248, 0.14);
+    border-radius: var(--radius-sm);
+    padding: 7px 14px;
+    margin-bottom: 12px;
+    font-size: 12px;
+}
+
+.pms-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    flex: 1;
+}
+
+.pms-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-soft);
+}
+
+.pms-value {
+    font-size: 13px;
+    font-weight: 700;
+    color: #7dd3fc;
+    font-variant-numeric: tabular-nums;
+}
+
+.pms-divider {
+    width: 1px;
+    height: 28px;
+    background: rgba(148, 163, 184, 0.18);
+    margin: 0 10px;
+    flex-shrink: 0;
+}
+
+html[data-theme="light"] .pred-metrics-strip {
+    background: rgba(37, 99, 235, 0.05);
+    border-color: rgba(37, 99, 235, 0.12);
+}
+
+html[data-theme="light"] .pms-value {
     color: #0369a1;
 }
 
@@ -1792,6 +1894,43 @@ html[data-theme="light"] .benchmark-analysis {
     font-weight: 700;
 }
 
+
+.metrics-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+    font-size: 13px;
+}
+
+.metrics-table th,
+.metrics-table td {
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--line);
+}
+
+.metrics-table thead tr {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-soft);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.metrics-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.metrics-table .best-row {
+    background: rgba(96, 165, 250, 0.08);
+    color: #60a5fa;
+    font-weight: 600;
+}
+
+.metrics-table .best-row td {
+    border-bottom-color: rgba(96, 165, 250, 0.2);
+}
 
 .finding-card,
 .compare-note {
@@ -2244,6 +2383,25 @@ html[data-theme="light"] .analysis-summary strong {
     color: #0f172a;
 }
 
+html[data-theme="light"] .metrics-table th,
+html[data-theme="light"] .metrics-table td {
+    border-bottom-color: rgba(0, 0, 0, 0.08);
+}
+
+html[data-theme="light"] .metrics-table thead tr {
+    background: rgba(0, 0, 0, 0.04);
+    color: #475569;
+}
+
+html[data-theme="light"] .metrics-table .best-row {
+    background: rgba(2, 132, 199, 0.07);
+    color: #0369a1;
+}
+
+html[data-theme="light"] .metrics-table .best-row td {
+    border-bottom-color: rgba(2, 132, 199, 0.15);
+}
+
 html[data-theme="light"] .finding-card,
 html[data-theme="light"] .compare-note {
     background: rgba(0, 0, 0, 0.03);
@@ -2261,6 +2419,23 @@ html[data-theme="light"] .leaflet-tooltip.station-tooltip {
     background: rgba(255, 255, 255, 0.97);
     color: var(--text);
     box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
+}
+
+html[data-theme="light"] .help-icon {
+    background: rgba(2, 132, 199, 0.12);
+    color: #0284c7;
+    border-color: rgba(2, 132, 199, 0.25);
+}
+
+html[data-theme="light"] .help-icon:hover {
+    background: rgba(2, 132, 199, 0.18);
+    border-color: rgba(2, 132, 199, 0.4);
+}
+
+html[data-theme="light"] .help-icon::after {
+    background: #f8fafc;
+    color: #0f172a;
+    border-color: rgba(2, 132, 199, 0.3);
 }
 
 html[data-theme="light"] .empty-state {
@@ -2728,9 +2903,9 @@ html[data-theme="light"] .theme-toggle-btn:hover {
 
 /* Basin summary chips */
 .basin-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
     margin-bottom: 16px;
 }
 
@@ -2738,11 +2913,11 @@ html[data-theme="light"] .theme-toggle-btn:hover {
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     background: rgba(148, 163, 184, 0.07);
     border: 1px solid var(--line);
     border-radius: 10px;
-    padding: 8px 14px;
-    min-width: 80px;
+    padding: 12px;
 }
 
 .basin-chip-label {

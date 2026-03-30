@@ -25,6 +25,9 @@
             climate: 0,
             changepoint: 0,
             animate: 0,
+            modelcompare: 0,
+            decompose: 0,
+            wavelet: 0,
         },
     };
 
@@ -79,6 +82,7 @@
         compareDatasetPicker: document.getElementById('compareDatasetPicker'),
         compareFeatureSelect: document.getElementById('compareFeatureSelect'),
         compareYearInput: document.getElementById('compareYearInput'),
+        compareYearHint: document.getElementById('compareYearHint'),
         compareComponentSelect: document.getElementById('compareComponentSelect'),
         runCompareBtn: document.getElementById('runCompareBtn'),
         compareMessage: document.getElementById('compareMessage'),
@@ -158,6 +162,32 @@
         animateFeatureSelect: document.getElementById('animateFeatureSelect'),
         runAnimateBtn: document.getElementById('runAnimateBtn'),
         animateMessage: document.getElementById('animateMessage'),
+        // Model Comparison
+        mcCards: document.getElementById('mcCards'),
+        clearMcBtn: document.getElementById('clearMcBtn'),
+        mcDatasetSelect: document.getElementById('mcDatasetSelect'),
+        mcStationSelect: document.getElementById('mcStationSelect'),
+        mcFeatureSelect: document.getElementById('mcFeatureSelect'),
+        mcHorizonSlider: document.getElementById('mcHorizonSlider'),
+        mcHorizonDisplay: document.getElementById('mcHorizonDisplay'),
+        runMcBtn: document.getElementById('runMcBtn'),
+        mcMessage: document.getElementById('mcMessage'),
+        // STL Decomposition
+        decompCards: document.getElementById('decompCards'),
+        clearDecompBtn: document.getElementById('clearDecompBtn'),
+        decompDatasetSelect: document.getElementById('decompDatasetSelect'),
+        decompStationSelect: document.getElementById('decompStationSelect'),
+        decompFeatureSelect: document.getElementById('decompFeatureSelect'),
+        runDecompBtn: document.getElementById('runDecompBtn'),
+        decompMessage: document.getElementById('decompMessage'),
+        // Wavelet Analysis
+        waveletCards: document.getElementById('waveletCards'),
+        clearWaveletBtn: document.getElementById('clearWaveletBtn'),
+        waveletDatasetSelect: document.getElementById('waveletDatasetSelect'),
+        waveletStationSelect: document.getElementById('waveletStationSelect'),
+        waveletFeatureSelect: document.getElementById('waveletFeatureSelect'),
+        runWaveletBtn: document.getElementById('runWaveletBtn'),
+        waveletMessage: document.getElementById('waveletMessage'),
         // Network
         clearNetworkBtn: document.getElementById('clearNetworkBtn'),
         runNetworkBtn: document.getElementById('runNetworkBtn'),
@@ -178,6 +208,7 @@
         predictModelSelect: document.getElementById('predictModelSelect'),
         predictHorizonInput: document.getElementById('predictHorizonInput'),
         predictAnalysisToggle: document.getElementById('predictAnalysisToggle'),
+        predictCIToggle: document.getElementById('predictCIToggle'),
         predictHint: document.getElementById('predictHint'),
         runPredictionBtn: document.getElementById('runPredictionBtn'),
         predictionMessage: document.getElementById('predictionMessage'),
@@ -353,6 +384,9 @@
         initClimateControls();
         initChangepointControls();
         initAnimateControls();
+        initModelCompareControls();
+        initDecomposeControls();
+        initWaveletControls();
         addSeriesRow();
         addFreeSeriesRow();
         syncSeriesBuilderUI();
@@ -570,6 +604,27 @@
         els.animateDatasetSelect?.addEventListener('change', () => updateAnimateFeatureOptions());
         els.runAnimateBtn?.addEventListener('click', runAnimatedMap);
 
+        // Model Comparison
+        els.clearMcBtn?.addEventListener('click', () => setEmptyState(els.mcCards, 'No comparisons yet.'));
+        els.mcDatasetSelect?.addEventListener('change', () => updateSelectOptions(els.mcDatasetSelect.value, els.mcStationSelect, els.mcFeatureSelect));
+        els.mcStationSelect?.addEventListener('change', () => updateFeatureSelectForStation(els.mcDatasetSelect.value, els.mcStationSelect.value, els.mcFeatureSelect));
+        els.mcHorizonSlider?.addEventListener('input', () => {
+            if (els.mcHorizonDisplay) els.mcHorizonDisplay.textContent = els.mcHorizonSlider.value + ' months';
+        });
+        els.runMcBtn?.addEventListener('click', runModelComparison);
+
+        // STL Decomposition
+        els.clearDecompBtn?.addEventListener('click', () => setEmptyState(els.decompCards, 'No decompositions yet.'));
+        els.decompDatasetSelect?.addEventListener('change', () => updateSelectOptions(els.decompDatasetSelect.value, els.decompStationSelect, els.decompFeatureSelect));
+        els.decompStationSelect?.addEventListener('change', () => updateFeatureSelectForStation(els.decompDatasetSelect.value, els.decompStationSelect.value, els.decompFeatureSelect));
+        els.runDecompBtn?.addEventListener('click', runDecomposition);
+
+        // Wavelet Analysis
+        els.clearWaveletBtn?.addEventListener('click', () => setEmptyState(els.waveletCards, 'No analyses yet.'));
+        els.waveletDatasetSelect?.addEventListener('change', () => updateSelectOptions(els.waveletDatasetSelect.value, els.waveletStationSelect, els.waveletFeatureSelect));
+        els.waveletStationSelect?.addEventListener('change', () => updateFeatureSelectForStation(els.waveletDatasetSelect.value, els.waveletStationSelect.value, els.waveletFeatureSelect));
+        els.runWaveletBtn?.addEventListener('click', runWaveletAnalysis);
+
         // Network
         els.clearNetworkBtn?.addEventListener('click', () => {
             if (els.networkWorkspace) els.networkWorkspace.innerHTML = '';
@@ -613,24 +668,27 @@
             });
         }
 
-        // Horizon input clamping
+        // Horizon input hint
         function validateHorizonInput() {
             let val = parseInt(els.predictHorizonInput.value, 10);
-            if (isNaN(val) || val < 1) {
-                els.predictHorizonInput.value = 1;
-                val = 1;
-            }
-            if (val > 30) {
-                els.predictHorizonInput.value = 30;
-                els.predictionMessage.textContent = 'Maximum horizon is 30.';
+            if (isNaN(val) || val < 1 || val > 30) {
+                els.predictionMessage.textContent = 'Horizon must be between 1 and 30 steps.';
                 els.predictionMessage.className = 'inline-message warn';
-                return;
+            } else {
+                els.predictionMessage.textContent = '';
+                els.predictionMessage.className = 'inline-message';
             }
-            els.predictionMessage.textContent = '';
-            els.predictionMessage.className = 'inline-message';
         }
         els.predictHorizonInput.addEventListener('input', validateHorizonInput);
         els.predictHorizonInput.addEventListener('change', validateHorizonInput);
+
+        // CI band toggle — show/hide trace index 2 on all prediction forecast plots
+        els.predictCIToggle?.addEventListener('change', () => {
+            const showCI = els.predictCIToggle.checked;
+            els.predictionCards.querySelectorAll('.plot-container[data-has-ci="true"]').forEach(div => {
+                if (div.data && div.data.length > 2) Plotly.restyle(div, { visible: showCI }, [2]);
+            });
+        });
 
         // Theme toggle
         const themeToggleBtn = document.getElementById('themeToggleBtn');
@@ -652,6 +710,43 @@
         els.mapFilterClose.addEventListener('click', () => {
             els.mapFilterPanel.classList.add('hidden');
             els.mapFilterToggle.classList.remove('active');
+        });
+
+        // Initialize help icon tooltips
+        initHelpTooltips();
+    }
+
+    function initHelpTooltips() {
+        let activeTooltip = null;
+
+        document.querySelectorAll('.help-icon').forEach(icon => {
+            icon.addEventListener('mouseenter', () => {
+                // Remove previous tooltip if exists
+                if (activeTooltip) activeTooltip.remove();
+
+                const tooltip = document.createElement('div');
+                tooltip.className = 'tooltip-popover';
+                tooltip.textContent = icon.getAttribute('title');
+                document.body.appendChild(tooltip);
+
+                // Position tooltip above the icon
+                const rect = icon.getBoundingClientRect();
+                const tooltipRect = tooltip.getBoundingClientRect();
+                const top = rect.top - tooltipRect.height - 8;
+                const left = rect.left + rect.width / 2 - tooltipRect.width / 2;
+
+                tooltip.style.top = Math.max(8, top) + 'px';
+                tooltip.style.left = Math.max(8, Math.min(left, window.innerWidth - tooltipRect.width - 8)) + 'px';
+
+                activeTooltip = tooltip;
+            });
+
+            icon.addEventListener('mouseleave', () => {
+                if (activeTooltip) {
+                    activeTooltip.remove();
+                    activeTooltip = null;
+                }
+            });
         });
     }
 
@@ -819,6 +914,8 @@
             });
             populateCompareFeatures();
         }
+
+        els.compareFeatureSelect?.addEventListener('change', updateCompareYearHint);
 
         // Prediction panel has its own independent dataset picker
         if (els.predictDatasetPicker) {
@@ -2214,10 +2311,21 @@
     }
 
     async function runPrediction() {
+        const station = els.predictStationSelect.value;
+        const feature = els.predictFeatureSelect.value;
+        const horizonRaw = els.predictHorizonInput.value?.trim();
+        const horizon = horizonRaw ? Number(horizonRaw) : 0;
+
+        // Validate horizon is within range
+        if (isNaN(horizon) || horizon < 1 || horizon > 30) {
+            showMessage(els.predictionMessage, 'Horizon must be between 1 and 30 steps.', 'error');
+            return;
+        }
+
         const payload = {
-            station: els.predictStationSelect.value,
-            feature: els.predictFeatureSelect.value,
-            horizon: Number(els.predictHorizonInput.value || 0),
+            station,
+            feature,
+            horizon,
             model: els.predictModelSelect.value,
             mode: state.predictMode,
             analysis: els.predictAnalysisToggle?.checked ?? true,
@@ -2344,18 +2452,38 @@
 
     function appendPredictionCard(result) {
         clearEmptyStateIfNeeded(els.predictionCards);
-        const subtitle = `${prettyStation(result.station)} · ${prettyFeature(result.feature)} · Horizon ${result.horizon} ${result.frequency === 'monthly' ? 'month(s)' : 'day(s)'}`;
+        const horizonLabel = `${result.horizon} ${result.frequency === 'monthly' ? 'month(s)' : 'day(s)'}`;
+        const subtitle = `${prettyStation(result.station)} · ${prettyFeature(result.feature)} · Horizon ${horizonLabel}`;
         const cardId = `prediction-${++state.cardCounters.prediction}`;
         const card = buildBaseCard(cardId, result.title, subtitle);
         const body = card.querySelector('.workspace-card-body');
         // basePlot is the plot-container created by buildBaseCard (used for zoom — shown in fullscreen)
         const basePlot = body.querySelector('.plot-container');
 
-        // Insert zoom label BEFORE basePlot so it appears at the top
+        // ── Metrics badge — inserted at the very top of the card body ──────────
+        if (result.model_metrics) {
+            const m = result.model_metrics;
+            const metricsEl = document.createElement('div');
+            metricsEl.className = 'pred-metrics-strip';
+            const rmseVal = m.rmse != null ? m.rmse : '—';
+            const mapeVal = m.mape != null ? `${m.mape}%` : '—';
+            metricsEl.innerHTML =
+                `<span class="pms-item"><span class="pms-label">Horizon</span><span class="pms-value">${escapeHtml(horizonLabel)}</span></span>` +
+                `<span class="pms-divider"></span>` +
+                `<span class="pms-item"><span class="pms-label">RMSE</span><span class="pms-value">${escapeHtml(String(rmseVal))}</span></span>` +
+                `<span class="pms-divider"></span>` +
+                `<span class="pms-item"><span class="pms-label">MAPE</span><span class="pms-value">${escapeHtml(String(mapeVal))}</span></span>`;
+            body.insertBefore(metricsEl, basePlot);
+        }
+
+        // Insert zoom label BEFORE basePlot
         const zoomLabel = document.createElement('div');
         zoomLabel.className = 'chart-section-label';
         zoomLabel.textContent = 'Zoomed view · Last 3 months + forecast';
         body.insertBefore(zoomLabel, basePlot);
+
+        // Mark basePlot as having a CI band (trace index 2)
+        basePlot.dataset.hasCi = 'true';
 
         // Full history section — appended after basePlot
         const fullLabel = document.createElement('div');
@@ -2365,23 +2493,13 @@
 
         const fullPlot = document.createElement('div');
         fullPlot.className = 'plot-container';
+        fullPlot.dataset.hasCi = 'true';
         body.appendChild(fullPlot);
-
-        // Model metrics badge
-        if (result.model_metrics) {
-            const m = result.model_metrics;
-            const metricsEl = document.createElement('div');
-            metricsEl.className = 'model-metrics-bar';
-            const rmseText = m.rmse != null ? `RMSE ${m.rmse}` : 'RMSE n/a';
-            const mapeText = m.mape != null ? `MAPE ${m.mape}%` : 'MAPE n/a';
-            metricsEl.innerHTML = `<span class="metrics-label">Model fit:</span> <span class="metrics-value">${escapeHtml(rmseText)}</span> <span class="metrics-sep">·</span> <span class="metrics-value">${escapeHtml(mapeText)}</span>`;
-            body.appendChild(metricsEl);
-        }
 
         // Analysis block
         const block = document.createElement('div');
         block.className = 'analysis-block';
-        block.innerHTML = `<h4>🧠 Prediction Analysis</h4><div class="analysis-summary"></div>`;
+        block.innerHTML = `<h4>Prediction Analysis</h4><div class="analysis-summary"></div>`;
         const summaryEl = block.querySelector('.analysis-summary');
         if (result.summary) {
             if (result.summary.includes('<p>') || result.summary.includes('<ul>') || result.summary.includes('<li>')) {
@@ -2392,6 +2510,29 @@
             body.appendChild(block);
         }
 
+        // Residual diagnostics panel
+        if (result.figure_diagnostics) {
+            const diagLabel = document.createElement('div');
+            diagLabel.className = 'chart-section-label';
+            diagLabel.textContent = 'Residual diagnostics · ACF · PACF';
+            body.appendChild(diagLabel);
+            const diagPlot = document.createElement('div');
+            diagPlot.className = 'plot-container';
+            body.appendChild(diagPlot);
+            if (result.diagnostics_summary) {
+                const diagBlock = document.createElement('div');
+                diagBlock.className = 'analysis-block';
+                diagBlock.innerHTML = `<h4>Diagnostics Interpretation</h4><div class="analysis-summary"></div>`;
+                const diagSummaryEl = diagBlock.querySelector('.analysis-summary');
+                if (result.diagnostics_summary.includes('<p>') || result.diagnostics_summary.includes('<ul>') || result.diagnostics_summary.includes('<li>')) {
+                    diagSummaryEl.innerHTML = result.diagnostics_summary;
+                } else {
+                    diagSummaryEl.textContent = result.diagnostics_summary;
+                }
+                body.appendChild(diagBlock);
+            }
+        }
+
         // Prepend to DOM first so Plotly can measure container width correctly
         els.predictionCards.prepend(card);
 
@@ -2399,6 +2540,11 @@
         renderPlot(basePlot, result.figure_zoom || result.figure);
         // Render full history into the separate fullPlot div
         renderPlot(fullPlot, result.figure);
+        // Render diagnostics
+        if (result.figure_diagnostics) {
+            const diagPlot = body.querySelectorAll('.plot-container')[2];
+            if (diagPlot) renderPlot(diagPlot, result.figure_diagnostics);
+        }
     }
 
     function buildBaseCard(cardId, title, subtitle) {
@@ -2483,21 +2629,29 @@
         deleteBtn.addEventListener('click', () => {
             const parent = card.parentElement;
             card.remove();
-            if (!parent.children.length) {
-                if (parent === els.visualizationCards) {
-                    setEmptyState(els.visualizationCards, 'No visualizations yet. Use the Explore section on the left to add your first chart.');
-                } else if (parent === els.analysisCards) {
-                    setEmptyState(els.analysisCards, 'No analysis cards yet. Build a selection and choose “Add to analyse”.');
-                } else {
-                    setEmptyState(els.predictionCards, 'No predictions yet. Configure a station, feature, and horizon on the left.');
-                }
+            if (parent && !parent.querySelector('.workspace-card')) {
+                const emptyMessages = {
+                    visualizationCards: 'No visualizations yet. Use the Explore section on the left to add your first chart.',
+                    analysisCards:      'No analysis cards yet. Build a selection and choose “Add to analyse”.',
+                    predictionCards:    'No predictions yet. Configure a station, feature, and horizon on the left.',
+                    extremeCards:       'No analyses yet. Select a station and feature, then click Run.',
+                    climateCards:       'No projections yet. Select a station and feature, then click Generate projection.',
+                    changepointCards:   'No analyses yet. Select a station and feature, then click Detect change points.',
+                    animateCards:       'No animations yet. Select a dataset and feature, then click Build animation.',
+                    scenarioCards:      'No scenario results yet.',
+                    mcCards:            'No comparisons yet. Select a station and feature, then click Compare models.',
+                    decompCards:        'No decompositions yet. Select a station and feature, then click Decompose series.',
+                    waveletCards:       'No analyses yet. Select a station and feature, then click Run wavelet analysis.',
+                };
+                const msg = emptyMessages[parent.id] || 'No results yet.';
+                setEmptyState(parent, msg);
             }
         });
         expandBtn.addEventListener('click', () => openFullscreen(card));
         imgBtns.querySelectorAll('.card-img-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const plot = card.querySelector('.plot-container');
-                if (!plot || !plot.data) return;
+                if (!plot || !plot.dataset.figure) return;
                 if (btn.dataset.fmt === 'pdf') {
                     downloadCardAsPDF(plot, title);
                 } else {
@@ -2886,7 +3040,7 @@
                 if (tabName === 'analysis') {
                     panel.classList.toggle('hidden', state.analysisMode !== 'charted');
                 } else {
-                    panel.classList.toggle('hidden', tabName === 'prediction' || tabName === 'compare' || tabName === 'network' || tabName === 'scenario' || tabName === 'quality' || tabName === 'extreme' || tabName === 'risk' || tabName === 'climate' || tabName === 'changepoint' || tabName === 'animate');
+                    panel.classList.toggle('hidden', tabName === 'prediction' || tabName === 'compare' || tabName === 'network' || tabName === 'scenario' || tabName === 'quality' || tabName === 'extreme' || tabName === 'risk' || tabName === 'climate' || tabName === 'changepoint' || tabName === 'animate' || tabName === 'modelcompare' || tabName === 'decompose' || tabName === 'wavelet');
                 }
             } else if (key === 'analysis') {
                 panel.classList.toggle('hidden', tabName !== 'analysis' || state.analysisMode !== 'free');
@@ -2910,6 +3064,12 @@
                 panel.classList.toggle('hidden', tabName !== 'changepoint');
             } else if (key === 'animate') {
                 panel.classList.toggle('hidden', tabName !== 'animate');
+            } else if (key === 'modelcompare') {
+                panel.classList.toggle('hidden', tabName !== 'modelcompare');
+            } else if (key === 'decompose') {
+                panel.classList.toggle('hidden', tabName !== 'decompose');
+            } else if (key === 'wavelet') {
+                panel.classList.toggle('hidden', tabName !== 'wavelet');
             }
         });
 
@@ -2928,6 +3088,12 @@
                 row.classList.toggle('hidden', tabName !== 'changepoint');
             } else if (key === 'animate') {
                 row.classList.toggle('hidden', tabName !== 'animate');
+            } else if (key === 'modelcompare') {
+                row.classList.toggle('hidden', tabName !== 'modelcompare');
+            } else if (key === 'decompose') {
+                row.classList.toggle('hidden', tabName !== 'decompose');
+            } else if (key === 'wavelet') {
+                row.classList.toggle('hidden', tabName !== 'wavelet');
             }
         });
     }
@@ -3085,10 +3251,16 @@
             doc.text(new Date().toLocaleString(), PW / 2, 114, { align: 'center' });
 
             const panelInfo = [
-                { id: 'visualizationCards', label: 'Visualization' },
-                { id: 'analysisCards',      label: 'Analysis' },
-                { id: 'predictionCards',    label: 'Prediction' },
-                { id: 'scenarioCards',      label: 'Scenario' },
+                { id: 'visualizationCards',  label: 'Visualization' },
+                { id: 'analysisCards',       label: 'Analysis' },
+                { id: 'predictionCards',     label: 'Prediction' },
+                { id: 'scenarioCards',       label: 'Scenario' },
+                { id: 'extremeCards',        label: 'Extreme Events' },
+                { id: 'climateCards',        label: 'Climate Projection' },
+                { id: 'changepointCards',    label: 'Change Points' },
+                { id: 'mcCards',             label: 'Model Comparison' },
+                { id: 'decompCards',         label: 'STL Decomposition' },
+                { id: 'waveletCards',        label: 'Wavelet Analysis' },
             ];
             const counts = panelInfo.map(p => document.getElementById(p.id)?.querySelectorAll('.workspace-card').length ?? 0);
             doc.setFontSize(10);
@@ -3132,7 +3304,7 @@
                     let yPos = M + 21 + subLines.length * 4 + 4;
 
                     // Charts
-                    const plots = Array.from(card.querySelectorAll('.plot-container')).filter(p => p.data?.length);
+                    const plots = Array.from(card.querySelectorAll('.plot-container')).filter(p => p.dataset.figure);
                     for (const plot of plots) {
                         try {
                             const imgData = await window.Plotly.toImage(plot, { format: 'png', width: 1400, height: 620 });
@@ -3173,6 +3345,36 @@
 
     // ── Compare workspace ──────────────────────────────────────────────────
 
+    function updateCompareYearHint() {
+        if (!els.compareYearHint || !state.bootstrap) return;
+        const ds = state.compareDataset;
+        const feature = els.compareFeatureSelect?.value;
+        if (!feature) { els.compareYearHint.textContent = ''; return; }
+
+        let minYear = Infinity, maxYear = -Infinity;
+        state.bootstrap.stations.forEach(s => {
+            if (s.dataset !== ds) return;
+            const fd = s.feature_details?.[feature];
+            if (!fd) return;
+            const sy = new Date(fd.start_date).getFullYear();
+            const ey = new Date(fd.end_date).getFullYear();
+            if (sy < minYear) minYear = sy;
+            if (ey > maxYear) maxYear = ey;
+        });
+
+        if (minYear === Infinity) { els.compareYearHint.textContent = ''; return; }
+
+        els.compareYearInput.min = minYear;
+        els.compareYearInput.max = maxYear;
+        els.compareYearHint.textContent = `Available range: ${minYear} – ${maxYear}`;
+
+        // Clear invalid input when range changes
+        const currentVal = parseInt(els.compareYearInput.value, 10);
+        if (!isNaN(currentVal) && (currentVal < minYear || currentVal > maxYear)) {
+            els.compareYearInput.value = '';
+        }
+    }
+
     function populateCompareFeatures() {
         if (!els.compareFeatureSelect || !state.bootstrap) return;
         const ds = state.compareDataset;
@@ -3185,6 +3387,7 @@
             opt.textContent = f.replaceAll('_', ' ');
             els.compareFeatureSelect.appendChild(opt);
         });
+        updateCompareYearHint();
     }
 
     async function runComparison() {
@@ -3196,6 +3399,16 @@
         const yearRaw = els.compareYearInput?.value?.trim();
         const year = yearRaw ? parseInt(yearRaw, 10) : null;
         const component = els.compareComponentSelect?.value ?? 'all';
+
+        // Validate year is within range if provided
+        if (year) {
+            const minYear = parseInt(els.compareYearInput.min, 10);
+            const maxYear = parseInt(els.compareYearInput.max, 10);
+            if (isNaN(year) || year < minYear || year > maxYear) {
+                showMessage(els.compareMessage, `Year must be between ${minYear} and ${maxYear}.`, 'error');
+                return;
+            }
+        }
 
         showMessage(els.compareMessage, 'Running comparison…', '');
         els.runCompareBtn.disabled = true;
@@ -3362,22 +3575,19 @@
             { label: 'Stations', value: `${data.active_stations} / ${data.total_stations}` },
             { label: 'Observations', value: data.total_observations?.toLocaleString() ?? '—' },
             { label: 'Imputation', value: `${data.avg_imputation_pct}%` },
+            ...(data.trends_computed ? [
+                { label: 'Rising', value: data.trends.rising },
+                { label: 'Stable', value: data.trends.stable },
+                { label: 'Falling', value: data.trends.falling },
+            ] : []),
         ].map(c => `<div class="basin-chip"><span class="basin-chip-label">${c.label}</span><span class="basin-chip-value">${c.value}</span></div>`).join('');
-
-        const trendsHtml = data.trends_computed ? `
-            <div class="compare-trend-row">
-                <span class="trend-item rising">▲ ${data.trends.rising} rising</span>
-                <span class="trend-item stable">— ${data.trends.stable} stable</span>
-                <span class="trend-item falling">▼ ${data.trends.falling} falling</span>
-            </div>` : '<p class="compare-note">Trend computation skipped (large dataset).</p>';
 
         section.innerHTML = `
             <div class="compare-section-header">
                 <h4>Basin Summary — ${escapeHtml(featureLabel)} (${escapeHtml(data.dataset)})</h4>
                 <span class="compare-section-meta">Highest: ${escapeHtml(data.highest_station.name)} · Lowest: ${escapeHtml(data.lowest_station.name)}</span>
             </div>
-            <div class="basin-chips">${chips}</div>
-            ${trendsHtml}`;
+            <div class="basin-chips">${chips}</div>`;
 
         // Histogram
         if (data.histogram) {
@@ -4474,6 +4684,175 @@
         const plotContainer = card.querySelector('.plot-container');
         if (plotContainer) plotContainer.style.minHeight = '520px';
         els.animateCards.prepend(card);
+        renderPlot(plotContainer, result.figure);
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // MULTI-MODEL FORECAST COMPARISON
+    // ════════════════════════════════════════════════════════════════════════
+
+    function initModelCompareControls() {
+        if (!els.mcDatasetSelect) return;
+        updateSelectOptions(els.mcDatasetSelect.value, els.mcStationSelect, els.mcFeatureSelect);
+        setEmptyState(els.mcCards, 'No comparisons yet. Select a station and feature, then click Compare models.');
+    }
+
+    async function runModelComparison() {
+        if (!els.runMcBtn) return;
+        const dataset = els.mcDatasetSelect?.value || 'mekong';
+        const station = els.mcStationSelect?.value;
+        const feature = els.mcFeatureSelect?.value;
+        const horizon = Number(els.mcHorizonSlider?.value || 12);
+        if (!station || !feature) {
+            showMessage(els.mcMessage, 'Select a station and feature.', 'error');
+            return;
+        }
+        showMessage(els.mcMessage, 'Fitting models… this may take a moment.', '');
+        els.runMcBtn.disabled = true;
+        try {
+            const res = await fetch('/api/model-compare', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dataset, station, feature, horizon }),
+            });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error);
+            appendMcCard(data.result);
+            activateDockTab('modelcompare');
+            showMessage(els.mcMessage, `Done · best model: ${data.result.stats.best_model_by_rmse}`, 'success');
+        } catch (err) {
+            showMessage(els.mcMessage, err.message || 'Comparison failed.', 'error');
+        } finally {
+            els.runMcBtn.disabled = false;
+        }
+    }
+
+    function appendMcCard(result) {
+        clearEmptyStateIfNeeded(els.mcCards);
+        const cardId = `mc-${++state.cardCounters.modelcompare}`;
+        const card = buildBaseCard(cardId, result.title, result.subtitle);
+        const body = card.querySelector('.workspace-card-body');
+
+        // Metrics table
+        if (result.stats?.models?.length) {
+            const table = document.createElement('table');
+            table.className = 'metrics-table';
+            table.innerHTML = `
+                <thead><tr><th>Model</th><th>RMSE</th><th>MAPE</th><th>AIC</th></tr></thead>
+                <tbody>${result.stats.models.map((m) => {
+                    const isBest = m.Model === result.stats.best_model_by_rmse;
+                    return `<tr${isBest ? ' class="best-row"' : ''}>
+                        <td>${escapeHtml(m.Model)}${isBest ? ' ✓' : ''}</td>
+                        <td>${escapeHtml(m.RMSE)}</td>
+                        <td>${escapeHtml(m.MAPE)}</td>
+                        <td>${escapeHtml(m.AIC)}</td>
+                    </tr>`;
+                }).join('')}</tbody>`;
+            body.appendChild(table);
+        }
+        els.mcCards.prepend(card);
+        renderPlot(card.querySelector('.plot-container'), result.figure);
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // STL DECOMPOSITION
+    // ════════════════════════════════════════════════════════════════════════
+
+    function initDecomposeControls() {
+        if (!els.decompDatasetSelect) return;
+        updateSelectOptions(els.decompDatasetSelect.value, els.decompStationSelect, els.decompFeatureSelect);
+        setEmptyState(els.decompCards, 'No decompositions yet. Select a station and feature, then click Decompose series.');
+    }
+
+    async function runDecomposition() {
+        if (!els.runDecompBtn) return;
+        const dataset = els.decompDatasetSelect?.value || 'mekong';
+        const station = els.decompStationSelect?.value;
+        const feature = els.decompFeatureSelect?.value;
+        if (!station || !feature) {
+            showMessage(els.decompMessage, 'Select a station and feature.', 'error');
+            return;
+        }
+        showMessage(els.decompMessage, 'Decomposing series…', '');
+        els.runDecompBtn.disabled = true;
+        try {
+            const res = await fetch('/api/decompose', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dataset, station, feature }),
+            });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error);
+            appendDecompCard(data.result);
+            activateDockTab('decompose');
+            const s = data.result.stats;
+            showMessage(els.decompMessage,
+                `Done · trend strength ${s.strength_trend} · seasonal strength ${s.strength_seasonal} · peak: ${s.seasonal_peak_month}`,
+                'success');
+        } catch (err) {
+            showMessage(els.decompMessage, err.message || 'Decomposition failed.', 'error');
+        } finally {
+            els.runDecompBtn.disabled = false;
+        }
+    }
+
+    function appendDecompCard(result) {
+        clearEmptyStateIfNeeded(els.decompCards);
+        const cardId = `decomp-${++state.cardCounters.decompose}`;
+        const card = buildBaseCard(cardId, result.title, result.subtitle);
+        const plotContainer = card.querySelector('.plot-container');
+        if (plotContainer) plotContainer.style.minHeight = '580px';
+        els.decompCards.prepend(card);
+        renderPlot(plotContainer, result.figure);
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // WAVELET ANALYSIS
+    // ════════════════════════════════════════════════════════════════════════
+
+    function initWaveletControls() {
+        if (!els.waveletDatasetSelect) return;
+        updateSelectOptions(els.waveletDatasetSelect.value, els.waveletStationSelect, els.waveletFeatureSelect);
+        setEmptyState(els.waveletCards, 'No analyses yet. Select a station and feature, then click Run wavelet analysis.');
+    }
+
+    async function runWaveletAnalysis() {
+        if (!els.runWaveletBtn) return;
+        const dataset = els.waveletDatasetSelect?.value || 'mekong';
+        const station = els.waveletStationSelect?.value;
+        const feature = els.waveletFeatureSelect?.value;
+        if (!station || !feature) {
+            showMessage(els.waveletMessage, 'Select a station and feature.', 'error');
+            return;
+        }
+        showMessage(els.waveletMessage, 'Running wavelet transform… this may take a moment.', '');
+        els.runWaveletBtn.disabled = true;
+        try {
+            const res = await fetch('/api/wavelet', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dataset, station, feature }),
+            });
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error);
+            appendWaveletCard(data.result);
+            activateDockTab('wavelet');
+            const dp = data.result.stats.dominant_periods_months?.join(', ') || '—';
+            showMessage(els.waveletMessage, `Done · dominant periods: ${dp} months`, 'success');
+        } catch (err) {
+            showMessage(els.waveletMessage, err.message || 'Wavelet analysis failed.', 'error');
+        } finally {
+            els.runWaveletBtn.disabled = false;
+        }
+    }
+
+    function appendWaveletCard(result) {
+        clearEmptyStateIfNeeded(els.waveletCards);
+        const cardId = `wavelet-${++state.cardCounters.wavelet}`;
+        const card = buildBaseCard(cardId, result.title, result.subtitle);
+        const plotContainer = card.querySelector('.plot-container');
+        if (plotContainer) plotContainer.style.minHeight = '460px';
+        els.waveletCards.prepend(card);
         renderPlot(plotContainer, result.figure);
     }
 

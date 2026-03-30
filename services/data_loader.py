@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pickle
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -44,6 +45,28 @@ class DataRepository:
         self._build_index()
 
     def _build_index(self) -> None:
+        # ── Disk cache ────────────────────────────────────────────────────────
+        cache_file = self.dataset_dir / '.index_cache.pkl'
+        try:
+            if cache_file.exists():
+                cache_mtime = cache_file.stat().st_mtime
+                # Cache is valid if no CSV is newer than it
+                all_fresh = all(
+                    not (self.dataset_dir / f'{s}.csv').exists()
+                    or (self.dataset_dir / f'{s}.csv').stat().st_mtime <= cache_mtime
+                    for s in self.station_names
+                )
+                if all_fresh:
+                    with open(cache_file, 'rb') as f:
+                        cached = pickle.load(f)
+                    self.station_index = cached['station_index']
+                    self.global_feature_counts = cached['global_feature_counts']
+                    self.global_time_extent = cached['global_time_extent']
+                    print(f'{self.dataset}: loaded index from cache ({len(self.station_index)} stations).')
+                    return
+        except Exception:
+            pass  # Ignore cache errors and rebuild
+
         feature_counts = {feature: 0 for feature in self.feature_units}
         global_start = None
         global_end = None
@@ -122,6 +145,17 @@ class DataRepository:
             'start': global_start.strftime('%Y-%m-%d') if global_start is not None else None,
             'end': global_end.strftime('%Y-%m-%d') if global_end is not None else None,
         }
+
+        # Save cache for next startup
+        try:
+            with open(cache_file, 'wb') as f:
+                pickle.dump({
+                    'station_index': self.station_index,
+                    'global_feature_counts': self.global_feature_counts,
+                    'global_time_extent': self.global_time_extent,
+                }, f, protocol=pickle.HIGHEST_PROTOCOL)
+        except Exception:
+            pass  # Non-fatal if cache write fails
 
     @staticmethod
     @lru_cache(maxsize=256)

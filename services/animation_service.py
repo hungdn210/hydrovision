@@ -222,11 +222,11 @@ class AnimationService:
                 borderwidth=1,
                 font=dict(size=11),
             ),
-            margin=dict(l=0, r=0, t=50, b=0),
+            margin=dict(l=0, r=0, t=50, b=60),
             updatemenus=[dict(
                 type='buttons',
                 showactive=False,
-                y=0.02,
+                y=0.04,
                 x=0.5,
                 xanchor='center',
                 yanchor='bottom',

@@ -95,7 +95,7 @@ class ComparisonService:
 
         station_ids = list(corr.columns)
         pretty = [
-            repo.station_index[s].get('name', s) or s
+            (repo.station_index[s].get('name', s) or s).replace('_', ' ')
             for s in station_ids
         ]
         matrix = [
@@ -177,7 +177,7 @@ class ComparisonService:
                     'watch'    if abs_pct >= 20 else
                     'normal'
                 )
-                display_name = meta.get('name', station_name) or station_name
+                display_name = (meta.get('name', station_name) or station_name).replace('_', ' ')
 
                 rows.append({
                     'station': station_name,
@@ -229,7 +229,7 @@ class ComparisonService:
             mean_val = fd.get('mean')
             if mean_val is None:
                 continue
-            display = meta.get('name', name) or name
+            display = (meta.get('name', name) or name).replace('_', ' ')
             station_means.append((name, display, float(mean_val)))
             total_obs += int(fd.get('observations', 0))
             total_imputed += int(fd.get('imputed_points', 0))

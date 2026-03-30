@@ -22,6 +22,9 @@ from services.scenario_service import ScenarioService
 from services.climate_service import ClimateService
 from services.changepoint_service import ChangePointService
 from services.animation_service import AnimationService
+from services.model_comparison_service import ModelComparisonService
+from services.decomposition_service import DecompositionService
+from services.wavelet_service import WaveletService
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -63,6 +66,9 @@ risk_service = RiskService(repository)
 climate_service = ClimateService(repository)
 changepoint_service = ChangePointService(repository)
 animation_service = AnimationService(repository)
+model_comparison_service = ModelComparisonService(repository)
+decomposition_service = DecompositionService(repository)
+wavelet_service = WaveletService(repository)
 
 app = Flask(__name__)
 
@@ -508,6 +514,52 @@ def animate_map():
         return jsonify({'ok': False, 'error': 'feature parameter required'}), 400
     try:
         result = animation_service.build_animation(dataset, feature)
+        return jsonify({'ok': True, 'result': result})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.post('/api/model-compare')
+def model_compare():
+    payload = request.get_json(silent=True) or {}
+    dataset = str(payload.get('dataset', 'mekong')).strip()
+    station = str(payload.get('station', '')).strip()
+    feature = str(payload.get('feature', '')).strip()
+    horizon = int(payload.get('horizon', 12))
+    if not station or not feature:
+        return jsonify({'ok': False, 'error': 'station and feature required'}), 400
+    try:
+        result = model_comparison_service.compare(dataset, station, feature, horizon)
+        return jsonify({'ok': True, 'result': result})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.post('/api/decompose')
+def decompose():
+    payload = request.get_json(silent=True) or {}
+    dataset = str(payload.get('dataset', 'mekong')).strip()
+    station = str(payload.get('station', '')).strip()
+    feature = str(payload.get('feature', '')).strip()
+    if not station or not feature:
+        return jsonify({'ok': False, 'error': 'station and feature required'}), 400
+    try:
+        result = decomposition_service.decompose(dataset, station, feature)
+        return jsonify({'ok': True, 'result': result})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@app.post('/api/wavelet')
+def wavelet():
+    payload = request.get_json(silent=True) or {}
+    dataset = str(payload.get('dataset', 'mekong')).strip()
+    station = str(payload.get('station', '')).strip()
+    feature = str(payload.get('feature', '')).strip()
+    if not station or not feature:
+        return jsonify({'ok': False, 'error': 'station and feature required'}), 400
+    try:
+        result = wavelet_service.analyse(dataset, station, feature)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400

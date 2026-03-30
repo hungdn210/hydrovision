@@ -70,6 +70,18 @@
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                     <span class="rail-label">Animate</span>
                 </button>
+                <button class="rail-nav-btn" data-rail-tab="modelcompare" title="Multi-Model Comparison">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 20 18 10"/><polyline points="12 20 12 4"/><polyline points="6 20 6 14"/><circle cx="18" cy="7" r="3"/><circle cx="12" cy="1" r="3"/><circle cx="6" cy="11" r="3"/></svg>
+                    <span class="rail-label">Compare</span>
+                </button>
+                <button class="rail-nav-btn" data-rail-tab="decompose" title="STL Decomposition">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2" x2="12" y2="22"/><path d="M2 8h10M2 16h10M12 8h10M12 16h10"/></svg>
+                    <span class="rail-label">Decompose</span>
+                </button>
+                <button class="rail-nav-btn" data-rail-tab="wavelet" title="Wavelet Analysis">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12 Q5 4 8 12 Q11 20 14 12 Q17 4 20 12 Q22 16 24 12"/></svg>
+                    <span class="rail-label">Wavelet</span>
+                </button>
             </div>
 
             <div class="sidebar-content">
@@ -98,12 +110,12 @@
             <section class="panel-section" data-sidebar-panel="visualize">
                 <div class="section-heading">Explore setup</div>
                 <div class="control-group">
-                    <label>Dataset</label>
+                    <label>Dataset <span class="help-icon" title="Choose which dataset to visualize: Mekong for Southeast Asia or LamaH-CE for European stations">?</span></label>
                     <div class="dataset-picker" id="datasetPicker"></div>
                 </div>
                 <div class="control-group relative-group">
                     <label for="graphTypeSelect">
-                        Graph type
+                        Graph type <span class="help-icon" title="Auto-selects the best chart type (line, area, bar) based on your data. Line for time series, bar for comparisons">?</span>
                         <button class="info-btn" id="graphInfoBtn" type="button" aria-label="Graph Information">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                         </button>
@@ -152,7 +164,7 @@
                 <div class="section-heading">Deep Dive analysis</div>
                 <p class="section-desc">Add any mix of stations and features — no chart-type restrictions. The best chart is auto-selected.</p>
                 <div class="control-group">
-                    <label>Dataset</label>
+                    <label>Dataset <span class="help-icon" title="Choose which dataset to analyze: Mekong for Southeast Asia or LamaH-CE for European stations">?</span></label>
                     <div class="dataset-picker" id="freeDatasetPicker"></div>
                 </div>
                 <div class="series-builder" id="freeAnalysisBuilder"></div>
@@ -170,19 +182,20 @@
                 <div class="section-heading">Basin comparison</div>
                 <p class="section-desc">Compute cross-station correlations, anomaly rankings, and basin-wide statistics for any feature.</p>
                 <div class="control-group">
-                    <label>Dataset</label>
+                    <label>Dataset <span class="help-icon" title="Choose which dataset to compare: Mekong for Southeast Asia or LamaH-CE for European stations">?</span></label>
                     <div class="dataset-picker" id="compareDatasetPicker"></div>
                 </div>
                 <div class="control-group">
-                    <label for="compareFeatureSelect">Feature</label>
+                    <label for="compareFeatureSelect">Feature <span class="help-icon" title="The hydrological variable to analyze (e.g., discharge, precipitation). All stations with this feature are compared.">?</span></label>
                     <select id="compareFeatureSelect"></select>
                 </div>
                 <div class="control-group">
-                    <label for="compareYearInput">Anomaly year <span style="color:var(--text-soft);font-weight:400;">(blank = latest)</span></label>
+                    <label for="compareYearInput">Anomaly year <span style="color:var(--text-soft);font-weight:400;">(blank = latest)</span> <span class="help-icon" title="Which year to rank stations by deviation from normal. Leave blank to use the most recent complete year.">?</span></label>
                     <input id="compareYearInput" type="number" min="1950" max="2100" placeholder="e.g. 2020" />
+                    <div class="small-note" id="compareYearHint"></div>
                 </div>
                 <div class="control-group">
-                    <label for="compareComponentSelect">Component</label>
+                    <label for="compareComponentSelect">Component <span class="help-icon" title="Choose what to calculate: correlation (cross-station patterns), leaderboard (anomaly ranking), or summary (basin-wide statistics)">?</span></label>
                     <select id="compareComponentSelect">
                         <option value="all">All (correlation + leaderboard + summary)</option>
                         <option value="correlation">Correlation matrix only</option>
@@ -212,7 +225,7 @@
                     </div>
                 </div>
                 <div class="control-group" style="margin-top:14px;">
-                    <label for="networkViewSelect">View</label>
+                    <label for="networkViewSelect">View <span class="help-icon" title="Choose visualization: network graph (river topology), travel times (lag between stations), or contribution (which tributaries feed a station)">?</span></label>
                     <select id="networkViewSelect">
                         <option value="graph">Network graph</option>
                         <option value="travel">Travel-time table</option>
@@ -220,7 +233,7 @@
                     </select>
                 </div>
                 <div class="control-group hidden" id="networkContribGroup">
-                    <label for="networkContribStation">Target station</label>
+                    <label for="networkContribStation">Target station <span class="help-icon" title="The downstream station to analyze. Shows which upstream stations feed it and how much they contribute to its discharge.">?</span></label>
                     <select id="networkContribStation"></select>
                 </div>
                 <button class="primary-btn full-width" id="runNetworkBtn" style="margin-top:10px;">Analyse network</button>
@@ -238,7 +251,7 @@
                 <p class="section-desc">Audit completeness, imputation rates, data gaps, and anomaly candidates across the Mekong and LamaH datasets.</p>
 
                 <div class="control-group">
-                    <label>View</label>
+                    <label>View <span class="help-icon" title="Completeness: coverage %. Imputation: filled gaps. Gaps: missing periods. Anomalies: statistical outliers by Z-score.">?</span></label>
                     <div class="mode-seg" id="qualityViewPicker">
                         <button class="mode-seg-btn active" data-view="completeness">Completeness</button>
                         <button class="mode-seg-btn" data-view="imputation">Imputation</button>
@@ -250,11 +263,11 @@
                 <!-- Station+Feature controls (completeness / gaps / anomalies) -->
                 <div id="qualityStationGroup">
                     <div class="control-group">
-                        <label for="qualityStationSelect">Station</label>
+                        <label for="qualityStationSelect">Station <span class="help-icon" title="The hydrological station to audit for data quality issues">?</span></label>
                         <select id="qualityStationSelect"></select>
                     </div>
                     <div class="control-group">
-                        <label for="qualityFeatureSelect">Feature</label>
+                        <label for="qualityFeatureSelect">Feature <span class="help-icon" title="The variable to check (e.g., discharge, precipitation)">?</span></label>
                         <select id="qualityFeatureSelect"></select>
                     </div>
                 </div>
@@ -262,11 +275,11 @@
                 <!-- Dataset+Feature controls (imputation) -->
                 <div id="qualityDatasetGroup" class="hidden">
                     <div class="control-group">
-                        <label>Dataset</label>
+                        <label>Dataset <span class="help-icon" title="Choose which dataset to audit for imputation rates">?</span></label>
                         <div class="dataset-picker" id="qualityDatasetPicker"></div>
                     </div>
                     <div class="control-group">
-                        <label for="qualityImpFeatureSelect">Feature (optional)</label>
+                        <label for="qualityImpFeatureSelect">Feature (optional) <span class="help-icon" title="Specific variable, or leave blank to see all features">?</span></label>
                         <select id="qualityImpFeatureSelect">
                             <option value="">All features</option>
                         </select>
@@ -277,7 +290,7 @@
                 <div id="qualityZGroup" class="hidden">
                     <div class="scenario-slider-group">
                         <div class="scenario-slider-row">
-                            <label class="scenario-slider-label">Z-score threshold</label>
+                            <label class="scenario-slider-label">Z-score threshold <span class="help-icon" title="Sensitivity for anomaly detection. Higher values (5) = fewer false alarms. Lower values (2) = catch more subtle anomalies.">?</span></label>
                             <span class="scenario-slider-value" id="qualityZDisplay">3.0</span>
                         </div>
                         <input class="scenario-slider" id="qualityZSlider" type="range" min="2" max="5" step="0.5" value="3" />
@@ -294,27 +307,27 @@
                 <p class="section-desc">Scale a driver feature and estimate the impact on a target over a forecast window using historical sensitivity analysis.</p>
 
                 <div class="control-group">
-                    <label for="scenarioStationSelect">Station</label>
+                    <label for="scenarioStationSelect">Station <span class="help-icon" title="The hydrological station where you want to simulate the scenario">?</span></label>
                     <select id="scenarioStationSelect"></select>
                 </div>
                 <div class="control-grid two-col">
                     <div class="control-group">
-                        <label for="scenarioTargetSelect">Target</label>
+                        <label for="scenarioTargetSelect">Target <span class="help-icon" title="The output variable to forecast (e.g., water level, discharge)">?</span></label>
                         <select id="scenarioTargetSelect"></select>
                     </div>
                     <div class="control-group">
-                        <label for="scenarioDriverSelect">Driver</label>
+                        <label for="scenarioDriverSelect">Driver <span class="help-icon" title="The input variable to scale (e.g., rainfall). Its historical relationship with the target determines the impact.">?</span></label>
                         <select id="scenarioDriverSelect"></select>
                     </div>
                 </div>
                 <div class="control-group">
-                    <label for="scenarioModelSelect">Model (baseline)</label>
+                    <label for="scenarioModelSelect">Model (baseline) <span class="help-icon" title="The pre-trained model to generate the baseline forecast for comparison">?</span></label>
                     <select id="scenarioModelSelect"></select>
                 </div>
 
                 <div class="scenario-slider-group">
                     <div class="scenario-slider-row">
-                        <label class="scenario-slider-label">Scale factor</label>
+                        <label class="scenario-slider-label">Scale factor <span class="help-icon" title="Percentage change to apply to the driver variable. Positive values increase the driver, negative values decrease it.">?</span></label>
                         <span class="scenario-slider-value" id="scenarioScaleDisplay">+20%</span>
                     </div>
                     <input class="scenario-slider" id="scenarioScaleSlider" type="range" min="-80" max="100" step="5" value="20" />
@@ -325,7 +338,7 @@
 
                 <div class="scenario-slider-group">
                     <div class="scenario-slider-row">
-                        <label class="scenario-slider-label">Duration</label>
+                        <label class="scenario-slider-label">Duration <span class="help-icon" title="How many months to apply the scaled driver condition in the forecast window">?</span></label>
                         <span class="scenario-slider-value" id="scenarioDurationDisplay">3 months</span>
                     </div>
                     <input class="scenario-slider" id="scenarioDurationSlider" type="range" min="1" max="12" step="1" value="3" />
@@ -336,7 +349,7 @@
 
                 <div class="scenario-slider-group">
                     <div class="scenario-slider-row">
-                        <label class="scenario-slider-label">Start offset</label>
+                        <label class="scenario-slider-label">Start offset <span class="help-icon" title="Which month to begin applying the scaled driver condition (1 = start of forecast, 12 = final month)">?</span></label>
                         <span class="scenario-slider-value" id="scenarioOffsetDisplay">month 1</span>
                     </div>
                     <input class="scenario-slider" id="scenarioOffsetSlider" type="range" min="0" max="11" step="1" value="0" />
@@ -361,15 +374,15 @@
                 <p class="section-desc">Fit GEV and Gumbel distributions to annual maxima. Compute return levels for 2–200 year events with bootstrap confidence intervals.</p>
 
                 <div class="control-group">
-                    <label for="extremeStationSelect">Station</label>
+                    <label for="extremeStationSelect">Station <span class="help-icon" title="The hydrological station to analyze for extreme events (floods, droughts)">?</span></label>
                     <select id="extremeStationSelect"></select>
                 </div>
                 <div class="control-group">
-                    <label for="extremeFeatureSelect">Feature</label>
+                    <label for="extremeFeatureSelect">Feature <span class="help-icon" title="The variable to analyze (typically discharge or water level for extremes)">?</span></label>
                     <select id="extremeFeatureSelect"></select>
                 </div>
                 <div class="control-group">
-                    <label for="extremeDistSelect">Distribution</label>
+                    <label for="extremeDistSelect">Distribution <span class="help-icon" title="GEV models extreme values in the tails. Gumbel is simpler, GEV is more flexible. Both with bootstrap confidence intervals.">?</span></label>
                     <select id="extremeDistSelect">
                         <option value="gev">GEV (Generalized Extreme Value)</option>
                         <option value="gumbel">Gumbel</option>
@@ -392,20 +405,20 @@
                 <p class="section-desc">Compare recent observations against the full historical distribution to classify each station by current risk level.</p>
 
                 <div class="control-group">
-                    <label for="riskDatasetSelect">Dataset</label>
+                    <label for="riskDatasetSelect">Dataset <span class="help-icon" title="Choose which dataset to map for risk: Mekong for Southeast Asia or LamaH-CE for European stations">?</span></label>
                     <select id="riskDatasetSelect">
                         <option value="mekong">Mekong</option>
                         <option value="lamah">LamaH-CE</option>
                     </select>
                 </div>
                 <div class="control-group">
-                    <label for="riskFeatureSelect">Feature</label>
+                    <label for="riskFeatureSelect">Feature <span class="help-icon" title="The variable to assess for risk (e.g., discharge, water level, precipitation)">?</span></label>
                     <select id="riskFeatureSelect"></select>
                 </div>
 
                 <div class="scenario-slider-group">
                     <div class="scenario-slider-row">
-                        <label class="scenario-slider-label">Lookback</label>
+                        <label class="scenario-slider-label">Lookback <span class="help-icon" title="How many recent data points to average for the current value. More points = smoother, less responsive; fewer points = noisier, more reactive.">?</span></label>
                         <span class="scenario-slider-value" id="riskLookbackDisplay">30 pts</span>
                     </div>
                     <input class="scenario-slider" id="riskLookbackSlider" type="range" min="7" max="90" step="1" value="30" />
@@ -427,39 +440,46 @@
             <section class="panel-section hidden" data-sidebar-panel="prediction">
                 <div class="section-heading">Prediction setup</div>
                 <div class="control-group">
-                    <label>Mode</label>
+                    <label>Mode <span class="help-icon" title="Future Forecast: predict upcoming values. Historical Fit: show how well the model fits past data.">?</span></label>
                     <div class="mode-seg" id="predictModePicker">
                         <button class="mode-seg-btn active" data-mode="future">Future Forecast</button>
                         <button class="mode-seg-btn" data-mode="historical">Historical Fit</button>
                     </div>
                 </div>
                 <div class="control-group">
-                    <label for="predictModelSelect">Model</label>
+                    <label for="predictModelSelect">Model <span class="help-icon" title="Which forecasting algorithm to use. Different models suit different data patterns (trend, seasonality, noise).">?</span></label>
                     <select id="predictModelSelect"></select>
                 </div>
                 <div class="control-group">
-                    <label>Dataset</label>
+                    <label>Dataset <span class="help-icon" title="Choose which dataset to forecast from: Mekong for Southeast Asia or LamaH-CE for European stations">?</span></label>
                     <div class="dataset-picker" id="predictDatasetPicker"></div>
                 </div>
                 <div class="control-group">
-                    <label for="predictStationSelect">Station</label>
+                    <label for="predictStationSelect">Station <span class="help-icon" title="The hydrological station to forecast for">?</span></label>
                     <select id="predictStationSelect"></select>
                 </div>
                 <div class="control-grid two-col">
                     <div class="control-group">
-                        <label for="predictFeatureSelect">Feature</label>
+                        <label for="predictFeatureSelect">Feature <span class="help-icon" title="The variable to forecast (e.g., discharge, water level, precipitation)">?</span></label>
                         <select id="predictFeatureSelect"></select>
                     </div>
                     <div class="control-group">
-                        <label for="predictHorizonInput" id="predictHorizonLabel">Horizon (steps)</label>
+                        <label for="predictHorizonInput" id="predictHorizonLabel">Horizon (steps) <span class="help-icon" title="How many steps ahead to forecast (1-30). Steps are monthly time periods.">?</span></label>
                         <input id="predictHorizonInput" type="number" min="1" value="7" />
                     </div>
                 </div>
                 <div class="small-note" id="predictHint"></div>
                 <div class="toggle-row">
-                    <span class="toggle-label">Include Analysis</span>
+                    <span class="toggle-label">Include Analysis <span class="help-icon" title="Generate automated insights about the forecast (anomalies, comparisons, risks).">?</span></span>
                     <label class="toggle-switch">
                         <input type="checkbox" id="predictAnalysisToggle" checked />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    </label>
+                </div>
+                <div class="toggle-row">
+                    <span class="toggle-label">Show 95% Confidence Band <span class="help-icon" title="Display the prediction uncertainty range. The band widens for longer forecasts.">?</span></span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="predictCIToggle" checked />
                         <span class="toggle-track"><span class="toggle-thumb"></span></span>
                     </label>
                 </div>
@@ -472,23 +492,23 @@
                 <div class="section-heading">Climate Impact Projector</div>
                 <p class="section-desc">Project future water availability under different warming scenarios using delta-change methodology applied to the historical record.</p>
                 <div class="control-group">
-                    <label for="climateDatasetSelect">Dataset</label>
+                    <label for="climateDatasetSelect">Dataset <span class="help-icon" title="Choose which dataset to project: Mekong for Southeast Asia or LamaH-CE for European stations">?</span></label>
                     <select id="climateDatasetSelect">
                         <option value="mekong">Mekong</option>
                         <option value="lamah">LamaH-CE</option>
                     </select>
                 </div>
                 <div class="control-group">
-                    <label for="climateStationSelect">Station</label>
+                    <label for="climateStationSelect">Station <span class="help-icon" title="The hydrological station to project climate impacts for">?</span></label>
                     <select id="climateStationSelect"></select>
                 </div>
                 <div class="control-group">
-                    <label for="climateFeatureSelect">Feature</label>
+                    <label for="climateFeatureSelect">Feature <span class="help-icon" title="The variable to project (e.g., discharge, water availability, precipitation)">?</span></label>
                     <select id="climateFeatureSelect"></select>
                 </div>
                 <div class="scenario-slider-group">
                     <div class="scenario-slider-row">
-                        <label class="scenario-slider-label">Projection window</label>
+                        <label class="scenario-slider-label">Projection window <span class="help-icon" title="Years into the future to project climate impacts. Longer windows = higher uncertainty.">?</span></label>
                         <span class="scenario-slider-value" id="climateYearsDisplay">30 yrs</span>
                     </div>
                     <input class="scenario-slider" id="climateYearsSlider" type="range" min="10" max="80" step="5" value="30" />
@@ -509,22 +529,22 @@
                 <div class="section-heading">Change Point Detection</div>
                 <p class="section-desc">Identify statistically significant regime shifts in hydrological time series using PELT or Binary Segmentation algorithms.</p>
                 <div class="control-group">
-                    <label for="cpDatasetSelect">Dataset</label>
+                    <label for="cpDatasetSelect">Dataset <span class="help-icon" title="Choose which dataset to analyze for regime shifts: Mekong for Southeast Asia or LamaH-CE for European stations">?</span></label>
                     <select id="cpDatasetSelect">
                         <option value="mekong">Mekong</option>
                         <option value="lamah">LamaH-CE</option>
                     </select>
                 </div>
                 <div class="control-group">
-                    <label for="cpStationSelect">Station</label>
+                    <label for="cpStationSelect">Station <span class="help-icon" title="The hydrological station to scan for regime shifts or structural breaks">?</span></label>
                     <select id="cpStationSelect"></select>
                 </div>
                 <div class="control-group">
-                    <label for="cpFeatureSelect">Feature</label>
+                    <label for="cpFeatureSelect">Feature <span class="help-icon" title="The variable to analyze for change points (e.g., discharge, water level)">?</span></label>
                     <select id="cpFeatureSelect"></select>
                 </div>
                 <div class="control-group">
-                    <label>Algorithm</label>
+                    <label>Algorithm <span class="help-icon" title="PELT: faster, optimal penalty. BinSeg: slower, more flexible. Both detect structural breaks in time series.">?</span></label>
                     <div class="mode-seg" id="cpMethodPicker">
                         <button class="mode-seg-btn active" data-method="pelt">PELT</button>
                         <button class="mode-seg-btn" data-method="binseg">BinSeg</button>
@@ -532,7 +552,7 @@
                 </div>
                 <div class="scenario-slider-group">
                     <div class="scenario-slider-row">
-                        <label class="scenario-slider-label">Max breakpoints</label>
+                        <label class="scenario-slider-label">Max breakpoints <span class="help-icon" title="Maximum number of regime shifts to detect. More breakpoints = more sensitive to changes.">?</span></label>
                         <span class="scenario-slider-value" id="cpBreaksDisplay">3</span>
                     </div>
                     <input class="scenario-slider" id="cpBreaksSlider" type="range" min="1" max="6" step="1" value="3" />
@@ -549,14 +569,14 @@
                 <div class="section-heading">Animated Basin Map</div>
                 <p class="section-desc">Animate station conditions year-by-year to reveal how hydrological regimes evolve across the basin over decades.</p>
                 <div class="control-group">
-                    <label for="animateDatasetSelect">Dataset</label>
+                    <label for="animateDatasetSelect">Dataset <span class="help-icon" title="Choose which dataset to animate: Mekong for Southeast Asia or LamaH-CE for European stations">?</span></label>
                     <select id="animateDatasetSelect">
                         <option value="mekong">Mekong</option>
                         <option value="lamah">LamaH-CE</option>
                     </select>
                 </div>
                 <div class="control-group">
-                    <label for="animateFeatureSelect">Feature</label>
+                    <label for="animateFeatureSelect">Feature <span class="help-icon" title="The variable to animate year-by-year (e.g., discharge, water level)">?</span></label>
                     <select id="animateFeatureSelect"></select>
                 </div>
                 <div class="action-row sticky-actions" data-sidebar-action="animate">
@@ -567,6 +587,101 @@
                     <p class="network-caveat-title">How it works</p>
                     <p class="network-caveat-text">Each station is coloured by its annual value percentile vs its own history. Use the play button and slider on the map to navigate through time.</p>
                     <p class="network-caveat-small">LamaH-CE may take 20–40 s to build the animation.</p>
+                </div>
+            </section>
+
+            <!-- ── Multi-Model Forecast Comparison ──────────────────────────── -->
+            <section class="panel-section hidden" data-sidebar-panel="modelcompare">
+                <div class="section-heading">Multi-Model Forecast Comparison</div>
+                <p class="section-desc">Fit Holt-Winters, ARIMA(2,1,2), and Linear Trend simultaneously and compare their forecasts and accuracy metrics side by side.</p>
+                <div class="control-group">
+                    <label for="mcDatasetSelect">Dataset <span class="help-icon" title="Choose which dataset to compare models on: Mekong for Southeast Asia or LamaH-CE for European stations">?</span></label>
+                    <select id="mcDatasetSelect">
+                        <option value="mekong">Mekong</option>
+                        <option value="lamah">LamaH-CE</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="mcStationSelect">Station <span class="help-icon" title="The hydrological station to compare forecasting models for">?</span></label>
+                    <select id="mcStationSelect"></select>
+                </div>
+                <div class="control-group">
+                    <label for="mcFeatureSelect">Feature <span class="help-icon" title="The variable to forecast and compare (e.g., discharge, water level)">?</span></label>
+                    <select id="mcFeatureSelect"></select>
+                </div>
+                <div class="scenario-slider-group">
+                    <div class="scenario-slider-row">
+                        <label class="scenario-slider-label">Forecast horizon <span class="help-icon" title="How many months ahead each model will forecast. Longer horizons show which model extrapolates better.">?</span></label>
+                        <span class="scenario-slider-value" id="mcHorizonDisplay">12 months</span>
+                    </div>
+                    <input class="scenario-slider" id="mcHorizonSlider" type="range" min="3" max="36" step="1" value="12" />
+                    <div class="scenario-slider-ticks"><span>3</span><span>12</span><span>36</span></div>
+                </div>
+                <div class="action-row sticky-actions" data-sidebar-action="modelcompare">
+                    <button class="primary-btn full-width" id="runMcBtn">Compare models</button>
+                </div>
+                <div class="inline-message" id="mcMessage"></div>
+                <div class="network-caveats" style="margin-top:14px;">
+                    <p class="network-caveat-title">Methodology</p>
+                    <p class="network-caveat-text">All models fit on the full monthly history. RMSE and MAPE measure in-sample accuracy; AIC penalises model complexity.</p>
+                </div>
+            </section>
+
+            <!-- ── STL Decomposition ─────────────────────────────────────────── -->
+            <section class="panel-section hidden" data-sidebar-panel="decompose">
+                <div class="section-heading">STL Decomposition</div>
+                <p class="section-desc">Separate a hydrological series into Trend, Seasonal, and Residual components using Seasonal-Trend decomposition via LOESS (STL).</p>
+                <div class="control-group">
+                    <label for="decompDatasetSelect">Dataset <span class="help-icon" title="Choose which dataset to decompose: Mekong for Southeast Asia or LamaH-CE for European stations">?</span></label>
+                    <select id="decompDatasetSelect">
+                        <option value="mekong">Mekong</option>
+                        <option value="lamah">LamaH-CE</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="decompStationSelect">Station <span class="help-icon" title="The hydrological station to decompose into trend, seasonal, and residual parts">?</span></label>
+                    <select id="decompStationSelect"></select>
+                </div>
+                <div class="control-group">
+                    <label for="decompFeatureSelect">Feature <span class="help-icon" title="The time series variable to separate (e.g., discharge, water level)">?</span></label>
+                    <select id="decompFeatureSelect"></select>
+                </div>
+                <div class="action-row sticky-actions" data-sidebar-action="decompose">
+                    <button class="primary-btn full-width" id="runDecompBtn">Decompose series</button>
+                </div>
+                <div class="inline-message" id="decompMessage"></div>
+                <div class="network-caveats" style="margin-top:14px;">
+                    <p class="network-caveat-title">Methodology</p>
+                    <p class="network-caveat-text">Monthly resampled data. STL with period=12 and robust fitting. Trend and seasonal strength indices follow Wang et al. (2006).</p>
+                </div>
+            </section>
+
+            <!-- ── Wavelet Analysis ──────────────────────────────────────────── -->
+            <section class="panel-section hidden" data-sidebar-panel="wavelet">
+                <div class="section-heading">Wavelet Analysis</div>
+                <p class="section-desc">Identify time-varying periodicities (annual cycle, ENSO, decadal oscillations) using the Continuous Wavelet Transform with a Morlet wavelet.</p>
+                <div class="control-group">
+                    <label for="waveletDatasetSelect">Dataset <span class="help-icon" title="Choose which dataset to analyze: Mekong for Southeast Asia or LamaH-CE for European stations">?</span></label>
+                    <select id="waveletDatasetSelect">
+                        <option value="mekong">Mekong</option>
+                        <option value="lamah">LamaH-CE</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="waveletStationSelect">Station <span class="help-icon" title="The hydrological station to analyze for periodicities (annual, seasonal, ENSO, decadal cycles)">?</span></label>
+                    <select id="waveletStationSelect"></select>
+                </div>
+                <div class="control-group">
+                    <label for="waveletFeatureSelect">Feature <span class="help-icon" title="The time series variable to analyze (e.g., discharge, water level, precipitation)">?</span></label>
+                    <select id="waveletFeatureSelect"></select>
+                </div>
+                <div class="action-row sticky-actions" data-sidebar-action="wavelet">
+                    <button class="primary-btn full-width" id="runWaveletBtn">Run wavelet analysis</button>
+                </div>
+                <div class="inline-message" id="waveletMessage"></div>
+                <div class="network-caveats" style="margin-top:14px;">
+                    <p class="network-caveat-title">Methodology</p>
+                    <p class="network-caveat-text">CWT (PyWavelets, Morlet wavelet). Cone of influence masks edge-affected regions. Global spectrum averages power over time.</p>
                 </div>
             </section>
 
@@ -665,6 +780,9 @@
                         <button class="dock-tab" data-dock-tab="climate">Climate</button>
                         <button class="dock-tab" data-dock-tab="changepoint">Change Points</button>
                         <button class="dock-tab" data-dock-tab="animate">Animate</button>
+                        <button class="dock-tab" data-dock-tab="modelcompare">Model Compare</button>
+                        <button class="dock-tab" data-dock-tab="decompose">Decompose</button>
+                        <button class="dock-tab" data-dock-tab="wavelet">Wavelet</button>
                     </div>
                     <div class="dock-actions">
                         <button class="export-pdf-btn" id="exportPdfBtn" type="button" title="Generate PDF report for entire session">
@@ -718,6 +836,18 @@
                         <button class="dock-clear-btn hidden" id="clearAnimateBtn" data-dock-clear="animate">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                             Clear
+                        </button>
+                        <button class="dock-clear-btn hidden" id="clearMcBtn" data-dock-clear="modelcompare">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            Clear all
+                        </button>
+                        <button class="dock-clear-btn hidden" id="clearDecompBtn" data-dock-clear="decompose">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            Clear all
+                        </button>
+                        <button class="dock-clear-btn hidden" id="clearWaveletBtn" data-dock-clear="wavelet">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                            Clear all
                         </button>
                     </div>
                 </div>
@@ -817,6 +947,30 @@
                             <p>Watch station risk classifications evolve year-by-year across the basin. Use the play button and year slider on the map to navigate through time.</p>
                         </div>
                         <div class="card-grid" id="animateCards"></div>
+                    </section>
+
+                    <section class="dock-panel" data-dock-panel="modelcompare">
+                        <div class="panel-intro">
+                            <h3>Multi-Model Forecast Comparison</h3>
+                            <p>Compare Holt-Winters, ARIMA(2,1,2), and Linear Trend forecasts on the same chart. RMSE, MAPE, and AIC metrics show which model fits best.</p>
+                        </div>
+                        <div class="card-grid" id="mcCards"></div>
+                    </section>
+
+                    <section class="dock-panel" data-dock-panel="decompose">
+                        <div class="panel-intro">
+                            <h3>STL Decomposition</h3>
+                            <p>Trend strength, seasonal strength, and residual noise quantified using the Wang et al. (2006) method. Seasonal profile shows peak and trough months.</p>
+                        </div>
+                        <div class="card-grid" id="decompCards"></div>
+                    </section>
+
+                    <section class="dock-panel" data-dock-panel="wavelet">
+                        <div class="panel-intro">
+                            <h3>Wavelet Analysis</h3>
+                            <p>CWT scalogram reveals when periodicities are active. The global power spectrum identifies dominant cycles: annual (12 mo), ENSO (36–60 mo), decadal.</p>
+                        </div>
+                        <div class="card-grid" id="waveletCards"></div>
                     </section>
                 </div>
             </section>
