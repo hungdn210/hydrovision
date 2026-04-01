@@ -1,18 +1,30 @@
 from __future__ import annotations
 
 import os
-import warnings
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.io
-import scipy.stats
-from statsmodels.tsa.holtwinters import ExponentialSmoothing
-from statsmodels.tsa.arima.model import ARIMA
 
 from .data_loader import SeriesRequest
+
+
+MODELS = [
+    ('FlowNet',  '#60a5fa', 'rgba(96,165,250,0.3)',  'circle'),
+    ('LSTM',     '#34d399', 'rgba(52,211,153,0.3)',   'square'),
+    ('PatchTST', '#f59e0b', 'rgba(245,158,11,0.3)',   'diamond'),
+    ('DLinear',  '#f87171', 'rgba(248,113,113,0.3)',  'triangle-up'),
+]
+
+FEATURE_FOLDER = {
+    'Discharge': 'Water_Discharge',
+    'Water_Level': 'Water_Level',
+    'Rainfall': 'Rainfall',
+    'Total_Suspended_Solids': 'Total_Suspended_Solids',
+}
 
 
 def _generate_modelcompare_analysis(result: Dict[str, Any]) -> str:
@@ -27,7 +39,7 @@ def _generate_modelcompare_analysis(result: Dict[str, Any]) -> str:
 
 Station/feature: {result.get('title', '')}
 Best model: {s.get('best_model_by_rmse')}
-Horizon: {s.get('horizon_months')} months
+Horizon: {s.get('horizon_days')} days
 Models: {s.get('models')}
 
 Focus on: which model performs best and why, confidence in the forecast, and recommendations for operational use. Use **bold** for key terms."""
@@ -39,20 +51,16 @@ Focus on: which model performs best and why, confidence in the forecast, and rec
 
 class ModelComparisonService:
     """
-    Multi-Model Forecast Comparison.
+    Multi-Model Forecast Comparison using pre-trained ML models.
 
-    Fits three models on the historical monthly record and projects forward:
-      1. Holt-Winters (additive trend + seasonal, damped)
-      2. ARIMA(2,1,2)
-      3. Linear trend extrapolation
-
-    For each model computes in-sample RMSE, MAPE, and AIC (where available).
-    Returns a Plotly figure showing all three forecast lines against history
-    plus a metrics summary table.
+    Loads FlowNet, LSTM, PatchTST, and DLinear predictions from the
+    station_predictions (historical fit for RMSE/MAPE) and
+    station_predictions_future (forecast) CSV files.
     """
 
-    def __init__(self, repository) -> None:
+    def __init__(self, repository, data_dir: str | Path = 'data') -> None:
         self.repo = repository
+        self.data_dir = Path(data_dir)
 
     # ── helpers ────────────────────────────────────────────────────────────────
 
@@ -63,7 +71,21 @@ class ModelComparisonService:
             return self.repo
         return None
 
-    def _load_series(self, repo, station: str, feature: str) -> Optional[pd.Series]:
+    def _get_dataset(self, station: str) -> Optional[str]:
+        if hasattr(self.repo, '_station_to_repo'):
+            r = self.repo._station_to_repo.get(station)
+            return r.dataset if r else None
+        return getattr(self.repo, 'dataset', None)
+
+    def _feature_folder(self, feature: str) -> str:
+        return FEATURE_FOLDER.get(feature, feature)
+
+    def _load_actual(self, station: str, feature: str) -> Optional[pd.DataFrame]:
+        """Load full historical daily series as DataFrame with Timestamp/Value columns."""
+        dataset = self._get_dataset(station)
+        repo = self._find_repo(dataset) if dataset else None
+        if repo is None:
+            return None
         try:
             fd = repo.station_index[station]['feature_details'][feature]
             req = SeriesRequest(
@@ -71,11 +93,85 @@ class ModelComparisonService:
                 start_date=fd['start_date'], end_date=fd['end_date'],
             )
             df = repo.get_feature_series(req)
-            ts = df.set_index('Timestamp')['Value'].sort_index()
-            ts.index = pd.to_datetime(ts.index)
-            return ts.dropna()
+            df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+            return df[['Timestamp', 'Value']].dropna().sort_values('Timestamp').reset_index(drop=True)
         except Exception:
             return None
+
+    def _load_future(self, station: str, feature: str, model: str, horizon: int) -> Optional[np.ndarray]:
+        """Load future forecast from station_predictions_future CSVs."""
+        dataset = self._get_dataset(station)
+        if dataset == 'mekong':
+            path = (self.data_dir / 'Mekong' / 'prediction_results' / 'station_predictions_future'
+                    / self._feature_folder(feature) / model / f'{station}.csv')
+        elif dataset == 'lamah':
+            path = (self.data_dir / 'LamaH' / 'prediction_results' / 'station_predictions_future'
+                    / model / f'{station}.csv')
+            if not path.exists():
+                path = (self.data_dir / 'LamaH' / 'prediction_results' / 'station_predictions_future'
+                        / model / 'LamaH_daily' / f'{station}.csv')
+        else:
+            return None
+        if not path.exists():
+            return None
+        try:
+            df = pd.read_csv(path, nrows=1)
+            return df.iloc[0, :horizon].values.astype(float)
+        except Exception:
+            return None
+
+    def _load_historical_fit(
+        self, station: str, feature: str, model: str, horizon: int, actual_df: pd.DataFrame
+    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], float, float]:
+        """
+        Load rolling predictions from station_predictions and compute RMSE/MAPE.
+        Returns (fit_dates, fit_values, rmse, mape).
+        """
+        dataset = self._get_dataset(station)
+        if dataset == 'mekong':
+            path = (self.data_dir / 'Mekong' / 'prediction_results' / 'station_predictions'
+                    / self._feature_folder(feature) / model / f'{station}.csv')
+        elif dataset == 'lamah':
+            path = (self.data_dir / 'LamaH' / 'prediction_results' / 'station_predictions'
+                    / model / f'{station}.csv')
+        else:
+            return None, None, float('nan'), float('nan')
+
+        if not path.exists():
+            return None, None, float('nan'), float('nan')
+        try:
+            pred_df = pd.read_csv(path)
+            n_windows, n_horizons = len(pred_df), len(pred_df.columns)
+            actual_h = min(horizon, n_horizons)
+            col_idx = actual_h - 1
+
+            last_date = actual_df['Timestamp'].max()
+            eval_start = last_date - pd.Timedelta(days=n_windows + n_horizons - 2)
+            dates = pd.date_range(
+                start=eval_start + pd.Timedelta(days=actual_h - 1),
+                periods=n_windows, freq='D',
+            )
+            values = pred_df.iloc[:, col_idx].values.astype(float)
+            fit_df = pd.DataFrame({'Timestamp': dates, 'ModelFit': values})
+
+            actual_indexed = actual_df.set_index('Timestamp')['Value']
+            fit_df = fit_df[fit_df['Timestamp'].isin(actual_indexed.index)].reset_index(drop=True)
+            if fit_df.empty:
+                return None, None, float('nan'), float('nan')
+
+            actuals = actual_indexed.reindex(fit_df['Timestamp']).values
+            preds = fit_df['ModelFit'].values
+            residuals = actuals - preds
+            rmse = float(np.sqrt(np.nanmean(residuals ** 2)))
+
+            act_mean = float(np.nanmean(np.abs(actuals)))
+            threshold = max(act_mean * 0.01, 1e-6)
+            valid = np.abs(actuals) > threshold
+            mape = float(np.nanmean(np.abs(residuals[valid] / actuals[valid])) * 100) if valid.sum() > 0 else float('nan')
+
+            return fit_df['Timestamp'].values, fit_df['ModelFit'].values, rmse, mape
+        except Exception:
+            return None, None, float('nan'), float('nan')
 
     # ── main entry ─────────────────────────────────────────────────────────────
 
@@ -84,180 +180,99 @@ class ModelComparisonService:
         dataset: str,
         station: str,
         feature: str,
-        horizon: int = 12,
+        horizon: int = 14,
         include_analysis: bool = False,
     ) -> Dict[str, Any]:
         repo = self._find_repo(dataset)
         if repo is None:
             raise ValueError(f"Dataset '{dataset}' not found.")
 
-        ts = self._load_series(repo, station, feature)
-        if ts is None or len(ts) < 60:
+        actual_df = self._load_actual(station, feature)
+        if actual_df is None or len(actual_df) < 60:
             raise ValueError(f"Insufficient data for '{station}' / '{feature}'.")
 
+        horizon = max(1, min(horizon, 30))
         unit = repo.feature_units.get(feature, '')
         station_name = repo.station_index[station].get('name', station)
         feature_label = feature.replace('_', ' ').title()
 
-        # Resample to monthly means for stability
-        monthly = ts.resample('ME').mean().dropna()
-        if len(monthly) < 24:
-            raise ValueError("Need at least 24 months of data for model comparison.")
+        # Show last 365 days of actual history on chart
+        display_days = 365
+        plot_actual = actual_df.iloc[-display_days:] if len(actual_df) > display_days else actual_df
+        last_date = actual_df['Timestamp'].max()
+        last_value = float(actual_df.loc[actual_df['Timestamp'] == last_date, 'Value'].iloc[0])
+        future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=horizon, freq='D')
+        # Prepend last actual point so forecast lines connect to history
+        connected_dates = [last_date] + list(future_dates)
+        # Clip negatives if feature is physically non-negative (e.g. discharge)
+        non_negative = float(actual_df['Value'].dropna().min()) >= 0
 
-        values = monthly.values.astype(float)
-        dates = list(monthly.index)
-        n = len(values)
-        seasonal_period = 12
-
-        horizon = max(1, min(horizon, 36))
-
-        # Future dates
-        last_date = dates[-1]
-        future_dates = pd.date_range(
-            start=last_date + pd.offsets.MonthEnd(1),
-            periods=horizon, freq='ME',
-        )
 
         DARK_BG = '#07111f'
         TEXT = '#e5eefc'
 
         fig = go.Figure()
 
-        # Historical line
+        # Actual historical line
         fig.add_trace(go.Scatter(
-            x=dates, y=values.tolist(),
+            x=plot_actual['Timestamp'].tolist(),
+            y=plot_actual['Value'].tolist(),
             mode='lines',
-            name='Historical monthly mean',
-            line=dict(color='rgba(148,163,184,0.7)', width=1.5),
-            hovertemplate='%{x|%Y-%m}: %{y:.3f} ' + unit + '<extra></extra>',
+            name='Actual',
+            line=dict(color='rgba(148,163,184,0.8)', width=1.5),
+            hovertemplate='%{x|%Y-%m-%d}: %{y:.3f} ' + unit + '<extra></extra>',
         ))
 
         metrics: List[Dict[str, str]] = []
 
-        # ── Model 1: Holt-Winters ─────────────────────────────────────────────
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter('ignore')
-                hw_fit = ExponentialSmoothing(
-                    values,
-                    trend='add', seasonal='add',
-                    seasonal_periods=seasonal_period,
-                    damped_trend=True,
-                    initialization_method='estimated',
-                ).fit(optimized=True)
-            hw_fitted = hw_fit.fittedvalues
-            hw_forecast = hw_fit.forecast(horizon)
-            res = values - hw_fitted
-            hw_rmse = float(np.sqrt(np.mean(res ** 2)))
-            mask = np.abs(values) > 1e-6
-            hw_mape = float(np.mean(np.abs(res[mask] / values[mask])) * 100) if mask.any() else float('nan')
-            hw_aic = float(hw_fit.aic)
+        for model_name, color, color_faint, symbol in MODELS:
+            # Historical fit for metrics
+            fit_dates, fit_vals, rmse, mape = self._load_historical_fit(
+                station, feature, model_name, horizon, actual_df
+            )
+            # Future forecast
+            future_vals = self._load_future(station, feature, model_name, horizon)
 
-            # Fitted line (faint)
-            fig.add_trace(go.Scatter(
-                x=dates, y=hw_fitted.tolist(),
-                mode='lines', name='HW in-sample',
-                line=dict(color='rgba(96,165,250,0.3)', width=1),
-                showlegend=False, hoverinfo='skip',
-            ))
-            # Forecast line
-            fig.add_trace(go.Scatter(
-                x=list(future_dates), y=hw_forecast.tolist(),
-                mode='lines+markers', name='Holt-Winters',
-                line=dict(color='#60a5fa', width=2.5, dash='dash'),
-                marker=dict(size=5, color='#60a5fa'),
-                hovertemplate='HW %{x|%Y-%m}: %{y:.3f} ' + unit + '<extra></extra>',
-            ))
+            has_fit = fit_dates is not None and fit_vals is not None
+            has_future = future_vals is not None
+
+            if not has_fit and not has_future:
+                metrics.append({
+                    'Model': model_name, 'RMSE': 'n/a', 'MAPE': 'n/a',
+                })
+                continue
+
+            # Plot historical fit (last 365 days of fit window)
+            if has_fit:
+                fit_df = pd.DataFrame({'ts': fit_dates, 'val': fit_vals})
+                fit_df = fit_df[fit_df['ts'] >= plot_actual['Timestamp'].min()]
+                if not fit_df.empty:
+                    fig.add_trace(go.Scatter(
+                        x=fit_df['ts'].tolist(), y=fit_df['val'].tolist(),
+                        mode='lines', name=f'{model_name} fit',
+                        line=dict(color=color_faint, width=1),
+                        showlegend=False, hoverinfo='skip',
+                    ))
+
+            # Plot future forecast (prepend last actual point to connect)
+            if has_future:
+                if non_negative:
+                    future_vals = np.clip(future_vals, 0, None)
+                fig.add_trace(go.Scatter(
+                    x=connected_dates, y=[last_value] + future_vals.tolist(),
+                    mode='lines+markers', name=model_name,
+                    line=dict(color=color, width=1.5),
+                    marker=dict(size=4, color=color, symbol=symbol),
+                    hovertemplate=f'{model_name} %{{x|%Y-%m-%d}}: %{{y:.3f}} {unit}<extra></extra>',
+                ))
+
             metrics.append({
-                'Model': 'Holt-Winters',
-                'RMSE': f'{hw_rmse:.3f}',
-                'MAPE': f'{hw_mape:.1f}%' if not np.isnan(hw_mape) else 'n/a',
-                'AIC': f'{hw_aic:.1f}',
+                'Model': model_name,
+                'RMSE': f'{rmse:.3f}' if not np.isnan(rmse) else 'n/a',
+                'MAPE': f'{mape:.1f}%' if not np.isnan(mape) else 'n/a',
             })
-        except Exception:
-            metrics.append({'Model': 'Holt-Winters', 'RMSE': 'failed', 'MAPE': '—', 'AIC': '—'})
 
-        # ── Model 2: ARIMA(2,1,2) ─────────────────────────────────────────────
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter('ignore')
-                arima_fit = ARIMA(values, order=(2, 1, 2)).fit()
-            arima_fitted = arima_fit.fittedvalues
-            arima_fc = arima_fit.forecast(horizon)
-            # residuals from index 1 onward (differencing drops first obs)
-            res = values[1:] - arima_fitted[1:]
-            arima_rmse = float(np.sqrt(np.mean(res ** 2)))
-            mask = np.abs(values[1:]) > 1e-6
-            arima_mape = float(np.mean(np.abs(res[mask] / values[1:][mask])) * 100) if mask.any() else float('nan')
-            arima_aic = float(arima_fit.aic)
-
-            fig.add_trace(go.Scatter(
-                x=dates, y=arima_fitted.tolist(),
-                mode='lines', name='ARIMA in-sample',
-                line=dict(color='rgba(52,211,153,0.3)', width=1),
-                showlegend=False, hoverinfo='skip',
-            ))
-            fig.add_trace(go.Scatter(
-                x=list(future_dates), y=arima_fc.tolist(),
-                mode='lines+markers', name='ARIMA(2,1,2)',
-                line=dict(color='#34d399', width=2.5, dash='dot'),
-                marker=dict(size=5, color='#34d399'),
-                hovertemplate='ARIMA %{x|%Y-%m}: %{y:.3f} ' + unit + '<extra></extra>',
-            ))
-            metrics.append({
-                'Model': 'ARIMA(2,1,2)',
-                'RMSE': f'{arima_rmse:.3f}',
-                'MAPE': f'{arima_mape:.1f}%' if not np.isnan(arima_mape) else 'n/a',
-                'AIC': f'{arima_aic:.1f}',
-            })
-        except Exception:
-            metrics.append({'Model': 'ARIMA(2,1,2)', 'RMSE': 'failed', 'MAPE': '—', 'AIC': '—'})
-
-        # ── Model 3: Linear trend ─────────────────────────────────────────────
-        try:
-            t = np.arange(n, dtype=float)
-            slope, intercept, r_val, _, _ = scipy.stats.linregress(t, values)
-            lin_fitted = slope * t + intercept
-            lin_fc = slope * np.arange(n, n + horizon, dtype=float) + intercept
-            res = values - lin_fitted
-            lin_rmse = float(np.sqrt(np.mean(res ** 2)))
-            mask = np.abs(values) > 1e-6
-            lin_mape = float(np.mean(np.abs(res[mask] / values[mask])) * 100) if mask.any() else float('nan')
-
-            fig.add_trace(go.Scatter(
-                x=dates, y=lin_fitted.tolist(),
-                mode='lines', name='Linear in-sample',
-                line=dict(color='rgba(248,113,113,0.3)', width=1),
-                showlegend=False, hoverinfo='skip',
-            ))
-            fig.add_trace(go.Scatter(
-                x=list(future_dates), y=lin_fc.tolist(),
-                mode='lines+markers', name='Linear Trend',
-                line=dict(color='#f87171', width=2.5, dash='dashdot'),
-                marker=dict(size=5, color='#f87171'),
-                hovertemplate='Linear %{x|%Y-%m}: %{y:.3f} ' + unit + '<extra></extra>',
-            ))
-            metrics.append({
-                'Model': 'Linear Trend',
-                'RMSE': f'{lin_rmse:.3f}',
-                'MAPE': f'{lin_mape:.1f}%' if not np.isnan(lin_mape) else 'n/a',
-                'AIC': 'n/a',
-            })
-        except Exception:
-            metrics.append({'Model': 'Linear Trend', 'RMSE': 'failed', 'MAPE': '—', 'AIC': '—'})
-
-        # ── Forecast-start vertical line ──────────────────────────────────────
-        shapes = [dict(
-            type='line', x0=last_date, x1=last_date,
-            y0=0, y1=1, yref='paper',
-            line=dict(color='rgba(148,163,184,0.4)', dash='dot', width=1.5),
-        )]
-        annotations = [dict(
-            x=last_date, y=1.04, yref='paper',
-            text='↑ Forecast', showarrow=False, xanchor='center',
-            font=dict(color='rgba(148,163,184,0.6)', size=10),
-        )]
-
+        # Forecast start line
         fig.update_layout(
             paper_bgcolor=DARK_BG,
             plot_bgcolor='rgba(0,0,0,0)',
@@ -283,27 +298,87 @@ class ModelComparisonService:
                 bordercolor='rgba(148,163,184,0.15)',
                 borderwidth=1, font=dict(size=10),
             ),
-            shapes=shapes, annotations=annotations,
+            shapes=[dict(
+                type='line', x0=last_date, x1=last_date,
+                y0=0, y1=1, yref='paper',
+                line=dict(color='rgba(148,163,184,0.4)', dash='dot', width=1.5),
+            )],
+            annotations=[dict(
+                x=last_date, y=1.04, yref='paper',
+                text='↑ Forecast', showarrow=False, xanchor='center',
+                font=dict(color='rgba(148,163,184,0.6)', size=10),
+            )],
             margin=dict(l=60, r=20, t=60, b=50),
         )
 
-        # Best model by RMSE (exclude failed)
-        valid = [(m['Model'], float(m['RMSE'])) for m in metrics
-                 if m['RMSE'] not in ('failed', '—')]
-        best_model = min(valid, key=lambda x: x[1])[0] if valid else 'n/a'
+        valid_rmse = [(m['Model'], float(m['RMSE'])) for m in metrics if m['RMSE'] not in ('n/a', '—')]
+        best_model = min(valid_rmse, key=lambda x: x[1])[0] if valid_rmse else 'n/a'
+
+        # ── Zoom figure: last 90 days + forecast ──────────────────────────────
+        zoom_actual = actual_df[actual_df['Timestamp'] >= last_date - pd.Timedelta(days=90)]
+        fig_zoom = go.Figure()
+        fig_zoom.add_trace(go.Scatter(
+            x=zoom_actual['Timestamp'].tolist(),
+            y=zoom_actual['Value'].tolist(),
+            mode='lines', name='Actual',
+            line=dict(color='rgba(148,163,184,0.8)', width=1.5),
+            hovertemplate='%{x|%Y-%m-%d}: %{y:.3f} ' + unit + '<extra></extra>',
+        ))
+        for model_name, color, color_faint, symbol in MODELS:
+            future_vals = self._load_future(station, feature, model_name, horizon)
+            if future_vals is not None:
+                if non_negative:
+                    future_vals = np.clip(future_vals, 0, None)
+                fig_zoom.add_trace(go.Scatter(
+                    x=connected_dates, y=[last_value] + future_vals.tolist(),
+                    mode='lines+markers', name=model_name,
+                    line=dict(color=color, width=1.5),
+                    marker=dict(size=4, color=color, symbol=symbol),
+                    hovertemplate=f'{model_name} %{{x|%Y-%m-%d}}: %{{y:.3f}} {unit}<extra></extra>',
+                ))
+        fig_zoom.update_layout(
+            paper_bgcolor=DARK_BG,
+            plot_bgcolor='rgba(0,0,0,0)',
+            font=dict(family='Inter, sans-serif', color=TEXT, size=12),
+            title=dict(
+                text=f'Last 90 Days + Forecast — {feature_label} · {station_name}',
+                font=dict(size=14, color=TEXT),
+                x=0.5, xanchor='center',
+            ),
+            xaxis=dict(title='Date', gridcolor='rgba(148,163,184,0.08)', showgrid=True, zeroline=False),
+            yaxis=dict(
+                title=f'{feature_label} ({unit})' if unit else feature_label,
+                gridcolor='rgba(148,163,184,0.08)', showgrid=True, zeroline=False,
+            ),
+            legend=dict(
+                orientation='v', yanchor='top', y=0.99,
+                xanchor='left', x=0.01,
+                bgcolor='rgba(7,17,31,0.82)',
+                bordercolor='rgba(148,163,184,0.15)',
+                borderwidth=1, font=dict(size=10),
+            ),
+            shapes=[dict(
+                type='line', x0=last_date, x1=last_date,
+                y0=0, y1=1, yref='paper',
+                line=dict(color='rgba(148,163,184,0.4)', dash='dot', width=1.5),
+            )],
+            annotations=[dict(
+                x=last_date, y=1.04, yref='paper',
+                text='↑ Forecast', showarrow=False, xanchor='center',
+                font=dict(color='rgba(148,163,184,0.6)', size=10),
+            )],
+            margin=dict(l=60, r=20, t=60, b=50),
+        )
 
         result = {
             'title': f'Model Comparison · {station_name}',
-            'subtitle': (
-                f'{feature_label} · {horizon}-month forecast · '
-                f'{len(monthly)} months of history · best: {best_model}'
-            ),
+            'subtitle': f'{feature_label} · {horizon}-day forecast · best: {best_model}',
             'figure': plotly.io.to_json(fig),
+            'figure_zoom': plotly.io.to_json(fig_zoom),
             'stats': {
                 'models': metrics,
                 'best_model_by_rmse': best_model,
-                'horizon_months': horizon,
-                'n_months_historical': len(monthly),
+                'horizon_days': horizon,
             },
         }
 

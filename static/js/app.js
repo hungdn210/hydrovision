@@ -603,13 +603,19 @@
         els.clearAnimateBtn?.addEventListener('click', () => setEmptyState(els.animateCards, 'No animations yet.'));
         els.animateDatasetSelect?.addEventListener('change', () => updateAnimateFeatureOptions());
         els.runAnimateBtn?.addEventListener('click', runAnimatedMap);
+        const animSpeedSlider = document.getElementById('animateSpeedSlider');
+        const animSpeedDisplay = document.getElementById('animateSpeedDisplay');
+        const speedLabels = ['0.5×', '1×', '2×', '4×', '8×'];
+        animSpeedSlider?.addEventListener('input', () => {
+            if (animSpeedDisplay) animSpeedDisplay.textContent = speedLabels[Number(animSpeedSlider.value) - 1];
+        });
 
         // Model Comparison
         els.clearMcBtn?.addEventListener('click', () => setEmptyState(els.mcCards, 'No comparisons yet.'));
         els.mcDatasetSelect?.addEventListener('change', () => updateSelectOptions(els.mcDatasetSelect.value, els.mcStationSelect, els.mcFeatureSelect));
         els.mcStationSelect?.addEventListener('change', () => updateFeatureSelectForStation(els.mcDatasetSelect.value, els.mcStationSelect.value, els.mcFeatureSelect));
         els.mcHorizonSlider?.addEventListener('input', () => {
-            if (els.mcHorizonDisplay) els.mcHorizonDisplay.textContent = els.mcHorizonSlider.value + ' months';
+            if (els.mcHorizonDisplay) els.mcHorizonDisplay.textContent = els.mcHorizonSlider.value + ' days';
         });
         els.runMcBtn?.addEventListener('click', runModelComparison);
 
@@ -1242,8 +1248,6 @@
         const row = fragment.querySelector('.series-row');
         const stationSelect = fragment.querySelector('.series-station');
         const featureSelect = fragment.querySelector('.series-feature');
-        const startInput = fragment.querySelector('.series-start');
-        const endInput = fragment.querySelector('.series-end');
         const metaLabel = fragment.querySelector('.series-row-meta');
         const removeBtn = row.querySelector('.series-remove-btn');
 
@@ -2231,11 +2235,6 @@
         });
     }
 
-    function ffSyncStationOptions(row, feature) {
-        const stationSelect = row.querySelector('.sr-station-select');
-        ffPopulateStationSelect(stationSelect, feature);
-        ffSyncStationDateBounds(row, feature);
-    }
 
     function ffSyncStationDateBounds(row, feature) {
         const station = row.querySelector('.sr-station-select').value;
@@ -3521,7 +3520,7 @@
                     const pct = Math.round(Math.abs(r.mean) * 100);
                     const color = r.mean >= 0 ? '#34d399' : '#f87171';
                     return `<tr>
-                        <td>${escapeHtml(r.name)}</td>
+                        <td>${escapeHtml(r.name.replace(/_/g, ' '))}</td>
                         <td class="compare-num ${r.mean >= 0 ? 'pos' : 'neg'}">${r.mean.toFixed(3)}</td>
                         <td><div class="compare-bar-bg"><div class="compare-bar-fill" style="width:${pct}%;background:${color}"></div></div></td>
                     </tr>`;
@@ -3552,7 +3551,7 @@
                     return `<div class="lb-row">
                         <span class="lb-rank">${i + 1}</span>
                         <div class="lb-info">
-                            <span class="lb-name">${escapeHtml(r.name || r.station)}</span>
+                            <span class="lb-name">${escapeHtml((r.name || r.station).replace(/_/g, ' '))}</span>
                             <div class="lb-bar-bg"><div class="lb-bar-fill" style="width:${barPct}%;background:${color}"></div></div>
                         </div>
                         <span class="lb-pct" style="color:${color}">${arrow} ${sign}${r.anomaly_pct.toFixed(1)}%</span>
@@ -4197,7 +4196,7 @@
             <thead><tr><th>Station</th><th>Feature</th><th>Observations</th><th>Imputed</th><th>Rate</th></tr></thead>
             <tbody>${rows.map(row => `
                 <tr>
-                    <td>${escapeHtml(row.name)}</td>
+                    <td>${escapeHtml(row.name.replace(/_/g, ' '))}</td>
                     <td>${escapeHtml(row.feature.replace(/_/g,' '))}</td>
                     <td>${row.observations.toLocaleString()}</td>
                     <td>${row.imputed.toLocaleString()}</td>
@@ -4346,7 +4345,7 @@
             `<option value="${escapeHtml(s.station)}">${escapeHtml(s.name.replace(/_/g, ' '))}</option>`
         ).join('');
         const laOpts = lamah.map(s =>
-            `<option value="${escapeHtml(s.station)}">${escapeHtml(s.name)}</option>`
+            `<option value="${escapeHtml(s.station)}">${escapeHtml(s.name.replace(/_/g, ' '))}</option>`
         ).join('');
 
         els.extremeStationSelect.innerHTML =
@@ -4570,7 +4569,7 @@
         if (!stationSelect) return;
         const stations = (state.bootstrap?.stations || []).filter(s => s.dataset === dataset);
         stationSelect.innerHTML = stations
-            .map(s => `<option value="${escapeHtml(s.station)}">${escapeHtml(s.name || s.station)}</option>`)
+            .map(s => `<option value="${escapeHtml(s.station)}">${escapeHtml((s.name || s.station).replace(/_/g, ' '))}</option>`)
             .join('');
         if (stationSelect.options.length > 0) {
             updateFeatureSelectForStation(dataset, stationSelect.value, featureSelect);
@@ -4722,7 +4721,9 @@
             const res = await fetch(`/api/animate-map?${params}`);
             const data = await res.json();
             if (!data.ok) throw new Error(data.error);
-            appendAnimateCard(data.result);
+            const speedIdx = Number(document.getElementById('animateSpeedSlider')?.value ?? 2) - 1;
+            const frameDurations = [1000, 500, 250, 125, 62];
+            appendAnimateCard(data.result, frameDurations[speedIdx]);
             activateDockTab('animate');
             showMessage(els.animateMessage, `Animation ready · ${data.result.stats.n_stations} stations · ${data.result.stats.n_years} years`, 'success');
         } catch (err) {
@@ -4732,15 +4733,53 @@
         }
     }
 
-    function appendAnimateCard(result) {
+    function appendAnimateCard(result, frameDuration = 500) {
         clearEmptyStateIfNeeded(els.animateCards);
         const cardId = `animate-${++state.cardCounters.animate}`;
         const card = buildBaseCard(cardId, result.title, result.subtitle);
-        // Animated Plotly maps need larger height
         const plotContainer = card.querySelector('.plot-container');
-        if (plotContainer) plotContainer.style.minHeight = '520px';
+        if (plotContainer) plotContainer.style.minHeight = '720px';
         els.animateCards.prepend(card);
         renderPlot(plotContainer, result.figure);
+
+        // Custom play/pause toggle button — placed below the plot
+        const btn = document.createElement('button');
+        btn.className = 'anim-play-btn';
+        btn.innerHTML = '&#9654; Play';
+        let playing = false;
+
+        function stopAnim() {
+            playing = false;
+            btn.innerHTML = '&#9654; Play';
+            Plotly.animate(plotContainer, [null], {
+                frame: { duration: 0, redraw: false },
+                mode: 'immediate',
+                transition: { duration: 0 },
+            });
+        }
+
+        btn.addEventListener('click', () => {
+            if (!plotContainer._fullLayout) return; // Plotly not ready yet
+            if (!playing) {
+                playing = true;
+                btn.innerHTML = '&#9646;&#9646; Pause';
+                Plotly.animate(plotContainer, null, {
+                    frame: { duration: frameDuration, redraw: true },
+                    fromcurrent: true,
+                    transition: { duration: Math.min(frameDuration * 0.4, 200) },
+                }).then(() => {
+                    // Reached end naturally
+                    if (playing) stopAnim();
+                });
+            } else {
+                stopAnim();
+            }
+        });
+
+        const btnRow = document.createElement('div');
+        btnRow.className = 'anim-play-row';
+        btnRow.appendChild(btn);
+        card.querySelector('.card-body')?.appendChild(btnRow) || card.appendChild(btnRow);
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -4795,20 +4834,31 @@
             const table = document.createElement('table');
             table.className = 'metrics-table';
             table.innerHTML = `
-                <thead><tr><th>Model</th><th>RMSE</th><th>MAPE</th><th>AIC</th></tr></thead>
+                <thead><tr><th>Model</th><th>RMSE</th><th>MAPE</th></tr></thead>
                 <tbody>${result.stats.models.map((m) => {
                     const isBest = m.Model === result.stats.best_model_by_rmse;
                     return `<tr${isBest ? ' class="best-row"' : ''}>
                         <td>${escapeHtml(m.Model)}${isBest ? ' ✓' : ''}</td>
                         <td>${escapeHtml(m.RMSE)}</td>
                         <td>${escapeHtml(m.MAPE)}</td>
-                        <td>${escapeHtml(m.AIC)}</td>
                     </tr>`;
                 }).join('')}</tbody>`;
             body.appendChild(table);
         }
+        // Zoom plot container
+        if (result.figure_zoom) {
+            const zoomDiv = document.createElement('div');
+            zoomDiv.className = 'plot-container';
+            zoomDiv.style.minHeight = '340px';
+            body.appendChild(zoomDiv);
+        }
+
         els.mcCards.prepend(card);
         renderPlot(card.querySelector('.plot-container'), result.figure);
+        if (result.figure_zoom) {
+            const plots = card.querySelectorAll('.plot-container');
+            renderPlot(plots[plots.length - 1], result.figure_zoom);
+        }
         appendAnalysisSection(body, result.analysis);
     }
 

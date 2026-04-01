@@ -3769,4 +3769,27 @@ html[data-theme="light"] .scenario-slider::-webkit-slider-thumb {
     width: 100%;
 }
 
+.anim-play-row {
+    display: flex;
+    justify-content: center;
+    padding: 10px 0 4px;
+}
+.anim-play-btn {
+    background: rgba(7,17,31,0.88);
+    color: #e5eefc;
+    border: 1px solid rgba(148,163,184,0.25);
+    border-radius: 8px;
+    padding: 7px 28px;
+    font-size: 13px;
+    font-family: Inter, sans-serif;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    min-width: 110px;
+    text-align: center;
+}
+.anim-play-btn:hover {
+    background: rgba(30,50,80,0.95);
+    border-color: rgba(148,163,184,0.5);
+}
+
 .quality-flag-clear:hover { opacity: 1; color: #ef4444; border-color: #ef4444; }

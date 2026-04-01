@@ -660,6 +660,13 @@
                     <label for="animateFeatureSelect">Feature <span class="help-icon" title="The variable to animate year-by-year (e.g., discharge, water level)">?</span></label>
                     <select id="animateFeatureSelect"></select>
                 </div>
+                <div class="control-group">
+                    <label for="animateSpeedSlider">Speed <span class="help-icon" title="Controls how fast the animation plays. Faster = shorter time per frame.">?</span> <span id="animateSpeedDisplay" style="float:right;color:var(--text-muted);font-size:11px;">1×</span></label>
+                    <input type="range" id="animateSpeedSlider" min="1" max="5" step="1" value="2" style="width:100%;" />
+                    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-top:2px;">
+                        <span>Slow</span><span>Fast</span>
+                    </div>
+                </div>
                 <div class="action-row sticky-actions" data-sidebar-action="animate">
                     <button class="primary-btn full-width" id="runAnimateBtn">Build animation</button>
                 </div>
@@ -674,7 +681,7 @@
             <!-- ── Multi-Model Forecast Comparison ──────────────────────────── -->
             <section class="panel-section hidden" data-sidebar-panel="modelcompare">
                 <div class="section-heading">Multi-Model Forecast Comparison</div>
-                <p class="section-desc">Fit Holt-Winters, ARIMA(2,1,2), and Linear Trend simultaneously and compare their forecasts and accuracy metrics side by side.</p>
+                <p class="section-desc">Compare FlowNet, LSTM, PatchTST, and DLinear forecasts side by side with RMSE and MAPE accuracy metrics.</p>
                 <div class="control-group">
                     <label for="mcDatasetSelect">Dataset <span class="help-icon" title="Choose which dataset to compare models on: Mekong for Southeast Asia or LamaH-CE for European stations">?</span></label>
                     <select id="mcDatasetSelect">
@@ -692,11 +699,11 @@
                 </div>
                 <div class="scenario-slider-group">
                     <div class="scenario-slider-row">
-                        <label class="scenario-slider-label">Forecast horizon <span class="help-icon" title="How many months ahead each model will forecast. Longer horizons show which model extrapolates better.">?</span></label>
-                        <span class="scenario-slider-value" id="mcHorizonDisplay">12 months</span>
+                        <label class="scenario-slider-label">Forecast horizon <span class="help-icon" title="How many days ahead each model will forecast (max 30 days).">?</span></label>
+                        <span class="scenario-slider-value" id="mcHorizonDisplay">14 days</span>
                     </div>
-                    <input class="scenario-slider" id="mcHorizonSlider" type="range" min="3" max="36" step="1" value="12" />
-                    <div class="scenario-slider-ticks"><span>3</span><span>12</span><span>36</span></div>
+                    <input class="scenario-slider" id="mcHorizonSlider" type="range" min="1" max="30" step="1" value="14" />
+                    <div class="scenario-slider-ticks"><span>1</span><span>15</span><span>30</span></div>
                 </div>
                 <div class="toggle-row" style="margin:8px 0 4px;">
                     <span class="toggle-label">Include Analysis <span class="help-icon" title="Use AI to generate insights comparing model performance and recommending the best approach">?</span></span>
@@ -711,7 +718,7 @@
                 <div class="inline-message" id="mcMessage"></div>
                 <div class="network-caveats" style="margin-top:14px;">
                     <p class="network-caveat-title">Methodology</p>
-                    <p class="network-caveat-text">All models fit on the full monthly history. RMSE and MAPE measure in-sample accuracy; AIC penalises model complexity.</p>
+                    <p class="network-caveat-text">RMSE and MAPE are computed from rolling predictions (station_predictions). Forecasts are loaded from station_predictions_future. If a model has no data for a station it is shown as n/a.</p>
                 </div>
             </section>
 
@@ -1054,7 +1061,7 @@
                     <section class="dock-panel" data-dock-panel="modelcompare">
                         <div class="panel-intro">
                             <h3>Multi-Model Forecast Comparison</h3>
-                            <p>Compare Holt-Winters, ARIMA(2,1,2), and Linear Trend forecasts on the same chart. RMSE, MAPE, and AIC metrics show which model fits best.</p>
+                            <p>Compare FlowNet, LSTM, PatchTST, and DLinear forecasts on the same chart. RMSE and MAPE metrics show which model fits best.</p>
                         </div>
                         <div class="card-grid" id="mcCards"></div>
                     </section>

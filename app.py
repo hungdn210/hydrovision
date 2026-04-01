@@ -66,7 +66,7 @@ risk_service = RiskService(repository)
 climate_service = ClimateService(repository)
 changepoint_service = ChangePointService(repository)
 animation_service = AnimationService(repository)
-model_comparison_service = ModelComparisonService(repository)
+model_comparison_service = ModelComparisonService(repository, data_dir=BASE_DIR / 'data')
 decomposition_service = DecompositionService(repository)
 wavelet_service = WaveletService(repository)
 

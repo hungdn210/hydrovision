@@ -222,38 +222,8 @@ class AnimationService:
                 borderwidth=1,
                 font=dict(size=11),
             ),
+            height=720,
             margin=dict(l=0, r=0, t=50, b=60),
-            updatemenus=[dict(
-                type='buttons',
-                showactive=False,
-                y=0.04,
-                x=0.5,
-                xanchor='center',
-                yanchor='bottom',
-                bgcolor='rgba(7,17,31,0.85)',
-                bordercolor='rgba(148,163,184,0.2)',
-                font=dict(color=TEXT, size=12),
-                buttons=[
-                    dict(
-                        label='▶  Play',
-                        method='animate',
-                        args=[None, dict(
-                            frame=dict(duration=500, redraw=True),
-                            fromcurrent=True,
-                            transition=dict(duration=200),
-                        )],
-                    ),
-                    dict(
-                        label='⏸  Pause',
-                        method='animate',
-                        args=[[None], dict(
-                            frame=dict(duration=0, redraw=False),
-                            mode='immediate',
-                            transition=dict(duration=0),
-                        )],
-                    ),
-                ],
-            )],
             sliders=[dict(
                 active=0,
                 currentvalue=dict(
