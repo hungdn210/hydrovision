@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import warnings
 from typing import Any, Dict, List, Optional
 
@@ -12,6 +13,28 @@ from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from statsmodels.tsa.arima.model import ARIMA
 
 from .data_loader import SeriesRequest
+
+
+def _generate_modelcompare_analysis(result: Dict[str, Any]) -> str:
+    api_key = os.getenv('GEMINI_API_KEY')
+    if not api_key:
+        return ''
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        s = result.get('stats', {})
+        prompt = f"""Analyze this multi-model forecast comparison result and provide 3 concise bullet-point insights:
+
+Station/feature: {result.get('title', '')}
+Best model: {s.get('best_model_by_rmse')}
+Horizon: {s.get('horizon_months')} months
+Models: {s.get('models')}
+
+Focus on: which model performs best and why, confidence in the forecast, and recommendations for operational use. Use **bold** for key terms."""
+        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+        return resp.text.strip()
+    except Exception:
+        return ''
 
 
 class ModelComparisonService:
@@ -62,6 +85,7 @@ class ModelComparisonService:
         station: str,
         feature: str,
         horizon: int = 12,
+        include_analysis: bool = False,
     ) -> Dict[str, Any]:
         repo = self._find_repo(dataset)
         if repo is None:
@@ -268,7 +292,7 @@ class ModelComparisonService:
                  if m['RMSE'] not in ('failed', '—')]
         best_model = min(valid, key=lambda x: x[1])[0] if valid else 'n/a'
 
-        return {
+        result = {
             'title': f'Model Comparison · {station_name}',
             'subtitle': (
                 f'{feature_label} · {horizon}-month forecast · '
@@ -282,3 +306,10 @@ class ModelComparisonService:
                 'n_months_historical': len(monthly),
             },
         }
+
+        if include_analysis:
+            analysis = _generate_modelcompare_analysis(result)
+            if analysis:
+                result['analysis'] = analysis
+
+        return result

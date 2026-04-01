@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -15,6 +16,28 @@ except ImportError:
     HAS_RUPTURES = False
 
 from .data_loader import SeriesRequest
+
+
+def _generate_changepoint_analysis(result: Dict[str, Any]) -> str:
+    api_key = os.getenv('GEMINI_API_KEY')
+    if not api_key:
+        return ''
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        s = result.get('stats', {})
+        prompt = f"""Analyze this change point detection result and provide 3 concise bullet-point insights:
+
+Station/feature: {result.get('title', '')}
+Method: {s.get('method')}
+Change points detected: {s.get('n_breaks_detected')} at dates: {s.get('change_point_dates')}
+Segments: {s.get('segments')}
+
+Focus on: hydrological significance of the breaks, possible causes (dam construction, climate shift, land use change), and implications for water resource management. Use **bold** for key terms."""
+        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+        return resp.text.strip()
+    except Exception:
+        return ''
 
 
 class ChangePointService:
@@ -88,6 +111,7 @@ class ChangePointService:
         feature: str,
         n_breaks: int = 3,
         method: str = 'pelt',
+        include_analysis: bool = False,
     ) -> Dict[str, Any]:
         if not HAS_RUPTURES:
             raise RuntimeError("The 'ruptures' package is required. Install it with: pip install ruptures")
@@ -249,7 +273,7 @@ class ChangePointService:
         # Change-point dates for output
         cp_dates = [str(dates[bp].date()) for bp in bkps if bp < len(dates)]
 
-        return {
+        result = {
             'title': f'Change Points · {station_name}',
             'subtitle': (
                 f'{feature_label} · {n_breaks} break(s) · {method_label}'
@@ -265,3 +289,10 @@ class ChangePointService:
                 'segments': seg_stats,
             },
         }
+
+        if include_analysis:
+            analysis = _generate_changepoint_analysis(result)
+            if analysis:
+                result['analysis'] = analysis
+
+        return result

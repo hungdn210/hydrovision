@@ -162,8 +162,9 @@ def analyze_free():
 @app.post('/api/analyze-free-multi')
 def analyze_free_multi():
     payload = request.get_json(silent=True) or {}
+    include_analysis = bool(payload.get('include_analysis', False))
     try:
-        result = analysis_service.analyse_free_multi(payload)
+        result = analysis_service.analyse_free_multi(payload, include_analysis=include_analysis)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400
@@ -281,6 +282,7 @@ def compare():
     dataset = str(payload.get('dataset', 'mekong')).strip()
     feature = str(payload.get('feature', '')).strip()
     year = payload.get('year')
+    include_analysis = bool(payload.get('include_analysis', False))
     if year is not None:
         try:
             year = int(year)
@@ -297,7 +299,7 @@ def compare():
         elif component == 'summary':
             result = comparison_service.compute_basin_summary(dataset, feature)
         else:
-            result = comparison_service.compare(dataset, feature, year)
+            result = comparison_service.compare(dataset, feature, year, include_analysis=include_analysis)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400
@@ -306,8 +308,9 @@ def compare():
 @app.route('/api/network')
 def network():
     dataset = request.args.get('dataset', 'mekong').strip()
+    include_analysis = request.args.get('include_analysis', 'false').lower() == 'true'
     try:
-        result = network_service.compute_full_network(dataset)
+        result = network_service.compute_full_network(dataset, include_analysis=include_analysis)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400
@@ -363,12 +366,13 @@ def scenario():
     start_offset = int(payload.get('start_offset', 0))
     model = str(payload.get('model', 'FlowNet')).strip()
     horizon = int(payload.get('horizon', 12))
+    include_analysis = bool(payload.get('include_analysis', False))
     if not station or not target_feature:
         return jsonify({'ok': False, 'error': 'station and target_feature required'}), 400
     try:
         result = scenario_service.run_scenario(
             station, target_feature, driver_feature,
-            scale_pct, duration_months, start_offset, model, horizon,
+            scale_pct, duration_months, start_offset, model, horizon, include_analysis,
         )
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
@@ -379,10 +383,17 @@ def scenario():
 def quality_completeness():
     station = request.args.get('station', '').strip()
     feature = request.args.get('feature', '').strip()
+    include_analysis = request.args.get('include_analysis', 'false').lower() == 'true'
     if not station or not feature:
         return jsonify({'ok': False, 'error': 'station and feature required'}), 400
     try:
-        return jsonify({'ok': True, 'result': quality_service.completeness(station, feature)})
+        result = quality_service.completeness(station, feature)
+        if include_analysis:
+            from services.quality_service import generate_quality_analysis
+            a = generate_quality_analysis('completeness', result)
+            if a:
+                result['analysis'] = a
+        return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400
 
@@ -391,8 +402,15 @@ def quality_completeness():
 def quality_imputation():
     dataset = request.args.get('dataset', 'mekong').strip()
     feature = request.args.get('feature', '').strip() or None
+    include_analysis = request.args.get('include_analysis', 'false').lower() == 'true'
     try:
-        return jsonify({'ok': True, 'result': quality_service.imputation_summary(dataset, feature)})
+        result = quality_service.imputation_summary(dataset, feature)
+        if include_analysis:
+            from services.quality_service import generate_quality_analysis
+            a = generate_quality_analysis('imputation', result)
+            if a:
+                result['analysis'] = a
+        return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400
 
@@ -401,10 +419,17 @@ def quality_imputation():
 def quality_gaps():
     station = request.args.get('station', '').strip()
     feature = request.args.get('feature', '').strip()
+    include_analysis = request.args.get('include_analysis', 'false').lower() == 'true'
     if not station or not feature:
         return jsonify({'ok': False, 'error': 'station and feature required'}), 400
     try:
-        return jsonify({'ok': True, 'result': quality_service.gaps(station, feature)})
+        result = quality_service.gaps(station, feature)
+        if include_analysis:
+            from services.quality_service import generate_quality_analysis
+            a = generate_quality_analysis('gaps', result)
+            if a:
+                result['analysis'] = a
+        return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400
 
@@ -414,10 +439,17 @@ def quality_anomalies():
     station = request.args.get('station', '').strip()
     feature = request.args.get('feature', '').strip()
     z_thresh = float(request.args.get('z_thresh', 3.0))
+    include_analysis = request.args.get('include_analysis', 'false').lower() == 'true'
     if not station or not feature:
         return jsonify({'ok': False, 'error': 'station and feature required'}), 400
     try:
-        return jsonify({'ok': True, 'result': quality_service.anomaly_candidates(station, feature, z_thresh)})
+        result = quality_service.anomaly_candidates(station, feature, z_thresh)
+        if include_analysis:
+            from services.quality_service import generate_quality_analysis
+            a = generate_quality_analysis('anomalies', result)
+            if a:
+                result['analysis'] = a
+        return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400
 
@@ -450,10 +482,11 @@ def extreme():
     station = request.args.get('station', '').strip()
     feature = request.args.get('feature', '').strip()
     distribution = request.args.get('distribution', 'gev').strip()
+    include_analysis = request.args.get('include_analysis', 'false').lower() == 'true'
     if not station or not feature:
         return jsonify({'ok': False, 'error': 'station and feature required'}), 400
     try:
-        result = extreme_service.compute(station, feature, distribution)
+        result = extreme_service.compute(station, feature, distribution, include_analysis)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400
@@ -464,10 +497,11 @@ def risk():
     dataset = request.args.get('dataset', 'mekong').strip()
     feature = request.args.get('feature', '').strip()
     lookback = int(request.args.get('lookback', 30))
+    include_analysis = request.args.get('include_analysis', 'false').lower() == 'true'
     if not feature:
         return jsonify({'ok': False, 'error': 'feature parameter required'}), 400
     try:
-        result = risk_service.compute_risk_map(dataset, feature, lookback)
+        result = risk_service.compute_risk_map(dataset, feature, lookback, include_analysis=include_analysis)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400
@@ -480,10 +514,11 @@ def climate_project():
     station = str(payload.get('station', '')).strip()
     feature = str(payload.get('feature', '')).strip()
     projection_years = int(payload.get('projection_years', 30))
+    include_analysis = bool(payload.get('include_analysis', False))
     if not station or not feature:
         return jsonify({'ok': False, 'error': 'station and feature required'}), 400
     try:
-        result = climate_service.project(dataset, station, feature, projection_years)
+        result = climate_service.project(dataset, station, feature, projection_years, include_analysis=include_analysis)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400
@@ -497,10 +532,11 @@ def changepoints():
     feature = str(payload.get('feature', '')).strip()
     n_breaks = int(payload.get('n_breaks', 3))
     method = str(payload.get('method', 'pelt')).strip()
+    include_analysis = bool(payload.get('include_analysis', False))
     if not station or not feature:
         return jsonify({'ok': False, 'error': 'station and feature required'}), 400
     try:
-        result = changepoint_service.detect(dataset, station, feature, n_breaks, method)
+        result = changepoint_service.detect(dataset, station, feature, n_breaks, method, include_analysis=include_analysis)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400
@@ -526,10 +562,11 @@ def model_compare():
     station = str(payload.get('station', '')).strip()
     feature = str(payload.get('feature', '')).strip()
     horizon = int(payload.get('horizon', 12))
+    include_analysis = bool(payload.get('include_analysis', False))
     if not station or not feature:
         return jsonify({'ok': False, 'error': 'station and feature required'}), 400
     try:
-        result = model_comparison_service.compare(dataset, station, feature, horizon)
+        result = model_comparison_service.compare(dataset, station, feature, horizon, include_analysis=include_analysis)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400
@@ -541,10 +578,11 @@ def decompose():
     dataset = str(payload.get('dataset', 'mekong')).strip()
     station = str(payload.get('station', '')).strip()
     feature = str(payload.get('feature', '')).strip()
+    include_analysis = bool(payload.get('include_analysis', False))
     if not station or not feature:
         return jsonify({'ok': False, 'error': 'station and feature required'}), 400
     try:
-        result = decomposition_service.decompose(dataset, station, feature)
+        result = decomposition_service.decompose(dataset, station, feature, include_analysis=include_analysis)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400
@@ -556,10 +594,11 @@ def wavelet():
     dataset = str(payload.get('dataset', 'mekong')).strip()
     station = str(payload.get('station', '')).strip()
     feature = str(payload.get('feature', '')).strip()
+    include_analysis = bool(payload.get('include_analysis', False))
     if not station or not feature:
         return jsonify({'ok': False, 'error': 'station and feature required'}), 400
     try:
-        result = wavelet_service.analyse(dataset, station, feature)
+        result = wavelet_service.analyse(dataset, station, feature, include_analysis=include_analysis)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400

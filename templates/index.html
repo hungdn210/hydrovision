@@ -172,6 +172,13 @@
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     Add Series
                 </button>
+                <div class="toggle-row" style="margin:8px 0 4px;">
+                    <span class="toggle-label">Include Analysis <span class="help-icon" title="Use AI to generate insights about the analysis results">?</span></span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="analysisAnalysisToggle" checked />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    </label>
+                </div>
                 <div class="action-row sticky-actions">
                     <button class="primary-btn full-width" id="runFreeAnalysisBtn">Run AI Analysis</button>
                 </div>
@@ -203,46 +210,78 @@
                         <option value="summary">Basin summary only</option>
                     </select>
                 </div>
+                <div class="toggle-row" style="margin-top:12px;">
+                    <span class="toggle-label">Include Analysis <span class="help-icon" title="Use AI to generate comparative insights between the two basins">?</span></span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="compareAnalysisToggle" checked />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    </label>
+                </div>
                 <button class="primary-btn full-width" id="runCompareBtn" style="margin-top:10px;">Run comparison</button>
                 <div class="inline-message" id="compareMessage"></div>
             </section>
 
             <section class="panel-section hidden" data-sidebar-panel="network">
                 <div class="section-heading">Spatial network analysis</div>
-                <p class="section-desc">Model the Mekong as a directed river graph. Visualise upstream/downstream topology, compute empirical flood-wave travel times, and estimate discharge contributions.</p>
-                <div class="network-info-chips">
-                    <div class="network-chip" id="netChipNodes">
-                        <span class="network-chip-label">Stations</span>
-                        <span class="network-chip-value">—</span>
+                <p class="section-desc">Model the Mekong as a directed river graph. Visualise river topology, compute empirical flood-wave travel times, and estimate discharge contributions across the network.</p>
+
+                <!-- Network Statistics -->
+                <div class="network-stats-panel">
+                    <div class="network-stat-card">
+                        <div class="network-stat-icon">🏢</div>
+                        <div class="network-stat-info">
+                            <span class="network-stat-label">Stations</span>
+                            <span class="network-stat-value" id="netChipNodes">—</span>
+                        </div>
                     </div>
-                    <div class="network-chip" id="netChipEdges">
-                        <span class="network-chip-label">Connections</span>
-                        <span class="network-chip-value">—</span>
+                    <div class="network-stat-card">
+                        <div class="network-stat-icon">🔗</div>
+                        <div class="network-stat-info">
+                            <span class="network-stat-label">Connections</span>
+                            <span class="network-stat-value" id="netChipEdges">—</span>
+                        </div>
                     </div>
-                    <div class="network-chip" id="netChipStem">
-                        <span class="network-chip-label">Main stem</span>
-                        <span class="network-chip-value">—</span>
+                    <div class="network-stat-card">
+                        <div class="network-stat-icon">🌊</div>
+                        <div class="network-stat-info">
+                            <span class="network-stat-label">Main stem</span>
+                            <span class="network-stat-value" id="netChipStem">—</span>
+                        </div>
                     </div>
                 </div>
+
+                <!-- View Mode Selector -->
                 <div class="control-group" style="margin-top:14px;">
-                    <label for="networkViewSelect">View <span class="help-icon" title="Choose visualization: network graph (river topology), travel times (lag between stations), or contribution (which tributaries feed a station)">?</span></label>
-                    <select id="networkViewSelect">
-                        <option value="graph">Network graph</option>
-                        <option value="travel">Travel-time table</option>
-                        <option value="contribution">Upstream contribution</option>
-                    </select>
+                    <label>Analysis Type <span class="help-icon" title="Choose visualization: network graph (river topology), travel times (lag between stations), or contribution (which tributaries feed a station)">?</span></label>
+                    <div class="mode-seg" id="networkViewPicker">
+                        <button class="mode-seg-btn active" data-view="graph">Network Graph</button>
+                        <button class="mode-seg-btn" data-view="travel">Travel Times</button>
+                        <button class="mode-seg-btn" data-view="contribution">Contribution</button>
+                    </div>
                 </div>
-                <div class="control-group hidden" id="networkContribGroup">
+
+                <!-- Conditional Target Station Selector -->
+                <div class="control-group hidden" id="networkContribGroup" style="margin-top:14px;">
                     <label for="networkContribStation">Target station <span class="help-icon" title="The downstream station to analyze. Shows which upstream stations feed it and how much they contribute to its discharge.">?</span></label>
                     <select id="networkContribStation"></select>
                 </div>
+
+                <div class="toggle-row" style="margin-top:12px;">
+                    <span class="toggle-label">Include Analysis <span class="help-icon" title="Use AI to generate insights about the river network topology and connectivity">?</span></span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="networkAnalysisToggle" checked />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    </label>
+                </div>
                 <button class="primary-btn full-width" id="runNetworkBtn" style="margin-top:10px;">Analyse network</button>
                 <div class="inline-message" id="networkMessage"></div>
-                <div class="network-caveats">
-                    <p class="network-caveat-title">Methodology notes</p>
-                    <p class="network-caveat-text">Topology based on MRC basin maps — tributary assignments are approximate.</p>
-                    <p class="network-caveat-text">Travel times use monthly discharge cross-correlation (empirical, not hydraulic routing).</p>
-                    <p class="network-caveat-small">Contribution % is a discharge-ratio proxy, not a flow-routing model.</p>
+
+                <!-- Methodology Notes -->
+                <div class="network-caveats" style="margin-top:16px;">
+                    <p class="network-caveat-title">⚠️ Methodology notes</p>
+                    <p class="network-caveat-text"><strong>Topology:</strong> Based on MRC basin maps — tributary assignments are approximate.</p>
+                    <p class="network-caveat-text"><strong>Travel times:</strong> Empirical (monthly discharge cross-correlation), not hydraulic routing.</p>
+                    <p class="network-caveat-small"><strong>Contribution:</strong> Discharge-ratio proxy, not a full flow-routing model.</p>
                 </div>
             </section>
 
@@ -298,7 +337,14 @@
                     </div>
                 </div>
 
-                <button class="primary-btn full-width" id="runQualityBtn" style="margin-top:12px;">Run analysis</button>
+                <div class="toggle-row" style="margin-top:12px;">
+                    <span class="toggle-label">Include Analysis <span class="help-icon" title="Use AI to generate insights about data quality issues and recommendations">?</span></span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="qualityAnalysisToggle" checked />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    </label>
+                </div>
+                <button class="primary-btn full-width" id="runQualityBtn" style="margin-top:10px;">Run analysis</button>
                 <div class="inline-message" id="qualityMessage"></div>
             </section>
 
@@ -358,6 +404,13 @@
                     </div>
                 </div>
 
+                <div class="toggle-row">
+                    <span class="toggle-label">Include Analysis <span class="help-icon" title="Generate automated insights about the scenario results (impact summary, risk assessment, recommendations).">?</span></span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="scenarioAnalysisToggle" checked />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    </label>
+                </div>
                 <button class="primary-btn full-width" id="runScenarioBtn" style="margin-top:12px;">Run scenario</button>
                 <div class="inline-message" id="scenarioMessage"></div>
 
@@ -390,7 +443,14 @@
                     </select>
                 </div>
 
-                <button class="primary-btn full-width" id="runExtremeBtn" style="margin-top:12px;">Run analysis</button>
+                <div class="toggle-row" style="margin-top:12px;">
+                    <span class="toggle-label">Include Analysis <span class="help-icon" title="Use AI to generate hydrological insights about the fitted distributions and return levels">?</span></span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="extremeAnalysisToggle" checked />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    </label>
+                </div>
+                <button class="primary-btn full-width" id="runExtremeBtn" style="margin-top:10px;">Run analysis</button>
                 <div class="inline-message" id="extremeMessage"></div>
 
                 <div class="network-caveats" style="margin-top:14px;">
@@ -427,7 +487,14 @@
                     </div>
                 </div>
 
-                <button class="primary-btn full-width" id="runRiskBtn" style="margin-top:12px;">Generate risk map</button>
+                <div class="toggle-row" style="margin-top:12px;">
+                    <span class="toggle-label">Include Analysis <span class="help-icon" title="Use AI to generate insights about flood risk levels and patterns across stations">?</span></span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="riskAnalysisToggle" checked />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    </label>
+                </div>
+                <button class="primary-btn full-width" id="runRiskBtn" style="margin-top:10px;">Generate risk map</button>
                 <div class="inline-message" id="riskMessage"></div>
 
                 <div class="network-caveats" style="margin-top:14px;">
@@ -514,6 +581,13 @@
                     <input class="scenario-slider" id="climateYearsSlider" type="range" min="10" max="80" step="5" value="30" />
                     <div class="scenario-slider-ticks"><span>10</span><span>30</span><span>80</span></div>
                 </div>
+                <div class="toggle-row" style="margin:8px 0 4px;">
+                    <span class="toggle-label">Include Analysis <span class="help-icon" title="Use AI to generate insights about the climate projection trends and implications">?</span></span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="climateAnalysisToggle" checked />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    </label>
+                </div>
                 <div class="action-row sticky-actions" data-sidebar-action="climate">
                     <button class="primary-btn full-width" id="runClimateBtn">Generate projection</button>
                 </div>
@@ -557,6 +631,13 @@
                     </div>
                     <input class="scenario-slider" id="cpBreaksSlider" type="range" min="1" max="6" step="1" value="3" />
                     <div class="scenario-slider-ticks"><span>1</span><span>3</span><span>6</span></div>
+                </div>
+                <div class="toggle-row" style="margin:8px 0 4px;">
+                    <span class="toggle-label">Include Analysis <span class="help-icon" title="Use AI to generate insights about the detected change points and their hydrological significance">?</span></span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="cpAnalysisToggle" checked />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    </label>
                 </div>
                 <div class="action-row sticky-actions" data-sidebar-action="changepoint">
                     <button class="primary-btn full-width" id="runCpBtn">Detect change points</button>
@@ -617,6 +698,13 @@
                     <input class="scenario-slider" id="mcHorizonSlider" type="range" min="3" max="36" step="1" value="12" />
                     <div class="scenario-slider-ticks"><span>3</span><span>12</span><span>36</span></div>
                 </div>
+                <div class="toggle-row" style="margin:8px 0 4px;">
+                    <span class="toggle-label">Include Analysis <span class="help-icon" title="Use AI to generate insights comparing model performance and recommending the best approach">?</span></span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="mcAnalysisToggle" checked />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    </label>
+                </div>
                 <div class="action-row sticky-actions" data-sidebar-action="modelcompare">
                     <button class="primary-btn full-width" id="runMcBtn">Compare models</button>
                 </div>
@@ -646,6 +734,13 @@
                     <label for="decompFeatureSelect">Feature <span class="help-icon" title="The time series variable to separate (e.g., discharge, water level)">?</span></label>
                     <select id="decompFeatureSelect"></select>
                 </div>
+                <div class="toggle-row" style="margin:8px 0 4px;">
+                    <span class="toggle-label">Include Analysis <span class="help-icon" title="Use AI to generate insights about the trend, seasonality, and residual components">?</span></span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="decompAnalysisToggle" checked />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    </label>
+                </div>
                 <div class="action-row sticky-actions" data-sidebar-action="decompose">
                     <button class="primary-btn full-width" id="runDecompBtn">Decompose series</button>
                 </div>
@@ -674,6 +769,13 @@
                 <div class="control-group">
                     <label for="waveletFeatureSelect">Feature <span class="help-icon" title="The time series variable to analyze (e.g., discharge, water level, precipitation)">?</span></label>
                     <select id="waveletFeatureSelect"></select>
+                </div>
+                <div class="toggle-row" style="margin:8px 0 4px;">
+                    <span class="toggle-label">Include Analysis <span class="help-icon" title="Use AI to generate insights about dominant periodicities and time-frequency patterns">?</span></span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="waveletAnalysisToggle" checked />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    </label>
                 </div>
                 <div class="action-row sticky-actions" data-sidebar-action="wavelet">
                     <button class="primary-btn full-width" id="runWaveletBtn">Run wavelet analysis</button>

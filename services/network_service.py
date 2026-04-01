@@ -13,6 +13,8 @@ Contribution: discharge-ratio proxy (labelled as estimate, not hydraulic routing
 """
 from __future__ import annotations
 
+import math
+import os
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
@@ -21,6 +23,27 @@ import plotly.graph_objects as go
 import plotly.io
 
 from .data_loader import DataRepository, MultiDataRepository, SeriesRequest
+
+
+def _generate_network_analysis(result: Dict[str, Any]) -> str:
+    api_key = os.getenv('GEMINI_API_KEY')
+    if not api_key:
+        return ''
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        prompt = f"""Analyze this Mekong river network result and provide 3 concise bullet-point insights:
+
+Node count: {result.get('node_count')}
+Edge count: {result.get('edge_count')}
+Main stem stations: {result.get('main_stem')}
+Travel times (sample): {result.get('travel_times', [])[:5]}
+
+Focus on: network connectivity, travel time patterns, and hydrological implications for flood forecasting and water management. Use **bold** for key terms."""
+        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+        return resp.text.strip()
+    except Exception:
+        return ''
 
 
 # ── Mekong river topology ─────────────────────────────────────────────────────
@@ -304,165 +327,246 @@ class NetworkService:
         idx = repo.station_index
 
         main_stem_set = set(MEKONG_MAIN_STEM)
+        main_edges = [(u, d) for u, d in edges if u in main_stem_set and d in main_stem_set]
+        trib_edges = [(u, d) for u, d in edges if (u, d) not in main_edges]
 
-        # Classify edges
-        main_edges   = [(u, d) for u, d in edges if u in main_stem_set and d in main_stem_set]
-        trib_edges   = [(u, d) for u, d in edges if (u, d) not in main_edges]
+        # ── Colour & style constants ──────────────────────────────────────────
+        BG       = '#07111f'
+        GRID     = 'rgba(148,163,184,0.08)'
+        TEXT     = '#e5eefc'
+        SOFT     = '#94a3b8'
+        STEM_CLR = '#38bdf8'          # vivid cyan for main stem edge
+        TRIB_CLR = 'rgba(100,116,139,0.7)'  # muted slate for tributaries
+        STEM_NODE = '#0ea5e9'         # main-stem nodes
+        TRIB_NODE = '#94a3b8'         # tributary nodes (light slate, clearly visible)
 
         def _coord(s: str) -> Tuple[float, float]:
             m = idx[s]
             return float(m['lon']), float(m['lat'])
 
-        def _edge_trace(
-            edge_list: List[Tuple[str, str]],
-            color: str,
-            width: float,
-            name: str,
-        ) -> go.Scatter:
-            lons, lats = [], []
-            for u, d in edge_list:
-                if u not in idx or d not in idx:
-                    continue
-                ux, uy = _coord(u)
-                dx, dy = _coord(d)
-                lons += [ux, dx, None]
-                lats += [uy, dy, None]
-            return go.Scatter(
-                x=lons, y=lats,
-                mode='lines',
-                line=dict(color=color, width=width),
-                hoverinfo='none',
-                name=name,
-                showlegend=True,
-            )
-
-        # Build in-degree for node sizing
+        # ── Build in-degree for node sizing ──────────────────────────────────
         in_deg: Dict[str, int] = {s: 0 for s in idx}
         for _, d in edges:
             if d in in_deg:
                 in_deg[d] += 1
 
-        # Node attributes
-        station_ids = list(idx.keys())
-        lons_n = [float(idx[s]['lon']) for s in station_ids]
-        lats_n = [float(idx[s]['lat']) for s in station_ids]
-
-        q_means = []
-        for s in station_ids:
-            fd = idx[s]['feature_details'].get('Discharge')
-            q_means.append(float(fd['mean']) if fd else None)
-
-        sizes = [10 + in_deg.get(s, 0) * 3 for s in station_ids]
-        colors = [q if q is not None else 0 for q in q_means]
-        text_labels = [
-            (idx[s].get('name', s) or s).replace('_', ' ')
-            for s in station_ids
-        ]
-        hover_texts = []
-        for s in station_ids:
+        # ── Hover text builder ────────────────────────────────────────────────
+        def _hover(s: str) -> str:
             m = idx[s]
-            fd_q = m['feature_details'].get('Discharge')
+            fd_q  = m['feature_details'].get('Discharge')
             fd_wl = m['feature_details'].get('Water_Level')
-            parts = [
-                f"<b>{(m.get('name', s) or s).replace('_', ' ')}</b>",
+            name  = (m.get('name', s) or s).replace('_', ' ')
+            role  = '🔵 Main stem' if s in main_stem_set else '🔘 Tributary'
+            lines = [
+                f"<b>{name}</b>",
+                f"<span style='color:#94a3b8'>{role}</span>",
                 f"Country: {m.get('country', '—')}",
-                f"Lat/Lon: {m['lat']:.3f}°N, {m['lon']:.3f}°E",
+                f"Coordinates: {m['lat']:.2f}°N, {m['lon']:.2f}°E",
             ]
             if fd_q:
-                parts.append(f"Mean discharge: {fd_q['mean']:.1f} m³/s")
+                lines.append(f"Mean discharge: <b>{fd_q['mean']:.1f} m³/s</b>")
             if fd_wl:
-                parts.append(f"Mean water level: {fd_wl['mean']:.2f} m")
-            stem_tag = ' <i>(main stem)</i>' if s in main_stem_set else ''
-            parts.append(f"Role: {'Main stem' + stem_tag if s in main_stem_set else 'Tributary'}")
-            hover_texts.append('<br>'.join(parts))
-
-        symbol_list = [
-            'diamond' if s in main_stem_set else 'circle'
-            for s in station_ids
-        ]
+                lines.append(f"Mean water level: {fd_wl['mean']:.2f} m")
+            upstream   = in_deg.get(s, 0)
+            lines.append(f"Tributaries feeding in: {upstream}")
+            return '<br>'.join(lines)
 
         fig = go.Figure()
 
-        # Tributary edges first (behind)
-        fig.add_trace(_edge_trace(
-            trib_edges,
-            color='rgba(148,163,184,0.55)', width=1.4,
-            name='Tributary channel',
-        ))
-        # Main stem edges on top
-        fig.add_trace(_edge_trace(
-            main_edges,
-            color='rgba(56,189,248,0.85)', width=3.0,
-            name='Main Mekong stem',
+        # ── 1. Tributary edges ─────────────────────────────────────────────────
+        trib_lons, trib_lats = [], []
+        for u, d in trib_edges:
+            if u not in idx or d not in idx:
+                continue
+            ux, uy = _coord(u); dx, dy = _coord(d)
+            trib_lons += [ux, dx, None]
+            trib_lats += [uy, dy, None]
+        if trib_lons:
+            fig.add_trace(go.Scatter(
+                x=trib_lons, y=trib_lats,
+                mode='lines',
+                line=dict(color=TRIB_CLR, width=1.5, dash='dot'),
+                hoverinfo='none',
+                name='Tributary channel',
+                showlegend=True,
+            ))
+
+        # ── 2. Main-stem edges ─────────────────────────────────────────────────
+        stem_lons, stem_lats = [], []
+        for u, d in main_edges:
+            if u not in idx or d not in idx:
+                continue
+            ux, uy = _coord(u); dx, dy = _coord(d)
+            stem_lons += [ux, dx, None]
+            stem_lats += [uy, dy, None]
+        if stem_lons:
+            fig.add_trace(go.Scatter(
+                x=stem_lons, y=stem_lats,
+                mode='lines',
+                line=dict(color=STEM_CLR, width=3.5),
+                hoverinfo='none',
+                name='Main Mekong stem',
+                showlegend=True,
+            ))
+
+        # ── 3. Flow-direction triangle arrows on main-stem ────────────────────
+        # Place a rotated triangle at the 60% point of each edge
+        arrow_lons, arrow_lats, arrow_angles = [], [], []
+        for u, d in main_edges:
+            if u not in idx or d not in idx:
+                continue
+            ux, uy = _coord(u)
+            dx, dy = _coord(d)
+            # Position at 60% along the edge
+            arrow_lons.append(ux + 0.6 * (dx - ux))
+            arrow_lats.append(uy + 0.6 * (dy - uy))
+            # Angle: atan2 gives radians from +x axis (CCW)
+            # Plotly marker angle is degrees CW from +y (north)
+            angle_rad = math.atan2(dy - uy, dx - ux)
+            arrow_angles.append(90.0 - math.degrees(angle_rad))
+
+        if arrow_lons:
+            fig.add_trace(go.Scatter(
+                x=arrow_lons, y=arrow_lats,
+                mode='markers',
+                marker=dict(
+                    symbol='arrow',
+                    size=14,
+                    color=STEM_CLR,
+                    angle=arrow_angles,
+                    line=dict(color='rgba(255,255,255,0.5)', width=0.5),
+                    opacity=0.95,
+                ),
+                hoverinfo='none',
+                name='Flow direction',
+                showlegend=True,
+            ))
+
+        # ── 4. Tributary nodes ─────────────────────────────────────────────────
+        trib_ids = [s for s in idx if s not in main_stem_set]
+        fig.add_trace(go.Scatter(
+            x=[float(idx[s]['lon']) for s in trib_ids],
+            y=[float(idx[s]['lat']) for s in trib_ids],
+            mode='markers',
+            marker=dict(
+                size=[10 + in_deg.get(s, 0) * 2 for s in trib_ids],
+                color=TRIB_NODE,
+                symbol='circle',
+                line=dict(color='rgba(255,255,255,0.7)', width=1.5),
+                opacity=1.0,
+            ),
+            hovertext=[_hover(s) for s in trib_ids],
+            hoverinfo='text',
+            name='Tributary station',
+            showlegend=True,
         ))
 
-        # Nodes
+        # ── 5. Main-stem nodes (discharge-coloured, prominent) ─────────────────
+        stem_ids = [s for s in idx if s in main_stem_set]
+        stem_q   = [
+            float(idx[s]['feature_details']['Discharge']['mean'])
+            if idx[s]['feature_details'].get('Discharge') else 0
+            for s in stem_ids
+        ]
         fig.add_trace(go.Scatter(
-            x=lons_n, y=lats_n,
+            x=[float(idx[s]['lon']) for s in stem_ids],
+            y=[float(idx[s]['lat']) for s in stem_ids],
             mode='markers+text',
-            text=text_labels,
-            textposition='top center',
-            textfont=dict(size=8, color='rgba(148,163,184,0.9)'),
+            text=[(idx[s].get('name', s) or s).replace('_', ' ') for s in stem_ids],
+            textposition='middle right',
+            textfont=dict(size=10, color=TEXT, family='Inter, sans-serif'),
             marker=dict(
-                size=sizes,
-                color=colors,
-                colorscale='Blues',
+                size=[14 + in_deg.get(s, 0) * 3 for s in stem_ids],
+                color=stem_q,
+                colorscale=[
+                    [0.0, '#0c4a6e'],
+                    [0.3, '#0369a1'],
+                    [0.6, '#0ea5e9'],
+                    [1.0, '#7dd3fc'],
+                ],
                 colorbar=dict(
-                    title='Mean discharge (m³/s)',
+                    orientation='h',
+                    title=dict(text='Discharge (m³/s)', font=dict(size=10, color=SOFT), side='top'),
                     thickness=12,
-                    len=0.6,
-                    x=1.02,
+                    len=0.28,
+                    x=0.01,
+                    xanchor='left',
+                    y=0.01,
+                    yanchor='bottom',
+                    tickfont=dict(size=9, color=SOFT),
+                    tickformat=',.0f',
+                    bgcolor='rgba(7,17,31,0.82)',
+                    bordercolor='rgba(148,163,184,0.2)',
+                    borderwidth=1,
                 ),
-                symbol=symbol_list,
-                line=dict(color='rgba(255,255,255,0.7)', width=1),
+                symbol='diamond',
+                line=dict(color='rgba(255,255,255,0.6)', width=1.5),
                 showscale=True,
                 cmin=0,
-                cmax=max((c for c in colors if c), default=1000),
+                cmax=max(stem_q, default=1000),
             ),
-            hovertext=hover_texts,
+            hovertext=[_hover(s) for s in stem_ids],
             hoverinfo='text',
-            name='Gauging stations',
+            name='Main-stem station',
+            showlegend=True,
         ))
 
+        # ── Layout ────────────────────────────────────────────────────────────
         fig.update_layout(
-            template='plotly_dark',
+            paper_bgcolor=BG,
+            plot_bgcolor=BG,
+            font=dict(family='Inter, sans-serif', color=TEXT, size=12),
             title=dict(
                 text='Mekong River Network — Spatial Station Topology',
                 x=0.5, xanchor='center',
-                font=dict(size=16),
+                font=dict(size=15, color=TEXT),
+                pad=dict(t=8),
             ),
             xaxis=dict(
-                title='Longitude (°E)',
-                range=[97, 110],
-                gridcolor='rgba(255,255,255,0.06)',
+                title=dict(text='Longitude (°E)', font=dict(size=11, color=SOFT)),
+                range=[99.5, 109],
+                gridcolor=GRID,
                 zeroline=False,
+                tickfont=dict(size=10, color=SOFT),
+                linecolor='rgba(148,163,184,0.15)',
+                dtick=2,
             ),
             yaxis=dict(
-                title='Latitude (°N)',
-                range=[7, 24],
-                gridcolor='rgba(255,255,255,0.06)',
+                title=dict(text='Latitude (°N)', font=dict(size=11, color=SOFT)),
+                range=[9, 23],
+                gridcolor=GRID,
                 zeroline=False,
-                scaleanchor='x',
-                scaleratio=1,
+                tickfont=dict(size=10, color=SOFT),
+                linecolor='rgba(148,163,184,0.15)',
+                dtick=2,
             ),
-            paper_bgcolor='rgba(7,17,31,0)',
-            plot_bgcolor='rgba(7,17,31,0)',
             legend=dict(
-                orientation='h',
-                yanchor='bottom', y=-0.12,
-                xanchor='center', x=0.5,
-                font=dict(size=11),
+                orientation='v',
+                yanchor='top', y=0.99,
+                xanchor='right', x=0.99,
+                bgcolor='rgba(7,17,31,0.82)',
+                bordercolor='rgba(148,163,184,0.18)',
+                borderwidth=1,
+                font=dict(size=12, color=TEXT),
+                traceorder='normal',
+                itemsizing='constant',
+                tracegroupgap=4,
             ),
-            margin=dict(l=50, r=80, t=60, b=60),
-            font=dict(color='#e5eefc'),
-            height=620,
+            margin=dict(l=55, r=20, t=50, b=50),
+            height=780,
+            hovermode='closest',
+            hoverlabel=dict(
+                bgcolor='rgba(7,17,31,0.92)',
+                bordercolor='rgba(56,189,248,0.4)',
+                font=dict(size=12, color=TEXT, family='Inter, sans-serif'),
+            ),
         )
 
         return plotly.io.to_json(fig)
 
     # ── full analysis (called by API) ─────────────────────────────────────────
 
-    def compute_full_network(self, dataset: str = 'mekong') -> Dict[str, Any]:
+    def compute_full_network(self, dataset: str = 'mekong', include_analysis: bool = False) -> Dict[str, Any]:
         repo = self._repo_for(dataset)
         adj = self._build_adjacency(repo)
         edges = self._valid_edges(repo)
@@ -490,7 +594,7 @@ class NetworkService:
             for u, d in edges
         ]
 
-        return {
+        result = {
             'dataset':      dataset,
             'nodes':        nodes,
             'edges':        edge_list,
@@ -505,3 +609,10 @@ class NetworkService:
                 'Travel times are empirical (monthly discharge cross-correlation). '
             ),
         }
+
+        if include_analysis:
+            analysis = _generate_network_analysis(result)
+            if analysis:
+                result['analysis'] = analysis
+
+        return result

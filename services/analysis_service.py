@@ -62,7 +62,7 @@ class AnalysisService:
             graph_type = 'Multiple Categories Across Multiple Stations Comparison'
         return self.analyse({'graph_type': graph_type, 'series': series})
 
-    def analyse_free_multi(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def analyse_free_multi(self, payload: Dict[str, Any], include_analysis: bool = False) -> Dict[str, Any]:
         """Free-form analysis producing 3 complementary graphs with per-graph analysis."""
         series = payload.get('series', [])
         if not series:
@@ -115,7 +115,26 @@ class AnalysisService:
                 },
             })
 
-        return {'graphs': results, 'benchmark': benchmark, 'benchmark_analysis': benchmark_analysis}
+        out: Dict[str, Any] = {'graphs': results, 'benchmark': benchmark, 'benchmark_analysis': benchmark_analysis}
+
+        if include_analysis:
+            api_key = os.getenv('GEMINI_API_KEY')
+            if api_key:
+                try:
+                    series_desc = ', '.join(
+                        f"{s.get('station','?')} / {s.get('feature','?')}" for s in series[:3]
+                    )
+                    prompt = f"""Analyze these hydrological time series and provide 3 concise bullet-point insights:
+
+Series: {series_desc}
+Benchmark summary: {benchmark_analysis[:500] if benchmark_analysis else 'N/A'}
+
+Focus on: key trends, anomalies, and practical water management implications. Use **bold** for key terms."""
+                    out['analysis'] = _gemini_generate(api_key, prompt)
+                except Exception:
+                    pass
+
+        return out
 
     def _pick_three_graphs(self, series: List[Dict]) -> List[Dict]:
         """Pick 3 complementary graph types based on series composition."""

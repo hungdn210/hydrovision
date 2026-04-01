@@ -193,7 +193,7 @@
         runNetworkBtn: document.getElementById('runNetworkBtn'),
         networkMessage: document.getElementById('networkMessage'),
         networkWorkspace: document.getElementById('networkWorkspace'),
-        networkViewSelect: document.getElementById('networkViewSelect'),
+        networkViewPicker: document.getElementById('networkViewPicker'),
         networkContribGroup: document.getElementById('networkContribGroup'),
         networkContribStation: document.getElementById('networkContribStation'),
         netChipNodes: document.getElementById('netChipNodes'),
@@ -630,9 +630,13 @@
             if (els.networkWorkspace) els.networkWorkspace.innerHTML = '';
         });
         els.runNetworkBtn?.addEventListener('click', runNetworkAnalysis);
-        els.networkViewSelect?.addEventListener('change', () => {
-            const isContrib = els.networkViewSelect.value === 'contribution';
-            els.networkContribGroup?.classList.toggle('hidden', !isContrib);
+        els.networkViewPicker?.querySelectorAll('.mode-seg-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                els.networkViewPicker.querySelectorAll('.mode-seg-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                const isContrib = btn.dataset.view === 'contribution';
+                els.networkContribGroup?.classList.toggle('hidden', !isContrib);
+            });
         });
 
         els.dockTabs.forEach((tab) => {
@@ -1565,6 +1569,7 @@
         }
         const btn = els.runFreeAnalysisBtn;
         const originalText = btn.textContent;
+        const includeAnalysis = document.getElementById('analysisAnalysisToggle')?.checked ?? false;
         btn.disabled = true;
         btn.textContent = 'Analysing…';
         showMessage(els.freeAnalysisMessage, 'Processing analysis… this may take a moment.', '');
@@ -1572,11 +1577,11 @@
             const response = await fetch('/api/analyze-free-multi', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ series }),
+                body: JSON.stringify({ series, include_analysis: includeAnalysis }),
             });
             const data = await response.json();
             if (!response.ok || !data.ok) throw new Error(data.error || 'Analysis failed.');
-            appendFreeMultiAnalysisCard(data.result.graphs, data.result.benchmark, data.result.benchmark_analysis);
+            appendFreeMultiAnalysisCard(data.result.graphs, data.result.benchmark, data.result.benchmark_analysis, data.result.analysis);
             activateDockTab('analysis');
             showMessage(els.freeAnalysisMessage, `${data.result.graphs.length} charts generated — see Analysis panel.`, 'success');
         } catch (err) {
@@ -1587,7 +1592,7 @@
         }
     }
 
-    function appendFreeMultiAnalysisCard(graphs, benchmark, benchmarkAnalysis) {
+    function appendFreeMultiAnalysisCard(graphs, benchmark, benchmarkAnalysis, extraAnalysis) {
         if (!graphs || !graphs.length) return;
         clearEmptyStateIfNeeded(els.analysisCards);
 
@@ -1648,6 +1653,7 @@
         });
 
         els.analysisCards.prepend(card);
+        if (extraAnalysis) appendAnalysisSection(card.querySelector('.workspace-card-body'), extraAnalysis);
     }
     // ── End free-form analysis builder ────────────────────────────────────
 
@@ -3410,6 +3416,7 @@
             }
         }
 
+        const includeAnalysis = document.getElementById('compareAnalysisToggle')?.checked ?? false;
         showMessage(els.compareMessage, 'Running comparison…', '');
         els.runCompareBtn.disabled = true;
 
@@ -3417,13 +3424,16 @@
             const res = await fetch('/api/compare', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ dataset: state.compareDataset, feature, year, component }),
+                body: JSON.stringify({ dataset: state.compareDataset, feature, year, component, include_analysis: includeAnalysis }),
             });
             const data = await res.json();
             if (!res.ok || !data.ok) throw new Error(data.error || 'Comparison failed.');
 
             activateDockTab('compare');
             renderCompareResult(data.result, component);
+            if (data.result.analysis && els.compareWorkspace) {
+                appendAnalysisSection(els.compareWorkspace, data.result.analysis);
+            }
             showMessage(els.compareMessage, 'Done.', 'success');
         } catch (err) {
             showMessage(els.compareMessage, err.message || 'Something went wrong.', 'error');
@@ -3626,24 +3636,27 @@
 
     async function runNetworkAnalysis() {
         if (!els.runNetworkBtn) return;
-        const view = els.networkViewSelect?.value || 'graph';
+        const activeBtn = els.networkViewPicker?.querySelector('.mode-seg-btn.active');
+        const view = activeBtn?.dataset.view || 'graph';
+        const includeAnalysis = document.getElementById('networkAnalysisToggle')?.checked ?? false;
         showMessage(els.networkMessage, 'Loading network data…', '');
         els.runNetworkBtn.disabled = true;
 
         try {
-            // Fetch full network (cached after first call)
-            if (!_networkCache) {
-                const res = await fetch('/api/network?dataset=mekong');
+            // Fetch full network (cached after first call, but re-fetch if analysis requested)
+            if (!_networkCache || includeAnalysis) {
+                const params = new URLSearchParams({ dataset: 'mekong' });
+                if (includeAnalysis) params.set('include_analysis', 'true');
+                const res = await fetch(`/api/network?${params}`);
                 const data = await res.json();
                 if (!data.ok) throw new Error(data.error);
                 _networkCache = data.result;
                 // Populate contribution station select once
                 populateNetworkContribSelect(_networkCache.nodes);
-                // Update sidebar info chips (target .network-chip-value child)
-                const setChip = (el, val) => { if (el) { const v = el.querySelector('.network-chip-value'); if (v) v.textContent = val; } };
-                setChip(els.netChipNodes, _networkCache.node_count);
-                setChip(els.netChipEdges, _networkCache.edge_count);
-                setChip(els.netChipStem, _networkCache.main_stem.length);
+                // Update stat card values directly
+                if (els.netChipNodes) els.netChipNodes.textContent = _networkCache.node_count;
+                if (els.netChipEdges) els.netChipEdges.textContent = _networkCache.edge_count;
+                if (els.netChipStem) els.netChipStem.textContent = _networkCache.main_stem.length;
             }
 
             activateDockTab('network');
@@ -3659,6 +3672,9 @@
                 await renderContribution(station);
             }
 
+            if (_networkCache.analysis && els.networkWorkspace) {
+                appendAnalysisSection(els.networkWorkspace, _networkCache.analysis);
+            }
             showMessage(els.networkMessage, 'Done.', 'success');
         } catch (err) {
             showMessage(els.networkMessage, err.message || 'Network analysis failed.', 'error');
@@ -3890,6 +3906,7 @@
         const durationMonths = Number(els.scenarioDurationSlider?.value || 3);
         const startOffset = Number(els.scenarioOffsetSlider?.value || 0);
         const model = els.scenarioModelSelect?.value || 'FlowNet';
+        const includeAnalysis = document.getElementById('scenarioAnalysisToggle')?.checked ?? true;
 
         if (!station || !targetFeature) {
             showMessage(els.scenarioMessage, 'Select a station and target feature.', 'error');
@@ -3904,7 +3921,7 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ station, target_feature: targetFeature, driver_feature: driverFeature,
                     scale_pct: scalePct, duration_months: durationMonths, start_offset: startOffset,
-                    model, horizon: 12 }),
+                    model, horizon: 12, include_analysis: includeAnalysis }),
             });
             const data = await res.json();
             if (!data.ok) throw new Error(data.error);
@@ -3968,6 +3985,24 @@
 
         els.scenarioCards.prepend(card);
         renderPlot(plot, result.figure);
+
+        // Analysis section (if included) — after the plot
+        if (result.analysis) {
+            const analysisEl = document.createElement('div');
+            analysisEl.className = 'scenario-analysis-section';
+            // Convert markdown **bold** to HTML <strong>bold</strong>
+            const formattedAnalysis = escapeHtml(result.analysis)
+                .replace(/\n/g, '<br>')
+                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            analysisEl.innerHTML = `
+                <div class="analysis-header">
+                    <h4>Key Insights</h4>
+                </div>
+                <div class="analysis-content">
+                    ${formattedAnalysis}
+                </div>`;
+            body.appendChild(analysisEl);
+        }
     }
 
     // ── Quality Dashboard ─────────────────────────────────────────────────────
@@ -4031,44 +4066,53 @@
     async function runQualityAnalysis() {
         if (!els.runQualityBtn) return;
         const view = qualityActiveView();
+        const includeAnalysis = document.getElementById('qualityAnalysisToggle')?.checked ?? false;
         showMessage(els.qualityMessage, 'Running…', '');
         els.runQualityBtn.disabled = true;
 
+        let qualityResult = null;
         try {
             if (view === 'completeness') {
                 const station = els.qualityStationSelect?.value;
                 const feature = els.qualityFeatureSelect?.value;
                 if (!station || !feature) throw new Error('Select a station and feature.');
-                const res = await fetch(`/api/quality/completeness?station=${encodeURIComponent(station)}&feature=${encodeURIComponent(feature)}`);
+                const res = await fetch(`/api/quality/completeness?station=${encodeURIComponent(station)}&feature=${encodeURIComponent(feature)}&include_analysis=${includeAnalysis}`);
                 const data = await res.json();
                 if (!data.ok) throw new Error(data.error);
                 renderQualityCompleteness(data.result);
+                qualityResult = data.result;
             } else if (view === 'imputation') {
                 const dataset = els.qualityDatasetPicker?.querySelector('.dataset-btn.active')?.dataset.dataset || 'mekong';
                 const feature = els.qualityImpFeatureSelect?.value || '';
-                const params = new URLSearchParams({ dataset });
+                const params = new URLSearchParams({ dataset, include_analysis: includeAnalysis });
                 if (feature) params.set('feature', feature);
                 const res = await fetch(`/api/quality/imputation?${params}`);
                 const data = await res.json();
                 if (!data.ok) throw new Error(data.error);
                 renderQualityImputation(data.result);
+                qualityResult = data.result;
             } else if (view === 'gaps') {
                 const station = els.qualityStationSelect?.value;
                 const feature = els.qualityFeatureSelect?.value;
                 if (!station || !feature) throw new Error('Select a station and feature.');
-                const res = await fetch(`/api/quality/gaps?station=${encodeURIComponent(station)}&feature=${encodeURIComponent(feature)}`);
+                const res = await fetch(`/api/quality/gaps?station=${encodeURIComponent(station)}&feature=${encodeURIComponent(feature)}&include_analysis=${includeAnalysis}`);
                 const data = await res.json();
                 if (!data.ok) throw new Error(data.error);
                 renderQualityGaps(data.result);
+                qualityResult = data.result;
             } else if (view === 'anomalies') {
                 const station = els.qualityStationSelect?.value;
                 const feature = els.qualityFeatureSelect?.value;
                 const zThresh = els.qualityZSlider?.value || 3;
                 if (!station || !feature) throw new Error('Select a station and feature.');
-                const res = await fetch(`/api/quality/anomalies?station=${encodeURIComponent(station)}&feature=${encodeURIComponent(feature)}&z_thresh=${zThresh}`);
+                const res = await fetch(`/api/quality/anomalies?station=${encodeURIComponent(station)}&feature=${encodeURIComponent(feature)}&z_thresh=${zThresh}&include_analysis=${includeAnalysis}`);
                 const data = await res.json();
                 if (!data.ok) throw new Error(data.error);
                 renderQualityAnomalies(data.result);
+                qualityResult = data.result;
+            }
+            if (qualityResult?.analysis && els.qualityWorkspace) {
+                appendAnalysisSection(els.qualityWorkspace, qualityResult.analysis);
             }
             activateDockTab('quality');
             showMessage(els.qualityMessage, 'Done.', 'success');
@@ -4332,11 +4376,12 @@
             showMessage(els.extremeMessage, 'Select a station and feature.', 'error');
             return;
         }
-        showMessage(els.extremeMessage, 'Fitting distributions…', '');
+        const includeAnalysis = document.getElementById('extremeAnalysisToggle')?.checked ?? false;
+        showMessage(els.extremeMessage, includeAnalysis ? 'Fitting distributions + generating analysis…' : 'Fitting distributions…', '');
         els.runExtremeBtn.disabled = true;
 
         try {
-            const params = new URLSearchParams({ station, feature, distribution });
+            const params = new URLSearchParams({ station, feature, distribution, include_analysis: includeAnalysis });
             const res = await fetch(`/api/extreme?${params}`);
             const data = await res.json();
             if (!data.ok) throw new Error(data.error);
@@ -4410,6 +4455,7 @@
 
         els.extremeCards.prepend(card);
         renderPlot(plot, result.figure);
+        appendAnalysisSection(body, result.analysis);
     }
 
     // ── Flood & Drought Risk Map ──────────────────────────────────────────────
@@ -4439,15 +4485,19 @@
             showMessage(els.riskMessage, 'Select a feature.', 'error');
             return;
         }
+        const includeAnalysis = document.getElementById('riskAnalysisToggle')?.checked ?? false;
         showMessage(els.riskMessage, 'Computing risk levels…', '');
         els.runRiskBtn.disabled = true;
 
         try {
-            const params = new URLSearchParams({ dataset, feature, lookback });
+            const params = new URLSearchParams({ dataset, feature, lookback, include_analysis: includeAnalysis });
             const res = await fetch(`/api/risk?${params}`);
             const data = await res.json();
             if (!data.ok) throw new Error(data.error);
             renderRiskMap(data.result);
+            if (data.result.analysis && els.riskWorkspace) {
+                appendAnalysisSection(els.riskWorkspace, data.result.analysis);
+            }
             activateDockTab('risk');
             showMessage(els.riskMessage, `${data.result.n_stations} stations classified.`, 'success');
         } catch (err) {
@@ -4552,13 +4602,14 @@
             showMessage(els.climateMessage, 'Select a station and feature.', 'error');
             return;
         }
+        const includeAnalysis = document.getElementById('climateAnalysisToggle')?.checked ?? false;
         showMessage(els.climateMessage, 'Projecting climate impacts… this may take a moment.', '');
         els.runClimateBtn.disabled = true;
         try {
             const res = await fetch('/api/climate-project', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ dataset, station, feature, projection_years }),
+                body: JSON.stringify({ dataset, station, feature, projection_years, include_analysis: includeAnalysis }),
             });
             const data = await res.json();
             if (!data.ok) throw new Error(data.error);
@@ -4577,8 +4628,10 @@
         clearEmptyStateIfNeeded(els.climateCards);
         const cardId = `climate-${++state.cardCounters.climate}`;
         const card = buildBaseCard(cardId, result.title, result.subtitle);
+        const body = card.querySelector('.workspace-card-body');
         els.climateCards.prepend(card);
         renderPlot(card.querySelector('.plot-container'), result.figure);
+        appendAnalysisSection(body, result.analysis);
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -4602,13 +4655,14 @@
             showMessage(els.cpMessage, 'Select a station and feature.', 'error');
             return;
         }
+        const includeAnalysis = document.getElementById('cpAnalysisToggle')?.checked ?? false;
         showMessage(els.cpMessage, 'Detecting structural breaks… this may take a moment.', '');
         els.runCpBtn.disabled = true;
         try {
             const res = await fetch('/api/changepoints', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ dataset, station, feature, n_breaks, method }),
+                body: JSON.stringify({ dataset, station, feature, n_breaks, method, include_analysis: includeAnalysis }),
             });
             const data = await res.json();
             if (!data.ok) throw new Error(data.error);
@@ -4627,8 +4681,10 @@
         clearEmptyStateIfNeeded(els.changepointCards);
         const cardId = `cp-${++state.cardCounters.changepoint}`;
         const card = buildBaseCard(cardId, result.title, result.subtitle);
+        const body = card.querySelector('.workspace-card-body');
         els.changepointCards.prepend(card);
         renderPlot(card.querySelector('.plot-container'), result.figure);
+        appendAnalysisSection(body, result.analysis);
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -4707,13 +4763,14 @@
             showMessage(els.mcMessage, 'Select a station and feature.', 'error');
             return;
         }
+        const includeAnalysis = document.getElementById('mcAnalysisToggle')?.checked ?? false;
         showMessage(els.mcMessage, 'Fitting models… this may take a moment.', '');
         els.runMcBtn.disabled = true;
         try {
             const res = await fetch('/api/model-compare', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ dataset, station, feature, horizon }),
+                body: JSON.stringify({ dataset, station, feature, horizon, include_analysis: includeAnalysis }),
             });
             const data = await res.json();
             if (!data.ok) throw new Error(data.error);
@@ -4752,6 +4809,7 @@
         }
         els.mcCards.prepend(card);
         renderPlot(card.querySelector('.plot-container'), result.figure);
+        appendAnalysisSection(body, result.analysis);
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -4773,13 +4831,14 @@
             showMessage(els.decompMessage, 'Select a station and feature.', 'error');
             return;
         }
+        const includeAnalysis = document.getElementById('decompAnalysisToggle')?.checked ?? false;
         showMessage(els.decompMessage, 'Decomposing series…', '');
         els.runDecompBtn.disabled = true;
         try {
             const res = await fetch('/api/decompose', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ dataset, station, feature }),
+                body: JSON.stringify({ dataset, station, feature, include_analysis: includeAnalysis }),
             });
             const data = await res.json();
             if (!data.ok) throw new Error(data.error);
@@ -4800,10 +4859,12 @@
         clearEmptyStateIfNeeded(els.decompCards);
         const cardId = `decomp-${++state.cardCounters.decompose}`;
         const card = buildBaseCard(cardId, result.title, result.subtitle);
+        const body = card.querySelector('.workspace-card-body');
         const plotContainer = card.querySelector('.plot-container');
         if (plotContainer) plotContainer.style.minHeight = '580px';
         els.decompCards.prepend(card);
         renderPlot(plotContainer, result.figure);
+        appendAnalysisSection(body, result.analysis);
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -4825,13 +4886,14 @@
             showMessage(els.waveletMessage, 'Select a station and feature.', 'error');
             return;
         }
+        const includeAnalysis = document.getElementById('waveletAnalysisToggle')?.checked ?? false;
         showMessage(els.waveletMessage, 'Running wavelet transform… this may take a moment.', '');
         els.runWaveletBtn.disabled = true;
         try {
             const res = await fetch('/api/wavelet', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ dataset, station, feature }),
+                body: JSON.stringify({ dataset, station, feature, include_analysis: includeAnalysis }),
             });
             const data = await res.json();
             if (!data.ok) throw new Error(data.error);
@@ -4850,10 +4912,29 @@
         clearEmptyStateIfNeeded(els.waveletCards);
         const cardId = `wavelet-${++state.cardCounters.wavelet}`;
         const card = buildBaseCard(cardId, result.title, result.subtitle);
+        const body = card.querySelector('.workspace-card-body');
         const plotContainer = card.querySelector('.plot-container');
         if (plotContainer) plotContainer.style.minHeight = '460px';
         els.waveletCards.prepend(card);
         renderPlot(plotContainer, result.figure);
+        appendAnalysisSection(body, result.analysis);
+    }
+
+    // ── Shared AI analysis renderer ───────────────────────────────────────────
+    function appendAnalysisSection(body, analysisText) {
+        if (!analysisText || !body) return;
+        const el = document.createElement('div');
+        el.className = 'scenario-analysis-section';
+        const formatted = escapeHtml(analysisText)
+            .replace(/\n/g, '<br>')
+            .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        el.innerHTML = `
+            <div class="analysis-header">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+                AI Analysis
+            </div>
+            <div class="analysis-content">${formatted}</div>`;
+        body.appendChild(el);
     }
 
 })();

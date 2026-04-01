@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -9,6 +10,28 @@ import plotly.io
 import scipy.stats
 
 from .data_loader import SeriesRequest
+
+
+def _generate_climate_analysis(result: Dict[str, Any]) -> str:
+    api_key = os.getenv('GEMINI_API_KEY')
+    if not api_key:
+        return ''
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        s = result.get('stats', {})
+        prompt = f"""Analyze this climate projection result and provide 3 concise bullet-point insights:
+
+Station/feature: {result.get('title', '')}
+Historical trend: {s.get('historical_trend_per_decade')} per decade (R²={s.get('r_squared')}, p={s.get('p_value')})
+Projection years: {s.get('projection_years')}
+Scenarios: {s.get('scenarios')}
+
+Focus on: trend significance, scenario spread/risk, and practical water management implications. Use **bold** for key terms."""
+        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+        return resp.text.strip()
+    except Exception:
+        return ''
 
 
 # SSP scenario definitions — delta_temp in °C above baseline,
@@ -78,6 +101,7 @@ class ClimateService:
         station: str,
         feature: str,
         projection_years: int = 30,
+        include_analysis: bool = False,
     ) -> Dict[str, Any]:
         repo = self._find_repo(dataset)
         if repo is None:
@@ -237,7 +261,7 @@ class ClimateService:
             )],
         )
 
-        return {
+        result = {
             'title': f'Climate Projection · {station_name}',
             'subtitle': (
                 f'{feature_label} · {int(years_hist[0])}–{last_year} historical '
@@ -256,3 +280,10 @@ class ClimateService:
                 'scenarios': scenario_stats,
             },
         }
+
+        if include_analysis:
+            analysis = _generate_climate_analysis(result)
+            if analysis:
+                result['analysis'] = analysis
+
+        return result

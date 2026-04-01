@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Optional
 
 import numpy as np
@@ -10,6 +11,30 @@ from plotly.subplots import make_subplots
 from statsmodels.tsa.seasonal import STL
 
 from .data_loader import SeriesRequest
+
+
+def _generate_decomp_analysis(result: Dict[str, Any]) -> str:
+    api_key = os.getenv('GEMINI_API_KEY')
+    if not api_key:
+        return ''
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        s = result.get('stats', {})
+        prompt = f"""Analyze this STL decomposition result and provide 3 concise bullet-point insights:
+
+Station/feature: {result.get('title', '')}
+Record length: {s.get('n_months')} months
+Trend strength: {s.get('strength_trend')} (0=no trend, 1=strong trend)
+Seasonal strength: {s.get('strength_seasonal')} (0=no seasonality, 1=strong seasonality)
+Peak month: {s.get('seasonal_peak_month')}, Trough month: {s.get('seasonal_trough_month')}
+Trend slope: {s.get('trend_slope_per_decade')} per decade
+
+Focus on: dominant signal type (trend vs seasonal), seasonal flood/drought timing, and hydrological significance. Use **bold** for key terms."""
+        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+        return resp.text.strip()
+    except Exception:
+        return ''
 
 
 class DecompositionService:
@@ -57,6 +82,7 @@ class DecompositionService:
         dataset: str,
         station: str,
         feature: str,
+        include_analysis: bool = False,
     ) -> Dict[str, Any]:
         repo = self._find_repo(dataset)
         if repo is None:
@@ -202,7 +228,7 @@ class DecompositionService:
         peak_month = month_labels[int(np.argmax(seasonal_profile))]
         trough_month = month_labels[int(np.argmin(seasonal_profile))]
 
-        return {
+        result = {
             'title': f'STL Decomposition · {station_name}',
             'subtitle': (
                 f'{feature_label} · {len(monthly)} months · '
@@ -222,3 +248,10 @@ class DecompositionService:
                 ),
             },
         }
+
+        if include_analysis:
+            analysis = _generate_decomp_analysis(result)
+            if analysis:
+                result['analysis'] = analysis
+
+        return result

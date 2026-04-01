@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -9,6 +10,28 @@ import plotly.io
 import scipy.stats
 
 from .data_loader import SeriesRequest
+
+
+def _generate_risk_analysis(result: Dict[str, Any]) -> str:
+    api_key = os.getenv('GEMINI_API_KEY')
+    if not api_key:
+        return ''
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        summary = result.get('summary', {})
+        prompt = f"""Analyze this flood/drought risk map result and provide 3 concise bullet-point insights:
+
+Feature: {result.get('feature')} | Dataset: {result.get('dataset')}
+Lookback: {result.get('lookback')} days
+Station risk summary: {summary}
+Total stations: {result.get('n_stations')}
+
+Focus on: current risk conditions, proportion of at-risk stations, and recommendations for water managers. Use **bold** for key terms."""
+        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+        return resp.text.strip()
+    except Exception:
+        return ''
 
 
 class RiskService:
@@ -80,6 +103,7 @@ class RiskService:
         dataset: str,
         feature: str,
         lookback: int = 30,
+        include_analysis: bool = False,
     ) -> Dict[str, Any]:
         repo = self._find_repo_for_dataset(dataset)
         if repo is None:
@@ -136,7 +160,7 @@ class RiskService:
 
         figure = self._build_map_figure(results, dataset, feature, unit)
 
-        return {
+        result = {
             'dataset': dataset,
             'feature': feature,
             'unit': unit,
@@ -146,6 +170,13 @@ class RiskService:
             'stations': results,
             'figure': plotly.io.to_json(figure),
         }
+
+        if include_analysis:
+            analysis = _generate_risk_analysis(result)
+            if analysis:
+                result['analysis'] = analysis
+
+        return result
 
     # ── figure builder ────────────────────────────────────────────────────────
 
@@ -209,6 +240,7 @@ class RiskService:
                 bordercolor='rgba(148,163,184,0.15)',
                 borderwidth=1,
             ),
+            height=680,
             margin=dict(l=0, r=0, t=40, b=0),
             title=dict(
                 text=f'{feature_label} Risk Map — {dataset.capitalize()}',

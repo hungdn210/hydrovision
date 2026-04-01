@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List
@@ -12,6 +13,25 @@ import plotly.io
 from plotly.subplots import make_subplots
 
 from .data_loader import SeriesRequest
+
+
+def generate_quality_analysis(view: str, result: Dict[str, Any]) -> str:
+    api_key = os.getenv('GEMINI_API_KEY')
+    if not api_key:
+        return ''
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        prompt = f"""Analyze this data quality result and provide 3 concise bullet-point insights:
+
+Quality view: {view}
+Result summary: {str(result)[:800]}
+
+Focus on: data reliability, extent of quality issues, and recommendations for data handling. Use **bold** for key terms."""
+        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+        return resp.text.strip()
+    except Exception:
+        return ''
 
 MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']

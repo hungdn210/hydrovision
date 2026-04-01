@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -11,6 +12,53 @@ from plotly.subplots import make_subplots
 import scipy.stats
 
 from .data_loader import SeriesRequest
+
+
+def _generate_scenario_analysis(scenario_result: Dict[str, Any]) -> str:
+    """Generate AI analysis of scenario results using Gemini."""
+    api_key = os.getenv('GEMINI_API_KEY')
+    if not api_key:
+        return ''
+
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+
+        station = scenario_result.get('station', '').replace('_', ' ')
+        target = scenario_result.get('target_feature', '').replace('_', ' ')
+        driver = scenario_result.get('driver_feature', '').replace('_', ' ')
+        scale = scenario_result.get('scale_pct', 0)
+        duration = scenario_result.get('duration_months', 0)
+        stats = scenario_result.get('stats', {})
+        sensitivity = scenario_result.get('sensitivity', {})
+
+        prompt = f"""
+Analyze this hydrological scenario simulation result and provide 2-3 bullet-point insights:
+
+**Scenario Details:**
+- Station: {station}
+- Target variable: {target}
+- Driver variable: {driver}
+- Driver change: {scale:+.0f}%
+- Application duration: {duration} month(s)
+
+**Results:**
+- Mean impact: {stats.get('mean_delta', 0):+.2f} units
+- Peak impact: {stats.get('max_delta', 0):+.2f} units
+- Average % change: {stats.get('mean_delta_pct', 0):+.1f}%
+- Elasticity (sensitivity): {sensitivity.get('elasticity', 0):.2f}
+
+Provide brief, actionable insights about the scenario impact. Format as bullet points.
+"""
+
+        response = client.models.generate_content(
+            model='gemini-3.1-flash-lite-preview',
+            contents=prompt
+        )
+        return response.text.strip()
+    except Exception as e:
+        # Silently fail — analysis is optional
+        return ''
 
 
 class ScenarioService:
@@ -131,6 +179,7 @@ class ScenarioService:
         start_offset: int,         # 0 = first forecast month, 1 = second, etc.
         model: str = 'FlowNet',
         horizon: int = 12,
+        include_analysis: bool = False,
     ) -> Dict[str, Any]:
         repo = self._find_repo(station)
         if repo is None:
@@ -214,7 +263,7 @@ class ScenarioService:
         max_delta = float((window_scenario - window_baseline).abs().max())
         mean_delta_pct = float(delta_pct.iloc[window_start:window_end].mean()) if not delta_pct.iloc[window_start:window_end].isna().all() else 0.0
 
-        return {
+        result = {
             'station': station,
             'target_feature': target_feature,
             'driver_feature': driver_feature,
@@ -235,6 +284,14 @@ class ScenarioService:
             'figure': plotly.io.to_json(figure),
             'csv_used': csv_fc is not None,
         }
+
+        # Generate analysis if requested
+        if include_analysis:
+            analysis = _generate_scenario_analysis(result)
+            if analysis:
+                result['analysis'] = analysis
+
+        return result
 
     # ── figure builder ────────────────────────────────────────────────────────
 
@@ -355,13 +412,13 @@ class ScenarioService:
                 xanchor='left', x=0,
                 font=dict(size=11), bgcolor='rgba(0,0,0,0)',
             ),
-            margin=dict(l=10, r=10, t=60, b=10),
+            margin=dict(l=10, r=20, t=60, b=80),
             hovermode='x unified',
             annotations=[
                 dict(
                     text=elast_txt,
                     xref='paper', yref='paper',
-                    x=1.0, y=-0.02,
+                    x=0.98, y=-0.10,
                     xanchor='right', yanchor='top',
                     font=dict(size=10, color=SOFT),
                     showarrow=False,

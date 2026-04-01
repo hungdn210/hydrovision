@@ -624,6 +624,54 @@ select[multiple] option:checked {
     gap: 8px;
 }
 
+.dataset-btn {
+    flex: 1;
+    min-width: 120px;
+    padding: 11px 16px;
+    border: 1.5px solid var(--line);
+    background: var(--panel-2);
+    color: var(--text-soft);
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.25s ease;
+}
+
+.dataset-btn:hover:not(.active) {
+    border-color: var(--text-soft);
+    background: rgba(148, 163, 184, 0.08);
+    color: var(--text);
+}
+
+.dataset-btn.active {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.3), rgba(59, 130, 246, 0.25));
+    border-color: rgba(56, 189, 248, 0.5);
+    color: #60a5fa;
+    font-weight: 700;
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.15);
+}
+
+/* Light theme */
+html[data-theme="light"] .dataset-btn {
+    background: var(--panel-2);
+    border-color: rgba(71, 85, 105, 0.3);
+    color: var(--text-soft);
+}
+
+html[data-theme="light"] .dataset-btn:hover:not(.active) {
+    border-color: rgba(71, 85, 105, 0.5);
+    background: rgba(71, 85, 105, 0.08);
+    color: var(--text);
+}
+
+html[data-theme="light"] .dataset-btn.active {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(96, 165, 250, 0.12));
+    border-color: rgba(59, 130, 246, 0.4);
+    color: #3b82f6;
+    box-shadow: 0 0 15px rgba(59, 130, 246, 0.1);
+}
+
 .feature-chip {
     border: 1px solid var(--line-strong);
     background: rgba(255, 255, 255, 0.06);
@@ -649,13 +697,18 @@ select[multiple] option:checked {
     gap: 3px;
 }
 
+/* 3-column layout for Network View Picker */
+#networkViewPicker {
+    grid-template-columns: 1fr 1fr 1fr;
+}
+
 .mode-seg-btn {
     border: none;
     background: transparent;
     color: var(--text-soft);
-    font-size: 12.5px;
+    font-size: 12px;
     font-weight: 600;
-    padding: 8px 10px;
+    padding: 9px 12px;
     border-radius: calc(var(--radius-sm) - 2px);
     cursor: pointer;
     transition: color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
@@ -2960,39 +3013,80 @@ html[data-theme="light"] .theme-toggle-btn:hover {
 }
 /* ── Network Analysis ─────────────────────────────────────── */
 
-.network-info-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 14px;
+.network-stats-panel {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 16px;
+    padding: 12px;
+    background: linear-gradient(135deg, rgba(59,130,246,0.08) 0%, rgba(30,58,138,0.06) 100%);
+    border: 1px solid rgba(96,165,250,0.2);
+    border-radius: 10px;
 }
 
-.network-chip {
+.network-stat-card {
     display: flex;
     flex-direction: column;
     align-items: center;
-    background: rgba(148, 163, 184, 0.07);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 7px 13px;
-    min-width: 72px;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(96,165,250,0.1);
+    transition: all 0.2s ease;
+    text-align: center;
 }
 
-.network-chip-label {
+.network-stat-card:hover {
+    background: rgba(96,165,250,0.06);
+    border-color: rgba(96,165,250,0.25);
+}
+
+.network-stat-icon {
+    font-size: 22px;
+    line-height: 1;
+}
+
+.network-stat-info {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.network-stat-label {
     font-size: 10px;
-    font-weight: 600;
+    font-weight: 700;
     color: var(--text-soft);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    margin-bottom: 2px;
-    white-space: nowrap;
 }
 
-.network-chip-value {
+.network-stat-value {
     font-size: 15px;
     font-weight: 700;
-    color: var(--text);
+    color: #60a5fa;
     font-variant-numeric: tabular-nums;
+}
+
+/* Light theme */
+html[data-theme="light"] .network-stats-panel {
+    background: linear-gradient(135deg, rgba(96,165,250,0.08) 0%, rgba(147,197,253,0.08) 100%);
+    border-color: rgba(59,130,246,0.25);
+}
+
+html[data-theme="light"] .network-stat-card {
+    background: rgba(59,130,246,0.03);
+    border-color: rgba(59,130,246,0.15);
+}
+
+html[data-theme="light"] .network-stat-card:hover {
+    background: rgba(59,130,246,0.08);
+    border-color: rgba(59,130,246,0.3);
+}
+
+html[data-theme="light"] .network-stat-value {
+    color: #3b82f6;
 }
 
 .network-caveats {
@@ -3258,6 +3352,66 @@ html[data-theme="light"] .theme-toggle-btn:hover {
 
 .scenario-stat--source {
     opacity: 0.7;
+}
+
+.scenario-analysis-section {
+    background: linear-gradient(135deg, rgba(30,58,138,0.15) 0%, rgba(59,130,246,0.08) 100%);
+    border: 1px solid rgba(96,165,250,0.3);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-top: 20px;
+    margin-bottom: 0;
+}
+
+.analysis-header {
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+    border-bottom: 2px solid rgba(96,165,250,0.2);
+}
+
+.analysis-header h4 {
+    font-size: 13px;
+    font-weight: 700;
+    color: #60a5fa;
+    letter-spacing: 0.05em;
+    margin: 0;
+    text-transform: uppercase;
+}
+
+.analysis-content {
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text-soft);
+    word-break: break-word;
+}
+
+.analysis-content strong {
+    font-weight: 700;
+    color: #3b82f6;
+}
+
+.analysis-content br {
+    display: block;
+    content: '';
+    margin-bottom: 8px;
+}
+
+.analysis-content * + br {
+    margin-bottom: 4px;
+}
+
+/* Light theme */
+html[data-theme="light"] .scenario-analysis-section {
+    background: linear-gradient(135deg, rgba(59,130,246,0.08) 0%, rgba(147,197,253,0.08) 100%);
+    border-color: rgba(59,130,246,0.25);
+}
+
+html[data-theme="light"] .analysis-header {
+    border-bottom-color: rgba(59,130,246,0.15);
+}
+
+html[data-theme="light"] .analysis-header h4 {
+    color: #3b82f6;
 }
 
 /* Light theme adjustments */
@@ -3611,7 +3765,7 @@ html[data-theme="light"] .scenario-slider::-webkit-slider-thumb {
 }
 
 .risk-map {
-    height: 500px;
+    height: 680px;
     width: 100%;
 }
 

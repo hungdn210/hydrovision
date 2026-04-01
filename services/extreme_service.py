@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -10,6 +11,37 @@ import scipy.stats
 from plotly.subplots import make_subplots
 
 from .data_loader import SeriesRequest
+
+
+def _generate_extreme_analysis(result: Dict[str, Any]) -> str:
+    """Generate AI analysis of extreme event results using Gemini."""
+    api_key = os.getenv('GEMINI_API_KEY')
+    if not api_key:
+        return ''
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        station = result.get('station', '').replace('_', ' ')
+        feature = result.get('feature', '').replace('_', ' ')
+        n_years = result.get('n_years', 0)
+        yr = result.get('year_range', [])
+        gev = result.get('gev_params')
+        gumbel = result.get('gumbel_params')
+        levels = result.get('return_levels', [])
+        prompt = f"""Analyze this extreme value analysis result for a hydrological station and provide 3 concise bullet-point insights:
+
+Station: {station}
+Feature: {feature}
+Record length: {n_years} years ({yr[0] if yr else '?'}–{yr[1] if len(yr)>1 else '?'})
+GEV parameters: {gev if gev else 'Not fitted (unstable)'}
+Gumbel parameters: {gumbel}
+Return levels (Gumbel): {[(r['return_period'], r.get('gumbel')) for r in levels]}
+
+Focus on: flood risk interpretation, reliability of the estimates given the record length, and practical implications of the return levels. Keep each bullet point to 1-2 sentences. Use **bold** for key terms."""
+        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+        return resp.text.strip()
+    except Exception:
+        return ''
 
 
 class ExtremeService:
@@ -56,6 +88,7 @@ class ExtremeService:
         station: str,
         feature: str,
         distribution: str = 'gev',
+        include_analysis: bool = False,
     ) -> Dict[str, Any]:
         repo = self._find_repo(station)
         if repo is None:
@@ -78,10 +111,16 @@ class ExtremeService:
         values = annual_max.values.astype(float)
 
         # ── Fit GEV ──────────────────────────────────────────────────────────
+        # Shape parameter is clamped to [-0.6, 0.6]: values outside this range
+        # indicate MLE has not converged to a physically meaningful solution
+        # (common with short records <40 yr) and produce astronomical return levels.
         gev_params: Optional[Dict] = None
         try:
             c, loc, scale = scipy.stats.genextreme.fit(values)
-            gev_params = {'shape': float(c), 'loc': float(loc), 'scale': float(scale)}
+            if abs(c) <= 0.6:
+                gev_params = {'shape': float(c), 'loc': float(loc), 'scale': float(scale)}
+            else:
+                gev_params = None  # unreliable fit — fall back to Gumbel only
         except Exception:
             pass
 
@@ -156,7 +195,7 @@ class ExtremeService:
             station, feature, unit, gev_params, gumbel_params, distribution,
         )
 
-        return {
+        result = {
             'station': station,
             'feature': feature,
             'unit': unit,
@@ -173,6 +212,13 @@ class ExtremeService:
             'ci_upper': [round(v, 3) for v in ci_upper] if ci_upper else None,
             'figure': plotly.io.to_json(figure),
         }
+
+        if include_analysis:
+            analysis = _generate_extreme_analysis(result)
+            if analysis:
+                result['analysis'] = analysis
+
+        return result
 
     # ── figure builder ────────────────────────────────────────────────────────
 
@@ -305,6 +351,9 @@ class ExtremeService:
             line=dict(dash='dot', color=SOFT, width=1),
         )
 
+        # Sensible y-axis cap: 20× the largest observed annual maximum
+        y_cap = float(sorted_vals.max()) * 20
+
         fig.update_layout(
             paper_bgcolor=DARK_BG,
             plot_bgcolor=DARK_BG,
@@ -314,7 +363,8 @@ class ExtremeService:
                 xanchor='left', x=0,
                 font=dict(size=11), bgcolor='rgba(0,0,0,0)',
             ),
-            margin=dict(l=10, r=10, t=60, b=10),
+            margin=dict(l=60, r=30, t=80, b=50),
+            height=620,
             hovermode='x unified',
         )
         axis_style = dict(
@@ -323,8 +373,16 @@ class ExtremeService:
         )
         fig.update_xaxes(**axis_style)
         fig.update_yaxes(**axis_style)
-        fig.update_xaxes(type='log', title_text='Return Period (years)', row=1, col=1)
-        fig.update_yaxes(title_text=unit or feature_label, row=1, col=1)
+        fig.update_xaxes(
+            type='log', title_text='Return Period (years)',
+            range=[0, np.log10(500)],  # 1 to 500 years
+            row=1, col=1,
+        )
+        fig.update_yaxes(
+            title_text=unit or feature_label,
+            range=[0, y_cap],
+            row=1, col=1,
+        )
         fig.update_xaxes(title_text='Year', row=2, col=1)
         fig.update_yaxes(title_text=f'Max ({unit})' if unit else 'Max', row=2, col=1)
         for ann in fig['layout']['annotations'][:2]:

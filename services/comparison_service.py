@@ -8,12 +8,35 @@ Basin-level comparison analytics:
 """
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
 from .data_loader import DataRepository, MultiDataRepository, SeriesRequest
+
+
+def _generate_comparison_analysis(result: Dict[str, Any], feature: str) -> str:
+    api_key = os.getenv('GEMINI_API_KEY')
+    if not api_key:
+        return ''
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        summary = result.get('summary', {})
+        leaderboard = (result.get('leaderboard') or {}).get('rows', [])[:5]
+        prompt = f"""Analyze this basin comparison result and provide 3 concise bullet-point insights:
+
+Feature analyzed: {feature}
+Basin summary: {summary}
+Top anomaly stations: {leaderboard}
+
+Focus on: spatial patterns, stations with highest anomalies, and what the basin-wide trends suggest for water resources. Use **bold** for key terms."""
+        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+        return resp.text.strip()
+    except Exception:
+        return ''
 
 
 class ComparisonService:
@@ -309,7 +332,7 @@ class ComparisonService:
 
     # ── Combined entry point ─────────────────────────────────────────────────
 
-    def compare(self, dataset: str, feature: str, year: Optional[int] = None) -> Dict[str, Any]:
+    def compare(self, dataset: str, feature: str, year: Optional[int] = None, include_analysis: bool = False) -> Dict[str, Any]:
         result: Dict[str, Any] = {
             'correlation': None,
             'leaderboard': None,
@@ -325,4 +348,8 @@ class ComparisonService:
                 result[key] = fn()
             except Exception as exc:
                 result['errors'].append(f'{key}: {exc}')
+        if include_analysis:
+            analysis = _generate_comparison_analysis(result, feature)
+            if analysis:
+                result['analysis'] = analysis
         return result

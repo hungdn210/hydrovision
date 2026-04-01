@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Optional
 
 import numpy as np
@@ -10,6 +11,28 @@ import pywt
 from plotly.subplots import make_subplots
 
 from .data_loader import SeriesRequest
+
+
+def _generate_wavelet_analysis(result: Dict[str, Any]) -> str:
+    api_key = os.getenv('GEMINI_API_KEY')
+    if not api_key:
+        return ''
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        s = result.get('stats', {})
+        prompt = f"""Analyze this wavelet analysis result and provide 3 concise bullet-point insights:
+
+Station/feature: {result.get('title', '')}
+Record length: {s.get('n_months')} months
+Dominant periodicities: {s.get('dominant_periods_months')} months
+Period range analyzed: {s.get('period_range_months')} months
+
+Focus on: dominant cycles and their physical drivers (ENSO ~48-60 months, monsoon ~12 months, multi-decadal), time-varying behavior, and implications for seasonal water resource planning. Use **bold** for key terms."""
+        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
+        return resp.text.strip()
+    except Exception:
+        return ''
 
 
 class WaveletService:
@@ -58,6 +81,7 @@ class WaveletService:
         dataset: str,
         station: str,
         feature: str,
+        include_analysis: bool = False,
     ) -> Dict[str, Any]:
         repo = self._find_repo(dataset)
         if repo is None:
@@ -251,7 +275,7 @@ class WaveletService:
             ann.font.color = TEXT
             ann.font.size = 11
 
-        return {
+        result = {
             'title': f'Wavelet Analysis · {station_name}',
             'subtitle': (
                 f'{feature_label} · {len(monthly)} months · '
@@ -265,3 +289,10 @@ class WaveletService:
                 'wavelet': 'Morlet',
             },
         }
+
+        if include_analysis:
+            analysis = _generate_wavelet_analysis(result)
+            if analysis:
+                result['analysis'] = analysis
+
+        return result
