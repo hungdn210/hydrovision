@@ -198,13 +198,14 @@ class ScenarioService:
         target_monthly = target_ts.resample('MS').mean().dropna()
 
         # ── 2. Compute sensitivity ────────────────────────────────────────────
-        if driver_feature != target_feature and driver_feature in features:
+        if driver_feature != target_feature:
+            if driver_feature not in features:
+                raise ValueError(f"Driver feature '{driver_feature}' is not available for station {station}.")
             driver_ts = self._load_series(repo, station, driver_feature)
             driver_monthly = driver_ts.resample('MS').mean().dropna()
         else:
             # Direct scaling — driver IS the target
             driver_monthly = target_monthly.copy()
-            driver_feature = target_feature  # normalise
 
         is_direct = (driver_feature == target_feature)
         sensitivity = self._compute_sensitivity(target_monthly, driver_monthly, direct=is_direct)
@@ -263,6 +264,7 @@ class ScenarioService:
         max_delta = float((window_scenario - window_baseline).abs().max())
         mean_delta_pct = float(delta_pct.iloc[window_start:window_end].mean()) if not delta_pct.iloc[window_start:window_end].isna().all() else 0.0
 
+        baseline_source = 'trained_model_csv' if csv_fc is not None else 'statistical_mean_fallback'
         result = {
             'station': station,
             'target_feature': target_feature,
@@ -282,7 +284,8 @@ class ScenarioService:
                 'mean_delta_pct': round(mean_delta_pct, 2),
             },
             'figure': plotly.io.to_json(figure),
-            'csv_used': csv_fc is not None,
+            'csv_used': csv_fc is not None,          # kept for backward compatibility
+            'baseline_source': baseline_source,
         }
 
         # Generate analysis if requested

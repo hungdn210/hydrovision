@@ -11,6 +11,7 @@ import scipy.stats
 from plotly.subplots import make_subplots
 
 from .data_loader import SeriesRequest
+from .feature_registry import get_valid_features_for_analysis
 
 
 def _generate_extreme_analysis(result: Dict[str, Any]) -> str:
@@ -95,8 +96,10 @@ class ExtremeService:
             raise ValueError(f"Station '{station}' not found.")
 
         meta = repo.station_index[station]
-        if feature not in meta.get('features', []):
-            raise ValueError(f"'{feature}' not available for {station}.")
+        valid_features = get_valid_features_for_analysis('extreme', meta.get('features', []))
+        if feature not in valid_features:
+            raise ValueError(f"'{feature}' not valid/available for extreme analysis on {station}.")
+
 
         unit = repo.feature_units.get(feature, '')
         ts = self._load_series(repo, station, feature)

@@ -156,11 +156,14 @@ class PredictionService:
                 raise ValueError(f'No historical predictions found for {station} / {feature} / {model}.')
             figure = self._build_historical_figure(model_frame, hist_fit_df, actual_h, station, feature)
             figure_zoom = self._build_historical_zoom_figure(model_frame, hist_fit_df, actual_h, feature)
-            diag_result = self._build_diagnostics_figure(model_frame, feature, frequency)
+            diag_result = self._build_diagnostics_figure(
+                model_frame, feature, frequency, hist_fit_df=hist_fit_df, source_label=model
+            )
             insight = self._historical_summary(model_frame, hist_fit_df, rmse, mape, actual_h, station, feature) if analysis else None
             return {
                 'station': station, 'feature': feature, 'horizon': actual_h,
                 'frequency': frequency,
+                'source_type': 'trained_model',
                 'figure': plotly.io.to_json(figure),
                 'figure_zoom': plotly.io.to_json(figure_zoom),
                 'figure_diagnostics': plotly.io.to_json(diag_result['figure']) if diag_result else None,
@@ -178,6 +181,7 @@ class PredictionService:
         csv_forecast = self._load_csv_predictions(station, feature, model, effective_horizon)
 
         if csv_forecast is not None:
+            source_type = 'trained_model'
             last_timestamp = model_frame['Timestamp'].iloc[-1]
             forecast_index = self._future_index(last_timestamp, frequency, len(csv_forecast))
             forecast_values = pd.Series(csv_forecast.values.astype(float), index=forecast_index)
@@ -191,12 +195,15 @@ class PredictionService:
             if non_negative:
                 lower = lower.clip(lower=0)
         else:
+            source_type = 'statistical_fallback'
             _, forecast_index, forecast_values, lower, upper, residual_std, rmse, mape = self._forecast(model_frame, frequency, effective_horizon)
             hist_fit_df = None
 
         figure = self._build_figure(model_frame, forecast_index, forecast_values, feature, actual_h, lower=lower, upper=upper)
         figure_zoom = self._build_zoom_figure(model_frame, forecast_index, forecast_values, feature, frequency, actual_h, lower=lower, upper=upper)
-        diag_result = self._build_diagnostics_figure(model_frame, feature, frequency)
+        diag_result = self._build_diagnostics_figure(
+            model_frame, feature, frequency, hist_fit_df=hist_fit_df, source_label=model if hist_fit_df is not None else None
+        )
 
         if analysis:
             fc = model_frame.copy()
@@ -226,6 +233,7 @@ class PredictionService:
         return {
             'station': station, 'feature': feature, 'horizon': horizon,
             'frequency': frequency,
+            'source_type': source_type,
             'figure': plotly.io.to_json(figure),
             'figure_zoom': plotly.io.to_json(figure_zoom),
             'figure_diagnostics': plotly.io.to_json(diag_result['figure']) if diag_result else None,
@@ -538,37 +546,53 @@ class PredictionService:
         frame: pd.DataFrame,
         feature: str,
         frequency: str,
+        hist_fit_df: pd.DataFrame | None = None,
+        source_label: str | None = None,
     ):
         """
-        Residual diagnostics for the Holt-Winters in-sample fit.
+        Residual diagnostics for the trained-model historical fit when available,
+        otherwise for the Holt-Winters in-sample fit.
         Returns {'figure': Plotly Figure, 'summary': str} or None if fitting fails.
         """
         indexed = frame.set_index('Timestamp')['Value'].dropna()
         if len(indexed) < 20:
             return None
 
-        seasonal_periods = None
-        seasonal = None
-        if frequency == 'monthly' and len(indexed) >= 24:
-            seasonal = 'add'
-            seasonal_periods = 12
-        elif frequency == 'daily' and len(indexed) >= 60:
-            seasonal = 'add'
-            seasonal_periods = 7
+        residuals = None
+        diagnostics_source = f'{source_label} historical fit' if source_label and hist_fit_df is not None else 'Holt-Winters baseline'
 
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter('ignore')
-                fit = ExponentialSmoothing(
-                    indexed,
-                    trend='add', damped_trend=True,
-                    seasonal=seasonal,
-                    seasonal_periods=seasonal_periods,
-                    initialization_method='estimated',
-                ).fit(optimized=True)
-            residuals = (indexed - fit.fittedvalues.reindex(indexed.index)).dropna()
-        except Exception:
-            return None
+        if hist_fit_df is not None and not hist_fit_df.empty:
+            actual_on_fit = indexed.reindex(pd.to_datetime(hist_fit_df['Timestamp']))
+            model_fit = pd.Series(
+                hist_fit_df['ModelFit'].to_numpy(dtype=float),
+                index=pd.to_datetime(hist_fit_df['Timestamp']),
+            )
+            residuals = (actual_on_fit - model_fit).dropna()
+
+        if residuals is None or len(residuals) < 10:
+            seasonal_periods = None
+            seasonal = None
+            if frequency == 'monthly' and len(indexed) >= 24:
+                seasonal = 'add'
+                seasonal_periods = 12
+            elif frequency == 'daily' and len(indexed) >= 60:
+                seasonal = 'add'
+                seasonal_periods = 7
+
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter('ignore')
+                    fit = ExponentialSmoothing(
+                        indexed,
+                        trend='add', damped_trend=True,
+                        seasonal=seasonal,
+                        seasonal_periods=seasonal_periods,
+                        initialization_method='estimated',
+                    ).fit(optimized=True)
+                residuals = (indexed - fit.fittedvalues.reindex(indexed.index)).dropna()
+                diagnostics_source = 'Holt-Winters baseline'
+            except Exception:
+                return None
 
         if len(residuals) < 10:
             return None
@@ -593,7 +617,7 @@ class PredictionService:
         fig = make_subplots(
             rows=3, cols=1,
             subplot_titles=[
-                'Residuals over time',
+                f'Residuals over time ({diagnostics_source})',
                 f'ACF (lags 1–{n_lags},  95% CI ±{conf_bound:.3f})',
                 f'PACF (lags 1–{n_lags},  95% CI ±{conf_bound:.3f})',
             ],
@@ -679,6 +703,7 @@ class PredictionService:
         summary = self._diagnostics_summary(
             feature, unit, res_mean, res_std, conf_bound,
             sig_acf_lags, sig_pacf_lags, n_lags,
+            diagnostics_source=diagnostics_source,
         )
 
         return {'figure': fig, 'summary': summary}
@@ -693,6 +718,7 @@ class PredictionService:
         sig_acf_lags: list,
         sig_pacf_lags: list,
         n_lags: int,
+        diagnostics_source: str,
     ) -> str:
         bias_desc = (
             f'mean residual of {res_mean:+.3f} {unit}, indicating a slight '
@@ -722,6 +748,7 @@ class PredictionService:
         overall = 'well-specified' if (not sig_acf_lags and not sig_pacf_lags) else 'improvable'
         base = (
             f'**Residual Diagnostics — {feature.replace("_", " ")}**\n\n'
+            f'- **Diagnostics Source**: Residuals are computed from the **{diagnostics_source}**.\n'
             f'- **Bias**: The model shows a {bias_desc}.\n'
             f'- **Spread**: Residual standard deviation is {res_std:.3f} {unit} '
             f'(95% CI band = ±{conf_bound:.3f}).\n'
@@ -752,6 +779,7 @@ class PredictionService:
                 '- **Practical Implication**: [How does residual quality affect the reliability of forecasts?]\n\n'
                 'RULES: Cite numbers. Each bullet 1-2 sentences.\n\n'
                 f'Variable: {feature.replace("_", " ")} ({unit})\n'
+                f'Diagnostics source: {diagnostics_source}\n'
                 f'Residual mean: {res_mean:+.4f} {unit}\n'
                 f'Residual std: {res_std:.3f} {unit}\n'
                 f'95% CI bound: ±{conf_bound:.3f}\n'

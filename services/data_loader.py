@@ -82,7 +82,12 @@ class DataRepository:
             feature_details: Dict[str, Any] = {}
             latest_timestamp = None
 
-            for feature in self.city_features.get(station, []):
+            # Combine hardcoded features with dynamically discovered valid features
+            expected_features = set(self.city_features.get(station, []))
+            discovered_features = set(col for col in df.columns if col in self.feature_units)
+            all_station_features = list(expected_features | discovered_features)
+
+            for feature in all_station_features:
                 if feature not in df.columns:
                     continue
                 series_df = df[['Timestamp', feature]].copy()
@@ -248,7 +253,6 @@ class DataRepository:
                 'Anomaly Detection Chart',
                 'Seasonal Subseries Plot',
                 'Calendar Heatmap',
-                'Station Ranking Bar Chart',
                 'Rolling Correlation Chart',
                 'Exceedance Probability Curve',
                 'STL Decomposition',

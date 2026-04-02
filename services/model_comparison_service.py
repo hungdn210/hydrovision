@@ -182,6 +182,7 @@ class ModelComparisonService:
         feature: str,
         horizon: int = 14,
         include_analysis: bool = False,
+        capability_service=None,
     ) -> Dict[str, Any]:
         repo = self._find_repo(dataset)
         if repo is None:
@@ -239,6 +240,7 @@ class ModelComparisonService:
             if not has_fit and not has_future:
                 metrics.append({
                     'Model': model_name, 'RMSE': 'n/a', 'MAPE': 'n/a',
+                    'source_note': 'no_data',
                 })
                 continue
 
@@ -270,6 +272,7 @@ class ModelComparisonService:
                 'Model': model_name,
                 'RMSE': f'{rmse:.3f}' if not np.isnan(rmse) else 'n/a',
                 'MAPE': f'{mape:.1f}%' if not np.isnan(mape) else 'n/a',
+                'source_note': 'trained_model',
             })
 
         # Forecast start line
@@ -310,6 +313,14 @@ class ModelComparisonService:
             )],
             margin=dict(l=60, r=20, t=60, b=50),
         )
+
+        # Guard: if every model has no data, raise an informative error
+        all_no_data = all(m.get('source_note') == 'no_data' for m in metrics)
+        if all_no_data:
+            raise ValueError(
+                f"No trained model artifacts found for station '{station}' / feature '{feature}'. "
+                f"Only stations with pre-computed prediction CSVs are supported for model comparison."
+            )
 
         valid_rmse = [(m['Model'], float(m['RMSE'])) for m in metrics if m['RMSE'] not in ('n/a', '—')]
         best_model = min(valid_rmse, key=lambda x: x[1])[0] if valid_rmse else 'n/a'

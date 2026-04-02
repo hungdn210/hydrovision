@@ -25,6 +25,7 @@ from services.animation_service import AnimationService
 from services.model_comparison_service import ModelComparisonService
 from services.decomposition_service import DecompositionService
 from services.wavelet_service import WaveletService
+from services.capability_service import CapabilityService
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -70,6 +71,11 @@ model_comparison_service = ModelComparisonService(repository, data_dir=BASE_DIR 
 decomposition_service = DecompositionService(repository)
 wavelet_service = WaveletService(repository)
 
+print('Scanning prediction assets…')
+capability_service = CapabilityService(data_dir=BASE_DIR / 'data')
+capability_service.scan()
+print('  Capability index built.')
+
 app = Flask(__name__)
 
 
@@ -80,7 +86,13 @@ def index():
 
 @app.route('/api/bootstrap')
 def bootstrap():
-    return jsonify(repository.bootstrap_payload())
+    payload = repository.bootstrap_payload()
+    payload['prediction_capabilities'] = capability_service.bootstrap_capabilities()
+    
+    from services.feature_registry import bootstrap_feature_registry
+    payload['feature_registry'] = bootstrap_feature_registry(payload['features'])
+    
+    return jsonify(payload)
 
 
 @app.route('/api/datasets')
@@ -294,10 +306,16 @@ def compare():
     try:
         if component == 'correlation':
             result = comparison_service.compute_correlation_matrix(dataset, feature)
+            if include_analysis:
+                result = comparison_service.with_component_analysis('correlation', result, feature)
         elif component == 'leaderboard':
             result = comparison_service.compute_anomaly_leaderboard(dataset, feature, year)
+            if include_analysis:
+                result = comparison_service.with_component_analysis('leaderboard', result, feature)
         elif component == 'summary':
             result = comparison_service.compute_basin_summary(dataset, feature)
+            if include_analysis:
+                result = comparison_service.with_component_analysis('summary', result, feature)
         else:
             result = comparison_service.compare(dataset, feature, year, include_analysis=include_analysis)
         return jsonify({'ok': True, 'result': result})
@@ -349,6 +367,18 @@ def predict():
     mode = str(payload.get('mode', 'future')).strip()
     analysis = bool(payload.get('analysis', True))
     try:
+        # Determine dataset for this station
+        station_meta = next(
+            (s for repo in repository.repos for s in [repo.station_index.get(station)] if s),
+            None,
+        )
+        dataset = None
+        if station_meta is not None:
+            repo_for_station = next(
+                (r for r in repository.repos if station in r.station_index), None
+            )
+            dataset = getattr(repo_for_station, 'dataset', None) if repo_for_station else None
+
         result = prediction_service.predict(station, feature, horizon, model, mode, analysis)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
@@ -566,7 +596,11 @@ def model_compare():
     if not station or not feature:
         return jsonify({'ok': False, 'error': 'station and feature required'}), 400
     try:
-        result = model_comparison_service.compare(dataset, station, feature, horizon, include_analysis=include_analysis)
+        result = model_comparison_service.compare(
+            dataset, station, feature, horizon,
+            include_analysis=include_analysis,
+            capability_service=capability_service,
+        )
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400

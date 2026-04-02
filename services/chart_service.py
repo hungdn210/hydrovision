@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Dict, List
 
+import re
 import numpy as np
 import pandas as pd
 import plotly
@@ -27,7 +28,6 @@ GRAPH_TYPES = {
     'Anomaly Detection Chart',
     'Seasonal Subseries Plot',
     'Calendar Heatmap',
-    'Station Ranking Bar Chart',
     'Rolling Correlation Chart',
     'Exceedance Probability Curve',
     'STL Decomposition',
@@ -97,8 +97,6 @@ class ChartService:
             raise ValueError('Seasonal Subseries Plot requires exactly one selection row.')
         if graph_type == 'Calendar Heatmap' and len(requests) != 1:
             raise ValueError('Calendar Heatmap requires exactly one selection row.')
-        if graph_type == 'Station Ranking Bar Chart' and len(features) != 1:
-            raise ValueError('Station Ranking Bar Chart requires one feature across multiple stations.')
         if graph_type == 'Rolling Correlation Chart':
             if len(stations) != 1:
                 raise ValueError('Rolling Correlation Chart requires all series from the same station.')
@@ -152,8 +150,6 @@ class ChartService:
             figure = self._seasonal_subseries_plot(requests[0])
         elif graph_type == 'Calendar Heatmap':
             figure = self._calendar_heatmap(requests[0])
-        elif graph_type == 'Station Ranking Bar Chart':
-            figure = self._station_ranking_bar_chart(requests)
         elif graph_type == 'Rolling Correlation Chart':
             figure = self._rolling_correlation_chart(requests)
         elif graph_type == 'Exceedance Probability Curve':
@@ -172,29 +168,41 @@ class ChartService:
             raise ValueError('Unsupported graph type.')
 
         series_payload = [asdict(req) for req in requests]
+        title = figure.layout.title.text if (figure.layout.title and figure.layout.title.text) else graph_type
+        # If there is a <br> tag, we take everything before it for the clean UI title
+        # to avoid technical metadata cluttering the header.
+        clean_title = title.split('<br>')[0].split('<BR>')[0]
+        # Strip any other remaining tags and whitespace
+        clean_title = re.sub(r'<[^>]*>', ' ', clean_title)
+        clean_title = re.sub(r'\s+', ' ', clean_title).strip()
+        # Card headers already display chart titles; remove in-plot titles to avoid
+        # duplicate text and reclaim vertical space inside each card plot.
+        figure.update_layout(title=None)
         figure_json = plotly.io.to_json(figure)
-        return {
+
+        result = {
             'graph_type': graph_type,
             'series': series_payload,
             'figure': figure_json,
-            'title': figure.layout.title.text if figure.layout.title else graph_type,
+            'title': clean_title,
         }
+        return result
 
     def _base_layout(self, figure: go.Figure, title: str) -> None:
         figure.update_layout(
-            template='plotly_white',
+            template='plotly_dark',
             title={
                 'text': title,
                 'x': 0.5,
                 'xanchor': 'center',
                 'y': 0.97,
                 'yanchor': 'top',
-                'font': {'size': 15, 'color': '#0f172a', 'family': 'Inter, Arial, sans-serif'},
+                'font': {'size': 15, 'color': '#ededed', 'family': 'Inter, Arial, sans-serif'},
             },
             paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(248,250,252,0.6)',
-            font={'family': 'Inter, Arial, sans-serif', 'size': 12, 'color': '#334155'},
-            margin={'l': 64, 'r': 40, 't': 72, 'b': 120},
+            plot_bgcolor='rgba(0,0,0,0)',
+            font={'family': 'Inter, Arial, sans-serif', 'size': 12, 'color': '#a0a0a0'},
+            margin={'l': 64, 'r': 40, 't': 108, 'b': 110},
             hovermode='x unified',
             hoverlabel={
                 'bgcolor': '#1e293b',
@@ -203,8 +211,8 @@ class ChartService:
             },
             legend={
                 'orientation': 'h',
-                'yanchor': 'top',
-                'y': -0.22,
+                'yanchor': 'bottom',
+                'y': 1.02,
                 'xanchor': 'center',
                 'x': 0.5,
                 'font': {'size': 11, 'color': '#475569'},
@@ -214,21 +222,25 @@ class ChartService:
         )
         figure.update_xaxes(
             showgrid=True,
-            gridcolor='rgba(148,163,184,0.18)',
+            gridcolor='rgba(255,255,255,0.08)',
             gridwidth=1,
-            linecolor='rgba(148,163,184,0.3)',
+            linecolor='rgba(255,255,255,0.15)',
             zeroline=False,
-            tickfont={'size': 11, 'color': '#64748b'},
-            title_font={'size': 12, 'color': '#475569'},
+            automargin=True,
+            tickfont={'size': 11, 'color': '#888888'},
+            title_standoff=26,
+            title_font={'size': 12, 'color': '#a0a0a0'},
         )
         figure.update_yaxes(
             showgrid=True,
-            gridcolor='rgba(148,163,184,0.18)',
+            gridcolor='rgba(255,255,255,0.08)',
             gridwidth=1,
-            linecolor='rgba(148,163,184,0.3)',
+            linecolor='rgba(255,255,255,0.15)',
             zeroline=False,
-            tickfont={'size': 11, 'color': '#64748b'},
-            title_font={'size': 12, 'color': '#475569'},
+            automargin=True,
+            tickfont={'size': 11, 'color': '#888888'},
+            title_standoff=16,
+            title_font={'size': 12, 'color': '#a0a0a0'},
         )
 
     @staticmethod
@@ -301,6 +313,12 @@ class ChartService:
                 )
             )
         self._base_layout(fig, f"{feature.replace('_', ' ')} Across Multiple Stations")
+        fig.update_layout(
+            legend={
+                'entrywidth': 90,
+                'entrywidthmode': 'pixels',
+            },
+        )
         fig.update_xaxes(title='Date')
         fig.update_yaxes(title=f"{feature.replace('_', ' ')} ({unit})" if unit else feature.replace('_', ' '))
         return fig
@@ -322,6 +340,12 @@ class ChartService:
                 secondary_y=bool(idx % 2),
             )
         self._base_layout(fig, 'Multiple Stations · Multiple Features Comparison')
+        fig.update_layout(
+            legend={
+                'entrywidth': 120,
+                'entrywidthmode': 'pixels',
+            },
+        )
         fig.update_xaxes(title='Date')
         fig.update_yaxes(title='Normalized value', secondary_y=False)
         fig.update_yaxes(title='Normalized value', secondary_y=True)
@@ -346,6 +370,14 @@ class ChartService:
             )
         unit = self.repository.feature_units.get(request.feature, '')
         self._base_layout(fig, f"Year-over-Year · {request.feature.replace('_', ' ')} · {request.station.replace('_', ' ')}")
+        # Keep legend placement deterministic for dense year traces so identical
+        # cards render consistently and never overlap the x-axis title area.
+        fig.update_layout(
+            legend={
+                'entrywidth': 52,
+                'entrywidthmode': 'pixels',
+            },
+        )
         fig.update_xaxes(
             title='Month',
             tickmode='array',
@@ -372,6 +404,7 @@ class ChartService:
                     y=totals.values,
                     text=[f'{value:.1f}' for value in totals.values],
                     textposition='outside',
+                    cliponaxis=False,
                     textfont={'size': 10, 'color': '#64748b'},
                     marker={
                         'color': bar_colors,
@@ -383,8 +416,15 @@ class ChartService:
             ]
         )
         self._base_layout(fig, f"Annual Monthly Totals · {request.feature.replace('_', ' ')} · {request.station.replace('_', ' ')}")
+        fig.update_layout(
+            height=520,
+            margin={'l': 64, 'r': 40, 't': 116, 'b': 90},
+        )
         fig.update_xaxes(title='Month')
-        fig.update_yaxes(title=f"{request.feature.replace('_', ' ')} ({unit})" if unit else request.feature.replace('_', ' '))
+        fig.update_yaxes(
+            title=f"{request.feature.replace('_', ' ')} ({unit})" if unit else request.feature.replace('_', ' '),
+            automargin=True,
+        )
         return fig
 
     def _flow_duration_curve(self, request: SeriesRequest) -> go.Figure:
@@ -677,13 +717,21 @@ class ChartService:
         df['Year'] = df['Timestamp'].dt.year
         df['Month'] = df['Timestamp'].dt.month
         monthly = df.groupby(['Year', 'Month'], as_index=False)['Value'].mean()
+        years_sorted = sorted(int(y) for y in monthly['Year'].unique())
+        n_years = len(years_sorted)
+        # Rotate and thin year ticks when the series is long to avoid overlap.
+        tick_angle = -45 if n_years > 10 else 0
+        step = max(1, int(np.ceil(n_years / 6))) if n_years > 0 else 1
+        tickvals = years_sorted[::step]
+        ticktext = [str(y) for y in tickvals]
+        bottom_margin = 76 if tick_angle else 58
 
         fig = make_subplots(
             rows=2, cols=6,
             subplot_titles=month_labels,
             shared_yaxes=True,
             horizontal_spacing=0.04,
-            vertical_spacing=0.18,
+            vertical_spacing=0.22,
         )
         for i, month_num in enumerate(range(1, 13)):
             row = 1 if i < 6 else 2
@@ -722,18 +770,36 @@ class ChartService:
                 )
         fig.update_layout(
             template='plotly_white',
-            title={
-                'text': f"Seasonal Subseries · {request.feature.replace('_', ' ')} · {request.station.replace('_', ' ')}",
-                'x': 0.5, 'xanchor': 'center',
-            },
             paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='#ffffff',
-            font={'family': 'Inter, Arial, sans-serif', 'size': 11, 'color': '#0f172a'},
-            margin={'l': 50, 'r': 20, 't': 90, 'b': 50},
+            plot_bgcolor='rgba(0,0,0,0)',
+            font={'family': 'Inter, Arial, sans-serif', 'size': 11, 'color': '#334155'},
+            margin={'l': 56, 'r': 20, 't': 56, 'b': bottom_margin},
             showlegend=False,
+            meta={
+                'graph_type': 'Seasonal Subseries Plot',
+                'seasonal_years': years_sorted,
+            },
         )
-        fig.update_xaxes(showgrid=True, gridcolor='rgba(148,163,184,0.22)', tickformat='d')
-        fig.update_yaxes(showgrid=True, gridcolor='rgba(148,163,184,0.22)')
+        fig.update_xaxes(
+            showgrid=True,
+            gridcolor='rgba(148,163,184,0.22)',
+            tickformat='d',
+            tickmode='array',
+            tickvals=tickvals,
+            ticktext=ticktext,
+            tickangle=tick_angle,
+            tickfont={'size': 8, 'color': '#64748b'},
+            automargin=True,
+        )
+        fig.update_yaxes(
+            showgrid=True,
+            gridcolor='rgba(148,163,184,0.22)',
+            tickfont={'size': 10, 'color': '#64748b'},
+        )
+        for col in range(1, 7):
+            fig.update_xaxes(showticklabels=False, row=1, col=col)
+            fig.update_xaxes(showticklabels=True, row=2, col=col)
+        fig.update_annotations(font={'size': 16, 'color': '#475569'})
         return fig
 
     def _calendar_heatmap(self, request: SeriesRequest) -> go.Figure:
@@ -808,95 +874,141 @@ class ChartService:
         stations = [r['station'] for r in rows]
         means = [r['mean'] for r in rows]
         medians = [r['median'] for r in rows]
+        mins = [r['min'] for r in rows]
         maxes = [r['max'] for r in rows]
-        ranks = [f'#{i+1}' for i in range(len(rows))]
-
-        # Color gradient: top rank = deepest blue, lower = lighter
         n = len(rows)
-        colors = [f'rgba(37,99,235,{0.9 - 0.5 * i / max(n - 1, 1):.2f})' for i in range(n)]
+        rank_labels = [f'#{i+1:02d}  {station}' for i, station in enumerate(stations)]
+        colors = [
+            '#0f172a' if i == 0 else '#1d4ed8' if i == 1 else '#2563eb' if i == 2
+            else '#60a5fa'
+            for i in range(n)
+        ]
 
         fig = go.Figure()
+        x_upper = max(maxes) * 1.18 if maxes else 1.0
 
-        # Min–Max range lines (thin, faint)
-        for i, r in enumerate(rows):
+        for idx, (label, min_v, max_v) in enumerate(zip(rank_labels, mins, maxes)):
+            band_fill = 'rgba(248,250,252,0.9)' if idx % 2 == 0 else 'rgba(241,245,249,0.6)'
+            fig.add_shape(
+                type='rect',
+                x0=0,
+                x1=x_upper,
+                y0=idx - 0.46,
+                y1=idx + 0.46,
+                xref='x',
+                yref='y',
+                fillcolor=band_fill,
+                line={'width': 0},
+                layer='below',
+            )
             fig.add_trace(go.Scatter(
-                x=[r['min'], r['max']],
-                y=[r['station'], r['station']],
+                x=[min_v, max_v],
+                y=[label, label],
                 mode='lines',
-                line={'color': 'rgba(148,163,184,0.35)', 'width': 6},
-                showlegend=False,
-                hoverinfo='skip',
+                name='Observed range' if idx == 0 else None,
+                line={'color': 'rgba(148,163,184,0.42)', 'width': 10},
+                hovertemplate='<b>%{y}</b><br>Range: %{customdata[0]:.3f} → %{customdata[1]:.3f} ' + unit + '<extra></extra>',
+                customdata=[(min_v, max_v), (min_v, max_v)],
+                showlegend=idx == 0,
             ))
 
-        # Lollipop stems: 0 → mean
-        for i, r in enumerate(rows):
-            fig.add_trace(go.Scatter(
-                x=[0, r['mean']],
-                y=[r['station'], r['station']],
-                mode='lines',
-                line={'color': colors[i], 'width': 3},
-                showlegend=False,
-                hoverinfo='skip',
-            ))
-
-        # Mean dot
         fig.add_trace(go.Scatter(
-            y=stations, x=means,
-            mode='markers+text',
-            name='Mean',
-            marker={'color': colors, 'size': 14, 'line': {'width': 2, 'color': 'white'}},
-            text=[f'{v:.1f}' for v in means],
-            textposition='middle right',
-            textfont={'size': 10, 'color': '#94a3b8'},
-            hovertemplate='%{y}<br>Mean: %{x:.3f} ' + unit + '<extra></extra>',
+            y=rank_labels,
+            x=mins,
+            mode='markers',
+            name='Minimum',
+            marker={
+                'color': 'rgba(255,255,255,0.95)',
+                'size': 9,
+                'symbol': 'circle',
+                'line': {'width': 2, 'color': '#94a3b8'},
+            },
+            hovertemplate='<b>%{y}</b><br>Min: %{x:.3f} ' + unit + '<extra></extra>',
         ))
 
         # Median tick
         fig.add_trace(go.Scatter(
-            y=stations, x=medians,
+            y=rank_labels, x=medians,
             mode='markers',
             name='Median',
             marker={'color': '#f59e0b', 'size': 10, 'symbol': 'line-ns-open',
                     'line': {'width': 3, 'color': '#f59e0b'}},
-            hovertemplate='%{y}<br>Median: %{x:.3f} ' + unit + '<extra></extra>',
+            hovertemplate='<b>%{y}</b><br>Median: %{x:.3f} ' + unit + '<extra></extra>',
+        ))
+
+        fig.add_trace(go.Scatter(
+            y=rank_labels,
+            x=means,
+            mode='markers+text',
+            name='Mean',
+            marker={
+                'color': colors,
+                'size': [18 if i == 0 else 16 if i == 1 else 15 if i == 2 else 13 for i in range(n)],
+                'symbol': 'circle',
+                'line': {'width': 2.4, 'color': 'rgba(255,255,255,0.95)'},
+            },
+            text=[f'{v:.2f}' for v in means],
+            textposition='middle right',
+            textfont={'size': 10, 'color': '#334155'},
+            cliponaxis=False,
+            hovertemplate='<b>%{y}</b><br>Mean: %{x:.3f} ' + unit + '<extra></extra>',
         ))
 
         # Max diamond
         fig.add_trace(go.Scatter(
-            y=stations, x=maxes,
+            y=rank_labels, x=maxes,
             mode='markers',
             name='Max',
-            marker={'color': '#ef4444', 'size': 9, 'symbol': 'diamond',
-                    'line': {'width': 1, 'color': 'white'}},
-            hovertemplate='%{y}<br>Max: %{x:.3f} ' + unit + '<extra></extra>',
+            marker={'color': '#ef4444', 'size': 10, 'symbol': 'diamond',
+                    'line': {'width': 1.2, 'color': 'white'}},
+            hovertemplate='<b>%{y}</b><br>Max: %{x:.3f} ' + unit + '<extra></extra>',
         ))
-
-        # Rank labels on y-axis via annotations
-        annotations = []
-        for i, (station, rank) in enumerate(zip(stations, ranks)):
-            annotations.append({
-                'x': 0, 'y': station,
-                'xref': 'x', 'yref': 'y',
-                'text': rank,
-                'showarrow': False,
-                'xanchor': 'right',
-                'xshift': -8,
-                'font': {'size': 11, 'color': '#64748b'},
-            })
 
         self._base_layout(fig, f"Station Ranking · {feature.replace('_', ' ')}")
         fig.update_layout(
             hovermode='closest',
-            height=max(380, n * 55 + 180),
-            margin={'l': 140, 'r': 80, 't': 80, 'b': 70},
-            annotations=annotations,
-            legend={'orientation': 'h', 'yanchor': 'bottom', 'y': -0.15,
-                    'xanchor': 'center', 'x': 0.5},
-            bargap=0.4,
+            plot_bgcolor='#f8fafc',
+            paper_bgcolor='rgba(0,0,0,0)',
+            height=max(420, n * 64 + 150),
+            margin={'l': 188, 'r': 120, 't': 72, 'b': 76},
+            legend={
+                'orientation': 'h',
+                'yanchor': 'bottom',
+                'y': 1.01,
+                'xanchor': 'left',
+                'x': 0.0,
+                'font': {'size': 11, 'color': '#475569'},
+                'bgcolor': 'rgba(255,255,255,0.7)',
+                'borderwidth': 0,
+            },
+        )
+        fig.add_vline(
+            x=float(np.mean(means)),
+            line_dash='dot',
+            line_width=1.5,
+            line_color='rgba(245,158,11,0.78)',
+            annotation_text='Network mean',
+            annotation_position='top right',
+            annotation_font={'size': 10, 'color': '#b45309'},
         )
         x_title = f"{feature.replace('_', ' ')} ({unit})" if unit else feature.replace('_', ' ')
-        fig.update_xaxes(title=x_title, zeroline=True, zerolinewidth=1, zerolinecolor='rgba(148,163,184,0.4)')
-        fig.update_yaxes(title='', categoryorder='array', categoryarray=list(reversed(stations)))
+        fig.update_xaxes(
+            title=x_title,
+            zeroline=True,
+            zerolinewidth=1,
+            zerolinecolor='rgba(148,163,184,0.28)',
+            showgrid=True,
+            gridcolor='rgba(148,163,184,0.18)',
+            tickfont={'size': 11, 'color': '#475569'},
+            range=[0, x_upper],
+        )
+        fig.update_yaxes(
+            title='',
+            categoryorder='array',
+            categoryarray=list(reversed(rank_labels)),
+            tickfont={'size': 12, 'color': '#0f172a'},
+            automargin=True,
+        )
         return fig
 
     def _rolling_correlation_chart(self, requests: List[SeriesRequest]) -> go.Figure:
@@ -1001,8 +1113,11 @@ class ChartService:
         fig.update_xaxes(
             title='Exceedance Probability (%)',
             type='log',
-            tickvals=[0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10, 20, 30, 50, 70, 90, 99],
-            ticktext=['0.01', '0.05', '0.1', '0.5', '1', '2', '5', '10', '20', '30', '50', '70', '90', '99'],
+            tickvals=[0.05, 0.1, 0.5, 1, 2, 5, 10, 20, 50, 90],
+            ticktext=['0.05', '0.1', '0.5', '1', '2', '5', '10', '20', '50', '90'],
+            tickangle=90,
+            tickfont={'size': 10, 'color': '#64748b'},
+            automargin=True,
             range=[np.log10(max(exceedance_pct.min(), 0.001)), np.log10(min(exceedance_pct.max(), 100))],
         )
         fig.update_yaxes(title=f"{request.feature.replace('_', ' ')} ({unit})" if unit else request.feature.replace('_', ' '))
@@ -1108,13 +1223,13 @@ class ChartService:
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(248,250,252,0.6)',
             font={'family': 'Inter, Arial, sans-serif', 'size': 11, 'color': '#334155'},
-            margin={'l': 64, 'r': 40, 't': 90, 'b': 60},
+            margin={'l': 64, 'r': 40, 't': 132, 'b': 60},
             hovermode='x unified',
             hoverlabel={'bgcolor': '#1e293b', 'bordercolor': '#334155', 'font': {'color': '#f1f5f9', 'size': 12}},
             barmode='relative',
             height=680,
             legend={
-                'orientation': 'h', 'yanchor': 'top', 'y': -0.05,
+                'orientation': 'h', 'yanchor': 'bottom', 'y': 1.08,
                 'xanchor': 'center', 'x': 0.5,
                 'font': {'size': 11, 'color': '#475569'},
                 'bgcolor': 'rgba(0,0,0,0)',
@@ -1277,14 +1392,6 @@ class ChartService:
             borderwidth=1,
             xanchor='left', yanchor='top',
         )
-        freq_note = 'resampled to monthly' if frequency == 'daily' else 'monthly'
-        fig.add_annotation(
-            xref='paper', yref='paper', x=0.99, y=0.99,
-            text=freq_note,
-            showarrow=False,
-            font={'size': 10, 'color': '#94a3b8'},
-            xanchor='right', yanchor='top',
-        )
         fig.update_xaxes(title='Date')
         fig.update_yaxes(title=f"{request.feature.replace('_', ' ')} ({unit})" if unit else request.feature.replace('_', ' '))
         return fig
@@ -1390,8 +1497,9 @@ class ChartService:
             colorbar={
                 'title': {'text': 'Power', 'side': 'right', 'font': {'size': 10}},
                 'thickness': 14,
-                'len': 0.65,
-                'y': 0.28,
+                'len': 0.66,
+                'y': 0.33,
+                'yanchor': 'middle',
                 'tickfont': {'size': 9},
             },
             hovertemplate='<b>%{x}</b><br>Period: %{y}<br>Power: %{z:.4f}<extra></extra>',
@@ -1589,19 +1697,19 @@ class ChartService:
             paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor='rgba(248,250,252,0.6)',
             font={'family': 'Inter, Arial, sans-serif', 'size': 11, 'color': '#334155'},
-            margin={'l': 64, 'r': 64, 't': 90, 'b': 100},
+            margin={'l': 64, 'r': 64, 't': 132, 'b': 92},
             hovermode='x unified',
             hoverlabel={'bgcolor': '#1e293b', 'bordercolor': '#334155', 'font': {'color': '#f1f5f9', 'size': 12}},
             height=560,
             barmode='group',
             legend={
-                'orientation': 'h', 'yanchor': 'top', 'y': -0.12,
+                'orientation': 'h', 'yanchor': 'bottom', 'y': 1.16,
                 'xanchor': 'center', 'x': 0.5,
                 'font': {'size': 11, 'color': '#475569'},
             },
         )
         fig.add_annotation(
-            xref='paper', yref='paper', x=0.5, y=-0.16,
+            xref='paper', yref='paper', x=0.5, y=-0.20,
             text=(
                 '<span style="color:rgba(56,189,248,0.88)">■</span> ★★★ p&lt;0.01 &nbsp;&nbsp;'
                 '<span style="color:rgba(74,222,128,0.88)">■</span> ★★ p&lt;0.05 &nbsp;&nbsp;'
@@ -1622,7 +1730,7 @@ class ChartService:
         fig.update_yaxes(**axis_style, title_text='F-statistic')
         lag_unit = 'months' if frequency == 'monthly' else 'months (resampled)'
         fig.add_annotation(
-            xref='paper', yref='paper', x=0.5, y=1.04,
+            xref='paper', yref='paper', x=0.5, y=1.16,
             text=f'n={n} observations · lags 1–{max_lag} {lag_unit}',
             showarrow=False,
             font={'size': 10, 'color': '#94a3b8'},
@@ -1745,9 +1853,20 @@ class ChartService:
         fig.update_layout(
             hovermode='x unified',
             height=440,
+            margin={'l': 64, 'r': 64, 't': 126, 'b': 110},
+            legend={
+                'orientation': 'h',
+                'yanchor': 'bottom',
+                'y': 1.18,
+                'xanchor': 'center',
+                'x': 0.5,
+                'font': {'size': 11, 'color': '#475569'},
+                'bgcolor': 'rgba(0,0,0,0)',
+                'borderwidth': 0,
+            },
         )
         fig.add_annotation(
-            xref='paper', yref='paper', x=0.5, y=1.08,
+            xref='paper', yref='paper', x=0.5, y=1.14,
             text=f'↑ {direction}  ·  95% CI ±{ci:.3f}  ·  n={n}',
             showarrow=False,
             font={'size': 11, 'color': '#f59e0b', 'family': 'Inter, Arial, sans-serif'},

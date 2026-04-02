@@ -42,8 +42,7 @@ SCENARIOS = {
     'SSP5-8.5': {'delta_temp': 4.5, 'q_scale': -0.30, 'p_scale': 0.15, 'color': '#f87171', 'dash': 'dashdot'},
 }
 
-DISCHARGE_KEYWORDS = {'discharge', 'flow', 'runoff', 'streamflow', 'q_'}
-
+from .feature_registry import get_feature_type, FeatureType
 
 class ClimateService:
     """
@@ -129,8 +128,7 @@ class ClimateService:
         hist_std = float(np.std(residuals))
 
         # Determine whether this is a discharge-like or precip-like feature
-        fl = feature.lower()
-        is_discharge = any(k in fl for k in DISCHARGE_KEYWORDS)
+        is_discharge = get_feature_type(feature) == FeatureType.FLOW
         scale_key = 'q_scale' if is_discharge else 'p_scale'
 
         # Future years

@@ -311,13 +311,6 @@
             allowMultiFeature: false,
             allowMultiRow: false
         },
-        'Station Ranking Bar Chart': {
-            desc: 'Horizontal bar chart ranking all selected stations by their mean value for a single feature. Median (amber tick) and max (red diamond) markers are overlaid on each bar for a full distributional snapshot.',
-            rules: 'Select one feature to see available stations, then choose multiple stations.',
-            allowMultiFeature: false,
-            allowMultiRow: false,
-            isFeatureFirst: true
-        },
         'Rolling Correlation Chart': {
             desc: 'Plots the Pearson correlation between two features in a sliding time window (365-day for daily data, 12-month for monthly). Shows whether the relationship between variables is stable year-round or varies seasonally.',
             rules: 'Select exactly 2 features from the same station.',
@@ -326,6 +319,36 @@
         },
         'Exceedance Probability Curve': {
             desc: 'Like a Flow Duration Curve but on a log-probability x-axis — the standard format for flood frequency analysis. Return period markers (2yr, 5yr, 10yr…) show the magnitude of rare events.',
+            rules: 'Exactly 1 row. Single station and feature required.',
+            allowMultiFeature: false,
+            allowMultiRow: false
+        },
+        'Granger Causality': {
+            desc: 'A statistical test for determining whether one hydrological time series is useful in forecasting another. It reveals directional "causality" (e.g., does upstream rainfall actually cause downstream level changes).',
+            rules: 'Select exactly 2 features from the same station. Use the multi-select to pick both.',
+            allowMultiFeature: true,
+            allowMultiRow: false
+        },
+        'Cross-Correlation Function (CCF)': {
+            desc: 'Analyzes the correlation between two series at different time lags. Essential for determining the "travel time" of water between upstream and downstream stations.',
+            rules: 'Exactly 2 rows required. Can use different stations or different features.',
+            allowMultiFeature: false,
+            allowMultiRow: true
+        },
+        'STL Decomposition': {
+            desc: 'Decomposes a time series into Trend, Seasonal, and Residual (noise) components. Visualizes the underlying long-term signal without seasonal "noise".',
+            rules: 'Exactly 1 row. Single station and feature required.',
+            allowMultiFeature: false,
+            allowMultiRow: false
+        },
+        'Change-Point Detection': {
+            desc: 'Statistically identifies abrupt shifts in the mean or variance of a series. Useful for detecting the impact of dam construction or major land-use changes.',
+            rules: 'Exactly 1 row. Single station and feature required.',
+            allowMultiFeature: false,
+            allowMultiRow: false
+        },
+        'Wavelet Analysis': {
+            desc: 'A powerful tool for analyzing localized variations of power within a time series. Shows how periodic signals (like the annual cycle) change in strength over decades.',
             rules: 'Exactly 1 row. Single station and feature required.',
             allowMultiFeature: false,
             allowMultiRow: false
@@ -360,7 +383,7 @@
 
     async function init() {
         setEmptyState(els.visualizationCards, 'No visualizations yet. Use the Explore section on the left to add your first chart.');
-        setEmptyState(els.analysisCards, 'No analysis cards yet. Build a selection and choose “Add to analyse”.');
+        setEmptyState(els.analysisCards, 'No analysis cards yet. Build a selection and choose “Add to analyze”.');
         setEmptyState(els.predictionCards, 'No predictions yet. Configure a station, feature, and horizon on the left.');
         applyTheme(localStorage.getItem('hydrovision-theme') || 'dark');
         bindEvents();
@@ -514,7 +537,7 @@
             });
         });
         els.clearVisualizationsBtn.addEventListener('click', () => setEmptyState(els.visualizationCards, 'No visualizations yet. Use the Explore section on the left to add your first chart.'));
-        els.clearAnalysisBtn.addEventListener('click', () => setEmptyState(els.analysisCards, 'No analysis cards yet. Build a selection and choose “Add to analyse”.'));
+        els.clearAnalysisBtn.addEventListener('click', () => setEmptyState(els.analysisCards, 'No analysis cards yet. Build a selection and choose “Add to analyze”.'));
         els.clearPredictionBtn.addEventListener('click', () => setEmptyState(els.predictionCards, 'No predictions yet. Configure a station, feature, and horizon on the left.'));
         els.clearCompareBtn?.addEventListener('click', () => {
             if (els.compareWorkspace) els.compareWorkspace.innerHTML = '';
@@ -649,12 +672,19 @@
             tab.addEventListener('click', () => activateDockTab(tab.dataset.dockTab));
         });
 
-        els.predictStationSelect.addEventListener('change', updatePredictionFeatureOptions);
-        els.predictFeatureSelect.addEventListener('change', updatePredictionHint);
+        els.predictStationSelect.addEventListener('change', () => {
+            updatePredictionFeatureOptions();
+            checkPredictionCapability();
+        });
+        els.predictFeatureSelect.addEventListener('change', () => {
+            updatePredictionHint();
+            checkPredictionCapability();
+        });
         els.runPredictionBtn.addEventListener('click', runPrediction);
         els.predictModelSelect?.addEventListener('change', async () => {
             await fetchPredictStations(els.predictModelSelect.value);
             populatePredictionControls();
+            checkPredictionCapability();
         });
 
         // Mode picker (Historical Fit / Future Forecast)
@@ -674,6 +704,7 @@
                         validateHorizonInput();
                     }
                     populatePredictionControls();
+                    checkPredictionCapability();
                 });
             });
         }
@@ -1068,6 +1099,15 @@
             const res = await fetch('/api/predict-models');
             const models = await res.json();
             els.predictModelSelect.innerHTML = '';
+            if (!models || models.length === 0) {
+                const opt = document.createElement('option');
+                opt.value = '';
+                opt.disabled = true;
+                opt.selected = true;
+                opt.textContent = 'No trained models available';
+                els.predictModelSelect.appendChild(opt);
+                return;
+            }
             models.forEach(name => {
                 const opt = document.createElement('option');
                 opt.value = name;
@@ -1123,6 +1163,7 @@
             els.predictStationSelect.appendChild(option);
         });
         updatePredictionFeatureOptions();
+        checkPredictionCapability();
     }
 
     function updatePredictionFeatureOptions() {
@@ -1136,6 +1177,55 @@
             els.predictFeatureSelect.appendChild(option);
         });
         updatePredictionHint();
+        checkPredictionCapability();
+    }
+
+    /**
+     * Check if the current station/feature/mode/model combo has a trained CSV.
+     * Shows or hides a warning banner in the prediction controls panel.
+     */
+    function checkPredictionCapability() {
+        const caps = state.bootstrap?.prediction_capabilities;
+        if (!caps) return;
+
+        const station = els.predictStationSelect.value;
+        const feature = els.predictFeatureSelect.value;
+        const mode = state.predictMode;
+        const meta = state.stationsByName.get(station);
+        const dataset = meta?.dataset;
+        if (!dataset || !feature) return;
+
+        let modelsTrained = [];
+        if (dataset === 'mekong') {
+            const mekongFeatureFolder = {
+                'Discharge': 'Water_Discharge',
+                'Water_Level': 'Water_Level',
+                'Rainfall': 'Rainfall',
+                'Total_Suspended_Solids': 'Total_Suspended_Solids',
+            };
+            const featureKey = mekongFeatureFolder[feature] || feature;
+            modelsTrained = caps.mekong?.[mode]?.[featureKey] || [];
+        } else if (dataset === 'lamah') {
+            modelsTrained = caps.lamah?.[mode] || [];
+        }
+
+        // Find or create the capability warning element
+        let warnEl = document.getElementById('predict-capability-warning');
+        if (!warnEl) {
+            warnEl = document.createElement('div');
+            warnEl.id = 'predict-capability-warning';
+            warnEl.className = 'capability-warning-banner';
+            // Insert just above the Run button
+            const runBtn = els.runPredictionBtn;
+            if (runBtn?.parentNode) runBtn.parentNode.insertBefore(warnEl, runBtn);
+        }
+
+        if (modelsTrained.length === 0) {
+            warnEl.innerHTML = `⚠️ <strong>No trained model artifacts</strong> for <em>${escapeHtml(prettyFeature(feature))}</em> on ${escapeHtml(dataset.charAt(0).toUpperCase() + dataset.slice(1))} in ${mode} mode. The forecast will use a <strong>Holt-Winters statistical projection</strong> instead of a trained ML model.`;
+            warnEl.style.display = 'block';
+        } else {
+            warnEl.style.display = 'none';
+        }
     }
 
     function updatePredictionHint() {
@@ -1625,7 +1715,7 @@
             const parent = card.parentElement;
             card.remove();
             if (!parent.children.length) {
-                setEmptyState(els.analysisCards, 'No analysis cards yet. Build a selection and choose "Add to analyse".');
+                setEmptyState(els.analysisCards, 'No analysis cards yet. Build a selection and choose "Add to analyze".');
             }
         });
 
@@ -2358,9 +2448,19 @@
         clearEmptyStateIfNeeded(els.visualizationCards);
         const cardId = `visual-${++state.cardCounters.visualize}`;
         const card = buildBaseCard(cardId, result.title, describeSeries(result.series));
+        const plot = card.querySelector('.plot-container');
+        plot.dataset.graphType = result.graph_type || '';
+        if (result.graph_type === 'Calendar Heatmap') {
+            plot.style.minHeight = '620px';
+        }
         addCsvButton(card, result.series);
         els.visualizationCards.prepend(card);
-        renderPlot(card.querySelector('.plot-container'), result.figure);
+        renderPlot(plot, result.figure);
+        requestAnimationFrame(() => {
+            els.visualizationCards.querySelectorAll('.plot-container[data-figure]').forEach((existingPlot) => {
+                renderPlot(existingPlot, existingPlot.dataset.figure);
+            });
+        });
     }
 
     function buildBenchmarkTables(benchmark, benchmarkAnalysis) {
@@ -2472,12 +2572,17 @@
             metricsEl.className = 'pred-metrics-strip';
             const rmseVal = m.rmse != null ? m.rmse : '—';
             const mapeVal = m.mape != null ? `${m.mape}%` : '—';
+            const isTrained = result.source_type === 'trained_model';
+            const sourceClass = isTrained ? 'pms-source-trained' : 'pms-source-fallback';
+            const sourceLabel = isTrained ? '🧠 Trained model' : '⚠️ Statistical fallback';
             metricsEl.innerHTML =
                 `<span class="pms-item"><span class="pms-label">Horizon</span><span class="pms-value">${escapeHtml(horizonLabel)}</span></span>` +
                 `<span class="pms-divider"></span>` +
                 `<span class="pms-item"><span class="pms-label">RMSE</span><span class="pms-value">${escapeHtml(String(rmseVal))}</span></span>` +
                 `<span class="pms-divider"></span>` +
-                `<span class="pms-item"><span class="pms-label">MAPE</span><span class="pms-value">${escapeHtml(String(mapeVal))}</span></span>`;
+                `<span class="pms-item"><span class="pms-label">MAPE</span><span class="pms-value">${escapeHtml(String(mapeVal))}</span></span>` +
+                `<span class="pms-divider"></span>` +
+                `<span class="pms-item"><span class="pms-label">Source</span><span class="pms-value ${sourceClass}">${sourceLabel}</span></span>`;
             body.insertBefore(metricsEl, basePlot);
         }
 
@@ -2637,7 +2742,7 @@
             if (parent && !parent.querySelector('.workspace-card')) {
                 const emptyMessages = {
                     visualizationCards: 'No visualizations yet. Use the Explore section on the left to add your first chart.',
-                    analysisCards:      'No analysis cards yet. Build a selection and choose “Add to analyse”.',
+                    analysisCards:      'No analysis cards yet. Build a selection and choose “Add to analyze”.',
                     predictionCards:    'No predictions yet. Configure a station, feature, and horizon on the left.',
                     extremeCards:       'No analyses yet. Select a station and feature, then click Run.',
                     climateCards:       'No projections yet. Select a station and feature, then click Generate projection.',
@@ -2764,6 +2869,43 @@
         }
     }
 
+    function pickEvenTicks(values, targetCount) {
+        if (!Array.isArray(values) || values.length === 0) return [];
+        const count = Math.min(targetCount, values.length);
+        if (count === 1) return [values[0]];
+        const picks = [];
+        const seen = new Set();
+        for (let i = 0; i < count; i++) {
+            const idx = Math.round(i * (values.length - 1) / (count - 1));
+            const val = values[idx];
+            if (!seen.has(val)) {
+                seen.add(val);
+                picks.push(val);
+            }
+        }
+        return picks;
+    }
+
+    function applySeasonalTickPolicy(container) {
+        const years = container._seasonalYears;
+        if (!Array.isArray(years) || years.length === 0) return;
+        if (!container._fullLayout) return;
+        const width = container.getBoundingClientRect().width;
+        const target = width < 520 ? 2 : 4;
+        const tickvals = pickEvenTicks(years, target);
+        const ticktext = tickvals.map(String);
+        const update = {};
+        Object.keys(container._fullLayout).forEach((key) => {
+            if (!key.startsWith('xaxis')) return;
+            update[`${key}.tickmode`] = 'array';
+            update[`${key}.tickvals`] = tickvals;
+            update[`${key}.ticktext`] = ticktext;
+        });
+        if (Object.keys(update).length > 0) {
+            Plotly.relayout(container, update);
+        }
+    }
+
     function renderPlot(container, figureJson) {
         container.dataset.figure = figureJson;
         // Defer to next animation frame so the browser finishes layout before
@@ -2771,6 +2913,16 @@
         requestAnimationFrame(() => {
             const figure = JSON.parse(figureJson);
             stripPlotlyUids(figure);
+            if (container.dataset.graphType === 'Calendar Heatmap') {
+                figure.layout = figure.layout || {};
+                figure.layout.height = Math.max(Number(figure.layout.height || 0), 620);
+            }
+            const meta = figure?.layout?.meta;
+            if (meta?.graph_type === 'Seasonal Subseries Plot') {
+                container._seasonalYears = meta.seasonal_years || [];
+            } else {
+                container._seasonalYears = null;
+            }
             const config = {
                 responsive: true,
                 displaylogo: false,
@@ -2779,6 +2931,15 @@
             Plotly.newPlot(container, figure.data, figure.layout, config).then(() => {
                 if (figure.frames && figure.frames.length > 0) {
                     Plotly.addFrames(container, figure.frames);
+                }
+                applySeasonalTickPolicy(container);
+                // Attach a ResizeObserver if not already present
+                if (!container._resizeObserver) {
+                    container._resizeObserver = new ResizeObserver(() => {
+                        Plotly.Plots.resize(container);
+                        applySeasonalTickPolicy(container);
+                    });
+                    container._resizeObserver.observe(container);
                 }
             });
         });
@@ -3430,9 +3591,6 @@
 
             activateDockTab('compare');
             renderCompareResult(data.result, component);
-            if (data.result.analysis && els.compareWorkspace) {
-                appendAnalysisSection(els.compareWorkspace, data.result.analysis);
-            }
             showMessage(els.compareMessage, 'Done.', 'success');
         } catch (err) {
             showMessage(els.compareMessage, err.message || 'Something went wrong.', 'error');
@@ -3502,7 +3660,12 @@
             xaxis: { tickangle: -45, tickfont: { size: 9 } },
             yaxis: { tickfont: { size: 9 } },
             height: Math.max(320, Math.min(600, data.n_stations * 12 + 140)),
-        }, { responsive: true, displayModeBar: false });
+        }, { responsive: true, displayModeBar: false }).then(() => {
+            if (!plotDiv._resizeObserver) {
+                plotDiv._resizeObserver = new ResizeObserver(() => Plotly.Plots.resize(plotDiv));
+                plotDiv._resizeObserver.observe(plotDiv);
+            }
+        });
 
         // Mean correlation table
         const sortedMean = data.station_ids
@@ -3527,6 +3690,13 @@
                 }).join('')}</tbody>
             </table>`;
         section.appendChild(tableWrap);
+        if (data.analysis) {
+            appendCompareBriefing(section, data.analysis, {
+                dataset: data.dataset,
+                feature: data.feature,
+                component: 'correlation',
+            });
+        }
     }
 
     const LEVEL_COLORS = { normal: '#64748b', watch: '#f59e0b', warning: '#f97316', critical: '#ef4444' };
@@ -3559,6 +3729,13 @@
                     </div>`;
                 }).join('')}
             </div>`;
+        if (data.analysis) {
+            appendCompareBriefing(section, data.analysis, {
+                dataset: data.dataset,
+                feature: data.feature,
+                component: 'leaderboard',
+            });
+        }
         els.compareWorkspace.appendChild(section);
     }
 
@@ -3626,6 +3803,43 @@
         } else {
             els.compareWorkspace.appendChild(section);
         }
+        if (data.analysis) {
+            appendCompareBriefing(section, data.analysis, {
+                dataset: data.dataset,
+                feature: data.feature,
+                component: 'summary',
+            });
+        }
+    }
+
+    function appendCompareBriefing(body, analysisText, meta = {}) {
+        if (!analysisText || !body) return;
+        const section = document.createElement('section');
+        section.className = 'compare-briefing-card';
+        const featureLabel = (meta.feature || 'Unknown feature').replaceAll('_', ' ');
+        const datasetLabel = (meta.dataset || 'dataset').replace(/_/g, ' ');
+        const componentLabel = meta.component === 'all'
+            ? 'Full Basin Comparison'
+            : `${(meta.component || 'comparison').charAt(0).toUpperCase()}${(meta.component || 'comparison').slice(1)} Focus`;
+        section.innerHTML = `
+            <div class="compare-briefing-topbar">
+                <div class="compare-briefing-kicker">Comparison Briefing</div>
+                <div class="compare-briefing-meta">${escapeHtml(featureLabel)} · ${escapeHtml(datasetLabel)} · ${escapeHtml(componentLabel)}</div>
+            </div>
+            <div class="compare-briefing-body"></div>
+        `;
+
+        const bodyEl = section.querySelector('.compare-briefing-body');
+        const looksLikeHtml = /<\/?(p|ul|li|h1|h2|h3|h4|strong|em|br)\b/i.test(analysisText);
+        if (looksLikeHtml) {
+            bodyEl.innerHTML = analysisText;
+        } else {
+            bodyEl.innerHTML = escapeHtml(analysisText)
+                .replace(/\n/g, '<br>')
+                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        }
+
+        body.appendChild(section);
     }
 
     // ── Network Analysis ─────────────────────────────────────────────────────
@@ -3729,12 +3943,7 @@
 
         els.networkWorkspace.appendChild(section);
 
-        const figure = JSON.parse(result.figure);
-        Plotly.newPlot(plotDiv, figure.data, figure.layout, {
-            responsive: true,
-            displaylogo: false,
-            modeBarButtonsToRemove: ['lasso2d', 'select2d'],
-        });
+        renderPlot(plotDiv, result.figure);
     }
 
     function renderTravelTimes(rows) {
@@ -3978,9 +4187,17 @@
             </div>` : ''}
             <div class="scenario-stat scenario-stat--source">
                 <span class="scenario-stat-label">Baseline</span>
-                <span class="scenario-stat-value">${result.csv_used ? 'Model CSV' : 'Exp. smoothing'}</span>
+                <span class="scenario-stat-value ${result.baseline_source === 'statistical_mean_fallback' ? 'scenario-source-fallback' : 'scenario-source-trained'}">${result.baseline_source === 'statistical_mean_fallback' ? '⚠️ Stat. mean' : '🧠 Model CSV'}</span>
             </div>`;
         body.insertBefore(statsEl, plot);
+
+        // Show fallback warning banner if no trained CSV was used
+        if (result.baseline_source === 'statistical_mean_fallback') {
+            const fallbackBanner = document.createElement('div');
+            fallbackBanner.className = 'scenario-fallback-banner';
+            fallbackBanner.innerHTML = `⚠️ <strong>Statistical baseline</strong> — No trained model artifacts found for this station / feature combination. The scenario baseline uses the <strong>last-12-months mean</strong> instead of a trained ML forecast. Results are indicative only.`;
+            body.insertBefore(fallbackBanner, plot);
+        }
 
         els.scenarioCards.prepend(card);
         renderPlot(plot, result.figure);
@@ -4551,14 +4768,7 @@
         els.riskWorkspace.appendChild(mapSection);
 
         // Render Plotly map
-        const figure = JSON.parse(r.figure);
-        requestAnimationFrame(() => {
-            Plotly.newPlot(plotDiv, figure.data, figure.layout, {
-                responsive: true,
-                displaylogo: false,
-                modeBarButtonsToRemove: ['lasso2d', 'select2d'],
-            });
-        });
+        renderPlot(plotDiv, r.figure);
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -4579,7 +4789,32 @@
     function updateFeatureSelectForStation(dataset, station, featureSelect) {
         if (!featureSelect || !station) return;
         const stInfo = (state.bootstrap?.stations || []).find(s => s.station === station && s.dataset === dataset);
-        const features = stInfo?.features || [];
+        let features = stInfo?.features || [];
+
+        // Determine analysis context from select ID to filter mathematically valid features
+        const sid = featureSelect.id;
+        let analysisType = null;
+        if (sid === 'climateFeatureSelect') analysisType = 'climate';
+        else if (sid === 'extremeFeatureSelect') analysisType = 'extreme';
+        else if (sid === 'riskFeatureSelect') analysisType = 'risk';
+        else if (sid === 'networkContribGroup' || sid === 'networkContribStation') analysisType = 'network';
+        
+        if (analysisType && state.bootstrap?.feature_registry) {
+            const reg = state.bootstrap.feature_registry;
+            const allowed = reg.capabilities[analysisType];
+            if (allowed && allowed.length > 0) {
+                features = features.filter(f => {
+                    const fType = reg.feature_type_map[f] || 'unknown';
+                    return allowed.includes(fType);
+                });
+            }
+        }
+
+        if (features.length === 0) {
+            featureSelect.innerHTML = '<option value="" disabled selected>No valid features for this tool</option>';
+            return;
+        }
+
         featureSelect.innerHTML = features
             .map(f => `<option value="${escapeHtml(f)}"${f === 'Discharge' ? ' selected' : ''}>${escapeHtml(f.replace(/_/g, ' '))}</option>`)
             .join('');
@@ -4831,19 +5066,33 @@
 
         // Metrics table
         if (result.stats?.models?.length) {
+            const hasAnyData = result.stats.models.some(m => m.source_note !== 'no_data');
+            const hasPartialData = hasAnyData && result.stats.models.some(m => m.source_note === 'no_data');
             const table = document.createElement('table');
             table.className = 'metrics-table';
             table.innerHTML = `
-                <thead><tr><th>Model</th><th>RMSE</th><th>MAPE</th></tr></thead>
+                <thead><tr><th>Model</th><th>RMSE</th><th>MAPE</th><th>Source</th></tr></thead>
                 <tbody>${result.stats.models.map((m) => {
                     const isBest = m.Model === result.stats.best_model_by_rmse;
-                    return `<tr${isBest ? ' class="best-row"' : ''}>
+                    const isNoData = m.source_note === 'no_data';
+                    const rowClass = isBest ? ' class="best-row"' : isNoData ? ' class="no-data-row"' : '';
+                    const sourceCell = isNoData
+                        ? '<td class="mc-no-data-cell">No artifact</td>'
+                        : `<td class="mc-trained-cell">🧠 Trained</td>`;
+                    return `<tr${rowClass}>
                         <td>${escapeHtml(m.Model)}${isBest ? ' ✓' : ''}</td>
                         <td>${escapeHtml(m.RMSE)}</td>
                         <td>${escapeHtml(m.MAPE)}</td>
+                        ${sourceCell}
                     </tr>`;
                 }).join('')}</tbody>`;
             body.appendChild(table);
+            if (hasPartialData) {
+                const note = document.createElement('div');
+                note.className = 'mc-partial-note';
+                note.innerHTML = `ℹ️ Some models have no trained artifacts for this station / feature and are excluded from comparison.`;
+                body.appendChild(note);
+            }
         }
         // Zoom plot container
         if (result.figure_zoom) {
@@ -4975,9 +5224,12 @@
         if (!analysisText || !body) return;
         const el = document.createElement('div');
         el.className = 'scenario-analysis-section';
-        const formatted = escapeHtml(analysisText)
-            .replace(/\n/g, '<br>')
-            .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        const looksLikeHtml = /<\/?(p|ul|li|h1|h2|h3|h4|strong|em|br)\b/i.test(analysisText);
+        const formatted = looksLikeHtml
+            ? analysisText
+            : escapeHtml(analysisText)
+                .replace(/\n/g, '<br>')
+                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
         el.innerHTML = `
             <div class="analysis-header">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
@@ -4988,4 +5240,3 @@
     }
 
 })();
-

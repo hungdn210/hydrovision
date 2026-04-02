@@ -11,32 +11,237 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
+import markdown
 import numpy as np
 import pandas as pd
 
+from .analysis_service import _gemini_generate
 from .data_loader import DataRepository, MultiDataRepository, SeriesRequest
 
 
-def _generate_comparison_analysis(result: Dict[str, Any], feature: str) -> str:
+def _generate_component_analysis(component: str, data: Dict[str, Any], feature: str) -> str:
     api_key = os.getenv('GEMINI_API_KEY')
-    if not api_key:
-        return ''
+    fallback = _fallback_component_analysis(component, data, feature, note='AI disabled in configuration.')
+    if not api_key or api_key == 'your_google_gemini_api_key_here' or not api_key.strip():
+        return fallback
     try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
-        summary = result.get('summary', {})
-        leaderboard = (result.get('leaderboard') or {}).get('rows', [])[:5]
-        prompt = f"""Analyze this basin comparison result and provide 3 concise bullet-point insights:
+        prompt = _component_prompt(component, data, feature)
+        return markdown.markdown(_gemini_generate(api_key, prompt))
+    except Exception as e:
+        return _fallback_component_analysis(component, data, feature, note=f'Live AI analysis unavailable ({e}).')
 
-Feature analyzed: {feature}
-Basin summary: {summary}
-Top anomaly stations: {leaderboard}
 
-Focus on: spatial patterns, stations with highest anomalies, and what the basin-wide trends suggest for water resources. Use **bold** for key terms."""
-        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
-        return resp.text.strip()
-    except Exception:
-        return ''
+def _component_prompt(component: str, data: Dict[str, Any], feature: str) -> str:
+    feature_label = feature.replace('_', ' ')
+    if component == 'correlation':
+        return (
+            'Act as a professional hydrologist interpreting a basin correlation matrix.\n\n'
+            'RESPONSE FORMAT (STRICT):\n'
+            'Use markdown with exactly these sections:\n'
+            '## Matrix Overview\n2-3 sentences.\n'
+            '## Strongest Relationships\nExactly 4 bullet points.\n'
+            '## Spatial Interpretation\nExactly 4 bullet points.\n'
+            '## Operational Implications\nExactly 3 bullet points.\n\n'
+            'RULES:\n'
+            '- Cite specific correlation values.\n'
+            '- Replace underscores with spaces.\n'
+            '- Focus on cross-station coherence and what it implies hydrologically.\n'
+            '- No intro before the first heading and no conclusion after the last bullet.\n\n'
+            f'Feature: {feature_label}\n\n'
+            f'{_format_correlation_for_prompt(data)}\n'
+        )
+    if component == 'leaderboard':
+        return (
+            'Act as a professional hydrologist interpreting a basin anomaly leaderboard.\n\n'
+            'RESPONSE FORMAT (STRICT):\n'
+            'Use markdown with exactly these sections:\n'
+            '## Year Context\n2-3 sentences.\n'
+            '## Highest Anomaly Stations\nExactly 4 bullet points.\n'
+            '## Basin Balance\nExactly 4 bullet points.\n'
+            '## Operational Implications\nExactly 3 bullet points.\n\n'
+            'RULES:\n'
+            '- Cite anomaly percentages and annual mean versus climatology.\n'
+            '- Replace underscores with spaces.\n'
+            '- Distinguish above-normal and below-normal conditions clearly.\n'
+            '- No intro before the first heading and no conclusion after the last bullet.\n\n'
+            f'Feature: {feature_label}\n\n'
+            f'{_format_leaderboard_for_prompt((data or {}).get("rows", []))}\n'
+            f'\nMetadata: year={data.get("year")}, above_normal={data.get("above_normal")}, below_normal={data.get("below_normal")}, total_stations={data.get("total_stations")}\n'
+        )
+    return (
+        'Act as a professional hydrologist interpreting basin summary statistics.\n\n'
+        'RESPONSE FORMAT (STRICT):\n'
+        'Use markdown with exactly these sections:\n'
+        '## Basin Snapshot\n2-3 sentences.\n'
+        '## Distribution Structure\nExactly 4 bullet points.\n'
+        '## Station Extremes\nExactly 4 bullet points.\n'
+        '## Operational Implications\nExactly 3 bullet points.\n\n'
+        'RULES:\n'
+        '- Cite the reported summary statistics.\n'
+        '- Replace underscores with spaces.\n'
+        '- Comment on spread, percentiles, extremes, and trends.\n'
+        '- No intro before the first heading and no conclusion after the last bullet.\n\n'
+        f'Feature: {feature_label}\n\n'
+        f'{_format_summary_for_prompt(data)}\n'
+    )
+
+
+def _format_correlation_for_prompt(corr: Dict[str, Any]) -> str:
+    if not corr:
+        return 'No correlation matrix available.'
+    stations = corr.get('stations', [])
+    matrix = corr.get('matrix', [])
+    mean_corrs = corr.get('mean_correlations', [])
+    pairs: List[tuple[float, str, str]] = []
+    for i in range(len(stations)):
+        for j in range(i + 1, len(stations)):
+            v = matrix[i][j] if i < len(matrix) and j < len(matrix[i]) else None
+            if v is not None:
+                pairs.append((float(v), stations[i], stations[j]))
+    pairs.sort(key=lambda x: abs(x[0]), reverse=True)
+    top_pairs = pairs[:5]
+    top_station = None
+    if stations and mean_corrs:
+        ranked = [(mean_corrs[i], stations[i]) for i in range(min(len(stations), len(mean_corrs))) if mean_corrs[i] is not None]
+        ranked.sort(reverse=True)
+        if ranked:
+            top_station = ranked[0]
+    lines = [
+        f"Dataset {corr.get('dataset')} with {corr.get('n_stations')} stations for {corr.get('feature', '')}.",
+        f"Capped subset applied: {'yes' if corr.get('capped') else 'no'}; total available stations {corr.get('total_available')}.",
+    ]
+    if top_station:
+        lines.append(f"Highest mean cross-station correlation: {top_station[1]} at {top_station[0]:.3f}.")
+    if top_pairs:
+        lines.append('Top correlation pairs:')
+        lines.extend(f'  - {a} vs {b}: r={v:.3f}' for v, a, b in top_pairs)
+    return '\n'.join(lines)
+
+
+def _format_leaderboard_for_prompt(rows: List[Dict[str, Any]]) -> str:
+    if not rows:
+        return 'No anomaly leaderboard available.'
+    lines = ['Top anomaly stations:']
+    for row in rows[:8]:
+        lines.append(
+            f"  - {row['name']}: {row['anomaly_pct']:+.1f}% ({row['direction']} normal), "
+            f"year mean {row['year_mean']} {row['unit']} vs climatology {row['clim_mean']} {row['unit']}, level {row['level']}"
+        )
+    return '\n'.join(lines)
+
+
+def _format_summary_for_prompt(summary: Dict[str, Any]) -> str:
+    if not summary:
+        return 'No basin summary available.'
+    trends = summary.get('trends', {})
+    highest = summary.get('highest_station', {})
+    lowest = summary.get('lowest_station', {})
+    return (
+        f"Dataset: {summary.get('dataset')}\n"
+        f"Feature: {summary.get('feature')}\n"
+        f"Active stations: {summary.get('active_stations')} of {summary.get('total_stations')}\n"
+        f"Basin mean/median/std: {summary.get('basin_mean')} / {summary.get('basin_median')} / {summary.get('basin_std')} {summary.get('unit')}\n"
+        f"Range: {summary.get('basin_min')} to {summary.get('basin_max')} {summary.get('unit')}\n"
+        f"Percentiles: P10 {summary.get('p10')}, P25 {summary.get('p25')}, P75 {summary.get('p75')}, P90 {summary.get('p90')} {summary.get('unit')}\n"
+        f"Spatial CV: {summary.get('spatial_cv_pct')}%\n"
+        f"Highest station: {highest.get('name')} ({highest.get('mean')} {summary.get('unit')})\n"
+        f"Lowest station: {lowest.get('name')} ({lowest.get('mean')} {summary.get('unit')})\n"
+        f"Trend counts: rising {trends.get('rising', 0)}, stable {trends.get('stable', 0)}, falling {trends.get('falling', 0)}\n"
+        f"Average imputation: {summary.get('avg_imputation_pct')}%\n"
+        f"Total observations: {summary.get('total_observations')}"
+    )
+
+
+def _fallback_component_analysis(component: str, data: Dict[str, Any], feature: str, note: str | None = None) -> str:
+    parts: List[str] = []
+    feature_label = feature.replace('_', ' ')
+    if component == 'correlation':
+        corr = data or {}
+        parts.append('## Matrix Overview')
+        overview = [f'Correlation analysis for **{feature_label}** across the selected basin.']
+        if note:
+            overview.append(note)
+        overview.append(f"The matrix includes {corr.get('n_stations', 0)} station(s) from the {corr.get('dataset', '')} dataset.")
+        parts.append(' '.join(overview))
+        parts.append('## Strongest Relationships')
+        stations = corr.get('stations', [])
+        matrix = corr.get('matrix', [])
+        pairs: List[tuple[float, str, str]] = []
+        for i in range(len(stations)):
+            for j in range(i + 1, len(stations)):
+                v = matrix[i][j] if i < len(matrix) and j < len(matrix[i]) else None
+                if v is not None:
+                    pairs.append((float(v), stations[i], stations[j]))
+        for value, left, right in sorted(pairs, key=lambda x: abs(x[0]), reverse=True)[:4]:
+            parts.append(f'- **{left} vs {right}:** correlation is {value:.3f}, indicating {"strong" if abs(value) >= 0.7 else "moderate"} spatial coherence.')
+        parts.append('## Spatial Interpretation')
+        mean_corrs = corr.get('mean_correlations', [])
+        ranked = [(mean_corrs[i], stations[i]) for i in range(min(len(stations), len(mean_corrs))) if mean_corrs[i] is not None]
+        ranked.sort(reverse=True)
+        if ranked:
+            parts.append(f'- **Most representative station:** {ranked[0][1]} has the highest mean pairwise correlation at {ranked[0][0]:.3f}.')
+        parts.append(f'- **Coverage:** capped subset applied: {"yes" if corr.get("capped") else "no"}; total available stations {corr.get("total_available")}.')
+        parts.append('- **Interpretation:** stronger positive correlations imply shared basin forcing or synchronized routing behaviour.')
+        parts.append('- **Caution:** weak pairs can signal local regulation, tributary independence, or data heterogeneity.')
+        parts.append('## Operational Implications')
+        parts.append('- **Monitoring:** highly coherent stations are suitable candidates for basin-wide proxy monitoring.')
+        parts.append('- **Risk messaging:** weakly aligned subregions should not be represented by one station alone during events.')
+        parts.append('- **Model use:** correlation structure can guide regionalization and transferability assumptions.')
+        return markdown.markdown('\n'.join(parts))
+
+    if component == 'leaderboard':
+        rows = (data or {}).get('rows', [])
+        parts.append('## Year Context')
+        context = [f'Anomaly leaderboard for **{feature_label}** in {(data or {}).get("year", "the selected year")}.']
+        if note:
+            context.append(note)
+        context.append(
+            f"{(data or {}).get('above_normal', 0)} station(s) are above normal and {(data or {}).get('below_normal', 0)} below normal out of {(data or {}).get('total_stations', 0)} ranked station(s)."
+        )
+        parts.append(' '.join(context))
+        parts.append('## Highest Anomaly Stations')
+        for row in rows[:4]:
+            parts.append(
+                f"- **{row['name']}:** {row['anomaly_pct']:+.1f}% relative to climatology, annual mean {row['year_mean']} {row['unit']} versus {row['clim_mean']} {row['unit']} normal, classified as {row['level']}."
+            )
+        parts.append('## Basin Balance')
+        parts.append(f"- **Sign balance:** above-normal stations {(data or {}).get('above_normal', 0)} versus below-normal stations {(data or {}).get('below_normal', 0)}.")
+        if rows:
+            parts.append(f"- **Largest departure:** {rows[0]['name']} shows the strongest absolute anomaly at {abs(rows[0]['anomaly_pct']):.1f}%.")
+        parts.append('- **Interpretation:** mixed signs indicate spatially uneven hydroclimatic forcing rather than a uniform basin-wide shift.')
+        parts.append('- **Caution:** anomaly ranking is relative to climatology, not an absolute severity threshold for all stations.')
+        parts.append('## Operational Implications')
+        parts.append('- **Hotspot prioritization:** warning and critical stations should be checked first for localized stress or surplus conditions.')
+        parts.append('- **Narrative control:** separate above-normal and below-normal clusters when communicating basin conditions.')
+        parts.append('- **Planning use:** the leaderboard is best used for triage and station targeting, not as a substitute for full hydrograph review.')
+        return markdown.markdown('\n'.join(parts))
+
+    summary = data or {}
+    parts.append('## Basin Snapshot')
+    overview = [f'Basin summary statistics for **{feature_label}** across the selected dataset.']
+    if note:
+        overview.append(note)
+    overview.append(
+        f"{summary.get('active_stations', 0)} active station(s) contribute to a basin mean of {summary.get('basin_mean')} {summary.get('unit', '')} and spatial CV of {summary.get('spatial_cv_pct')}%."
+    )
+    parts.append(' '.join(overview))
+    parts.append('## Distribution Structure')
+    parts.append(f"- **Central tendency:** mean {summary.get('basin_mean')} {summary.get('unit')} and median {summary.get('basin_median')} {summary.get('unit')}.")
+    parts.append(f"- **Spread:** standard deviation {summary.get('basin_std')} {summary.get('unit')} across a range of {summary.get('basin_min')} to {summary.get('basin_max')} {summary.get('unit')}.")
+    parts.append(f"- **Percentiles:** P10 {summary.get('p10')}, P25 {summary.get('p25')}, P75 {summary.get('p75')}, P90 {summary.get('p90')} {summary.get('unit')}.")
+    parts.append(f"- **Data quality:** average imputation is {summary.get('avg_imputation_pct')}% across {summary.get('total_observations')} observations.")
+    parts.append('## Station Extremes')
+    parts.append(f"- **Highest station:** {summary.get('highest_station', {}).get('name')} at {summary.get('highest_station', {}).get('mean')} {summary.get('unit')}.")
+    parts.append(f"- **Lowest station:** {summary.get('lowest_station', {}).get('name')} at {summary.get('lowest_station', {}).get('mean')} {summary.get('unit')}.")
+    if summary.get('trends_computed'):
+        trends = summary.get('trends', {})
+        parts.append(f"- **Trend mix:** rising {trends.get('rising', 0)}, stable {trends.get('stable', 0)}, falling {trends.get('falling', 0)}.")
+    parts.append('- **Interpretation:** wide separation between upper and lower stations suggests strong spatial heterogeneity within the basin.')
+    parts.append('## Operational Implications')
+    parts.append('- **Network planning:** the distribution spread indicates whether basin management should rely on regional subgroups rather than one basin-average narrative.')
+    parts.append('- **Benchmarking:** percentile bands provide a useful baseline for flagging unusually high or low stations in follow-up diagnostics.')
+    parts.append('- **Decision use:** combine summary statistics with station-level anomalies before making operational statements.')
+    return markdown.markdown('\n'.join(parts))
 
 
 class ComparisonService:
@@ -83,6 +288,11 @@ class ComparisonService:
             df.set_index('Timestamp')['Value']
             .resample('MS').mean()
         )
+
+    def with_component_analysis(self, component: str, data: Dict[str, Any], feature: str) -> Dict[str, Any]:
+        enriched = dict(data)
+        enriched['analysis'] = _generate_component_analysis(component, data, feature)
+        return enriched
 
     # ── 1. Correlation matrix ────────────────────────────────────────────────
 
@@ -166,20 +376,20 @@ class ComparisonService:
         rows: List[Dict] = []
         resolved_year: Optional[int] = year
 
+        if resolved_year is None:
+            end_date_str = repo.global_time_extent.get('end')
+            if end_date_str:
+                end_date = pd.to_datetime(end_date_str)
+                resolved_year = end_date.year if end_date.month == 12 else end_date.year - 1
+            else:
+                resolved_year = 2020
+
         for station_name, _, meta in all_info:
             try:
                 monthly = self._monthly_series(repo, station_name, feature).dropna().reset_index()
                 monthly.columns = ['Timestamp', 'Value']
                 monthly['Year'] = monthly['Timestamp'].dt.year
                 monthly['CalMonth'] = monthly['Timestamp'].dt.month
-
-                # Resolve target year once from the first station if not provided
-                if resolved_year is None:
-                    year_counts = monthly.groupby('Year')['Value'].count()
-                    complete = year_counts[year_counts >= 9].index
-                    if len(complete) == 0:
-                        continue
-                    resolved_year = int(complete[-1])
 
                 year_data = monthly[monthly['Year'] == resolved_year]
                 if len(year_data) < 6:
@@ -345,11 +555,10 @@ class ComparisonService:
             ('summary',     lambda: self.compute_basin_summary(dataset, feature)),
         ]:
             try:
-                result[key] = fn()
+                component_result = fn()
+                if include_analysis:
+                    component_result = self.with_component_analysis(key, component_result, feature)
+                result[key] = component_result
             except Exception as exc:
                 result['errors'].append(f'{key}: {exc}')
-        if include_analysis:
-            analysis = _generate_comparison_analysis(result, feature)
-            if analysis:
-                result['analysis'] = analysis
         return result

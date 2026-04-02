@@ -10,6 +10,7 @@ import plotly.io
 import scipy.stats
 
 from .data_loader import SeriesRequest
+from .feature_registry import get_valid_features_for_analysis
 
 
 def _generate_risk_analysis(result: Dict[str, Any]) -> str:
@@ -110,10 +111,13 @@ class RiskService:
             raise ValueError(f"Dataset '{dataset}' not found.")
 
         unit = repo.feature_units.get(feature, '')
-        stations_with_feature = [
-            s for s, meta in repo.station_index.items()
-            if feature in meta.get('features', [])
-        ]
+        stations_with_feature = []
+        for s, meta in repo.station_index.items():
+            valid_feats = get_valid_features_for_analysis('risk', meta.get('features', []))
+            if feature in valid_feats:
+                stations_with_feature.append(s)
+                
+
         if not stations_with_feature:
             raise ValueError(f"No stations with feature '{feature}' in '{dataset}'.")
 

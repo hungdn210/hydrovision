@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
 import os
 import re
+import time
+import hashlib
 import markdown
 from typing import Any, Dict, List
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -21,20 +25,60 @@ _GEMINI_MODELS = [
     'gemini-2.5-flash-lite',          # 20 RPD  — last resort
 ]
 
+_CACHE_PATH = (
+    Path(os.environ.get('ANALYSIS_AI_CACHE_PATH', ''))
+    if os.environ.get('ANALYSIS_AI_CACHE_PATH')
+    else Path(__file__).resolve().parent.parent / 'data' / 'ai_analysis_cache.json'
+)
+_AI_RESPONSE_CACHE: Dict[str, str] = {}
+
+
+def _cache_key(api_key: str, prompt: str) -> str:
+    return hashlib.sha256(f'{api_key}:{prompt}'.encode('utf-8')).hexdigest()
+
+
+def _load_ai_cache() -> Dict[str, str]:
+    try:
+        if _CACHE_PATH.exists():
+            data = json.loads(_CACHE_PATH.read_text(encoding='utf-8'))
+            if isinstance(data, dict):
+                return {str(k): str(v) for k, v in data.items()}
+    except Exception:
+        pass
+    return {}
+
+
+def _save_ai_cache(cache: Dict[str, str]) -> None:
+    try:
+        _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _CACHE_PATH.write_text(json.dumps(cache, ensure_ascii=True, indent=2), encoding='utf-8')
+    except Exception:
+        pass
+
+
+_AI_RESPONSE_CACHE = _load_ai_cache()
+
 
 def _gemini_generate(api_key: str, prompt: str) -> str:
     """Call Gemini with automatic model fallback on 429 RESOURCE_EXHAUSTED."""
     from google import genai
+    cache_key = _cache_key(api_key, prompt)
+    if cache_key in _AI_RESPONSE_CACHE:
+        return _AI_RESPONSE_CACHE[cache_key]
     client = genai.Client(api_key=api_key)
     last_exc: Exception | None = None
     for model in _GEMINI_MODELS:
         try:
             response = client.models.generate_content(model=model, contents=prompt)
-            return response.text.strip()
+            text = response.text.strip()
+            _AI_RESPONSE_CACHE[cache_key] = text
+            _save_ai_cache(_AI_RESPONSE_CACHE)
+            return text
         except Exception as e:
             msg = str(e)
             if '429' in msg or 'RESOURCE_EXHAUSTED' in msg:
                 last_exc = e
+                time.sleep(0.6)
                 continue  # try next model
             raise  # non-quota error — surface immediately
     raise last_exc  # all models exhausted
@@ -71,7 +115,8 @@ class AnalysisService:
         graph_configs = self._pick_three_graphs(series)
 
         graphs_data = []
-        primary_frames = None
+        all_unique_frames = []
+        seen_frame_keys = set()
         for config in graph_configs:
             try:
                 chart_payload = self.chart_service.generate_chart({
@@ -80,28 +125,36 @@ class AnalysisService:
                 })
                 requests = [SeriesRequest(**item) for item in chart_payload['series']]
                 frames = [self.repository.get_feature_series(r) for r in requests]
+                
+                findings = self._build_findings(frames)
+                comparisons = self._build_comparisons(frames)
+                climatology = self._build_climatology_anomalies(frames)
+
                 graphs_data.append({
                     'chart_payload': chart_payload,
                     'frames': frames,
                     'label': config['label'],
                     'focus': config['focus'],
+                    'findings': findings,
+                    'comparisons': comparisons,
+                    'climatology': climatology,
                 })
-                if primary_frames is None:
-                    primary_frames = frames
+
+                for f in frames:
+                    key = (f['Station'].iloc[0], f['Feature'].iloc[0])
+                    if key not in seen_frame_keys:
+                        seen_frame_keys.add(key)
+                        all_unique_frames.append(f)
             except Exception:
                 continue
 
         if not graphs_data:
             raise ValueError('Could not generate any charts for the selected series.')
 
-        findings = self._build_findings(primary_frames)
-        comparisons = self._build_comparisons(primary_frames)
-        climatology = self._build_climatology_anomalies(primary_frames)
-        benchmark = self._build_dataset_benchmark(primary_frames)
+        benchmark = self._build_dataset_benchmark(all_unique_frames)
         benchmark_analysis = self._compose_benchmark_summary(benchmark)
 
-        graph_meta = [{'label': g['label'], 'focus': g['focus']} for g in graphs_data]
-        summaries = self._compose_multi_graph_summaries(primary_frames, findings, comparisons, climatology, benchmark, graph_meta)
+        summaries = self._compose_multi_graph_summaries(graphs_data, benchmark)
 
         results = []
         for i, g in enumerate(graphs_data):
@@ -110,8 +163,8 @@ class AnalysisService:
                 'graph_label': g['label'],
                 'analysis': {
                     'summary': summaries[i] if i < len(summaries) else '',
-                    'findings': [],
-                    'comparisons': [],
+                    'findings': g['findings'],
+                    'comparisons': g['comparisons'],
                 },
             })
 
@@ -212,33 +265,38 @@ Focus on: key trends, anomalies, and practical water management implications. Us
 
     def _compose_multi_graph_summaries(
         self,
-        frames: List[pd.DataFrame],
-        findings: List[Dict],
-        comparisons: List[str],
-        climatology: List[str],
+        graphs_data: List[Dict],
         benchmark: List[Dict],
-        graph_meta: List[Dict],
     ) -> List[str]:
         """One Gemini call producing N graph-specific analysis sections. Returns list of HTML strings."""
         api_key = os.environ.get("GEMINI_API_KEY")
-        fallback = [
-            f"<p><em>{g['label']}: Set GEMINI_API_KEY to enable enhanced analysis.</em></p>"
-            for g in graph_meta
-        ]
+        fallback = self._fallback_multi_graph_summaries(graphs_data, benchmark)
         if not api_key or api_key == "your_google_gemini_api_key_here" or not api_key.strip():
             return fallback
 
-        graph_descriptions = '\n'.join(
-            f"  Graph {i + 1}: {g['label']} — focus: {g['focus']}"
-            for i, g in enumerate(graph_meta)
-        )
-        n = len(graph_meta)
+        graph_blocks = []
+        for i, g in enumerate(graphs_data):
+            findings_str = self._format_findings_for_prompt(g['findings'])
+            clim_str = chr(10).join(g['climatology']) if g['climatology'] else 'Insufficient years for climatological comparison.'
+            comp_str = chr(10).join(g['comparisons']) if g['comparisons'] else 'Single series — no cross-series comparison available.'
+            block = (
+                f"Graph {i + 1}: {g['label']} — focus: {g['focus']}\n"
+                f"Statistical Findings:\n{findings_str}\n"
+                f"Climatological Anomalies:\n{clim_str}\n"
+                f"Cross-Series Correlation Notes:\n{comp_str}"
+            )
+            graph_blocks.append(block)
+
+        graph_descriptions = '\n\n---\n\n'.join(graph_blocks)
+        n = len(graphs_data)
 
         prompt = (
             "Act as a professional hydrologist for the Mekong River Commission. "
             "You have statistical findings for one or more hydrological series "
             "and must produce separate analyses for each of the following visualisations.\n\n"
-            f"Visualisations:\n{graph_descriptions}\n\n"
+            f"Visualisations Data:\n{graph_descriptions}\n\n"
+            f"Global Dataset Benchmark (across all selected stations):\n"
+            f"{self._format_benchmark_for_prompt(benchmark) if benchmark else 'No benchmark data available.'}\n\n"
             f"Produce exactly {n} analysis sections, one per graph. "
             "Each section must begin with the EXACT marker '## SECTION_N' (N = 1, 2, 3…) "
             "followed by 5 bullet points, each starting with a bold **Heading:** that specifically "
@@ -253,14 +311,7 @@ Focus on: key trends, anomalies, and practical water management implications. Us
             "- Always cite specific numbers from the statistics — do not be vague.\n"
             "- Use professional hydrological language throughout.\n"
             "- Do NOT include any introduction, conclusion, or sign-off.\n"
-            "- Start your response immediately with '## SECTION_1'.\n\n"
-            f"Statistical Findings:\n{self._format_findings_for_prompt(findings)}\n\n"
-            f"Climatological Anomalies (each year vs long-run mean):\n"
-            f"{chr(10).join(climatology) if climatology else 'Insufficient years for climatological comparison.'}\n\n"
-            f"Dataset Benchmark (station vs all stations in same dataset):\n"
-            f"{self._format_benchmark_for_prompt(benchmark) if benchmark else 'No benchmark data available.'}\n\n"
-            f"Cross-Series Correlation Notes:\n"
-            f"{chr(10).join(comparisons) if comparisons else 'Single series — no cross-series comparison available.'}"
+            "- Start your response immediately with '## SECTION_1'."
         )
 
         try:
@@ -272,8 +323,12 @@ Focus on: key trends, anomalies, and practical water management implications. Us
             return [markdown.markdown(s) if s else '' for s in sections[:n]]
         except Exception as e:
             return [
-                f"<p><em>{g['label']}: Analysis generation failed — {e}</em></p>"
-                for g in graph_meta
+                summary.replace(
+                    '</ul>',
+                    f'<li><strong>AI status:</strong> Live AI summary unavailable ({e}). Local statistical fallback shown instead.</li></ul>',
+                    1,
+                ) if '</ul>' in summary else summary
+                for summary in fallback
             ]
 
     def analyse(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -328,7 +383,7 @@ Focus on: key trends, anomalies, and practical water management implications. Us
 
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key or api_key == "your_google_gemini_api_key_here" or not api_key.strip():
-            return base_summary + "\n\n*(Note: Set GEMINI_API_KEY in the .env file to enable advanced AI-powered summaries)*"
+            return self._fallback_summary(frames, findings, comparisons, climatology, benchmark, note='AI disabled in configuration.')
 
         try:
             prompt = (
@@ -359,7 +414,7 @@ Focus on: key trends, anomalies, and practical water management implications. Us
             html_content = markdown.markdown(_gemini_generate(api_key, prompt))
             return html_content
         except Exception as e:
-            return base_summary + f"\n\n*(Summary Generation Failed: {str(e)})*"
+            return self._fallback_summary(frames, findings, comparisons, climatology, benchmark, note=f'Live AI summary unavailable ({e}).')
 
     def _format_findings_for_prompt(self, findings: List[Dict]) -> str:
         """Format the rich findings dict into a readable block for the Gemini prompt."""
@@ -564,7 +619,7 @@ Focus on: key trends, anomalies, and practical water management implications. Us
         """Short paragraph interpreting the dataset benchmark comparisons."""
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key or api_key == "your_google_gemini_api_key_here" or not api_key.strip() or not benchmark:
-            return ''
+            return self._fallback_benchmark_summary(benchmark)
         try:
             data_text = self._format_benchmark_for_prompt(benchmark)
             station_list = ', '.join(b['station_label'].replace('_', ' ') for b in benchmark)
@@ -582,7 +637,7 @@ Focus on: key trends, anomalies, and practical water management implications. Us
             )
             return markdown.markdown(_gemini_generate(api_key, prompt))
         except Exception:
-            return ''
+            return self._fallback_benchmark_summary(benchmark)
 
     def _format_benchmark_for_prompt(self, benchmarks: List[Dict]) -> str:
         lines = []
@@ -623,6 +678,100 @@ Focus on: key trends, anomalies, and practical water management implications. Us
                 else:
                     notes.append(f'{l_label} and {r_label} have weak to moderate alignment over their overlapping period (correlation {corr:.2f}).')
         return notes[:8]
+
+    def _fallback_summary(
+        self,
+        frames: List[pd.DataFrame],
+        findings: List[Dict],
+        comparisons: List[str],
+        climatology: List[str] | None = None,
+        benchmark: List[Dict] | None = None,
+        note: str | None = None,
+    ) -> str:
+        parts = ['<p><strong>Local statistical summary</strong></p>', '<ul>']
+        if note:
+            parts.append(f'<li><strong>AI status:</strong> {note}</li>')
+
+        for finding in findings[: min(2, len(findings))]:
+            parts.append(
+                '<li><strong>'
+                f"{finding['title'].replace('_', ' ')}:"
+                '</strong> '
+                f"Mean {finding['mean']}, range {finding['record_low']} to {finding['record_high']}, "
+                f"variability {finding['cv_percent']}, trend {finding['trend'].lower()}"
+                '</li>'
+            )
+            parts.append(
+                '<li><strong>Seasonality and extremes:</strong> '
+                f"Q10 {finding['Q10']}, Q90 {finding['Q90']}, "
+                f"{finding['pct_time_below_Q10']} of values below Q10 and {finding['pct_time_above_Q90']} above Q90."
+                '</li>'
+            )
+
+        if climatology:
+            first_block = climatology[0].splitlines()
+            parts.append(
+                '<li><strong>Climatology:</strong> '
+                f"{' '.join(first_block[:3])}"
+                '</li>'
+            )
+
+        if comparisons:
+            parts.append(f'<li><strong>Cross-series relationship:</strong> {comparisons[0]}</li>')
+
+        if benchmark:
+            parts.append(f'<li><strong>Dataset benchmark:</strong> {self._benchmark_line(benchmark[0])}</li>')
+
+        parts.append('</ul>')
+        return ''.join(parts)
+
+    def _fallback_multi_graph_summaries(self, graphs_data: List[Dict], benchmark: List[Dict]) -> List[str]:
+        summaries: List[str] = []
+        benchmark_line = self._benchmark_line(benchmark[0]) if benchmark else None
+        for g in graphs_data:
+            finding = g['findings'][0] if g['findings'] else None
+            lines = ['<ul>']
+            lines.append(f"<li><strong>Focus:</strong> {g['focus'].capitalize()}.</li>")
+            if finding:
+                lines.append(
+                    '<li><strong>Primary series:</strong> '
+                    f"{finding['title'].replace('_', ' ')} shows {finding['trend'].lower()} "
+                    f"with mean {finding['mean']} and variability {finding['cv_percent']}.</li>"
+                )
+                lines.append(
+                    '<li><strong>Extremes:</strong> '
+                    f"Record low {finding['record_low']}; record high {finding['record_high']}.</li>"
+                )
+                lines.append(
+                    '<li><strong>Seasonal spread:</strong> '
+                    f"Q10 {finding['Q10']}, Q90 {finding['Q90']}, IQR {finding['IQR']}.</li>"
+                )
+            if g['comparisons']:
+                lines.append(f"<li><strong>Comparison:</strong> {g['comparisons'][0]}</li>")
+            if g['climatology']:
+                first_clim = g['climatology'][0].splitlines()[-1].strip()
+                lines.append(f'<li><strong>Climatology:</strong> {first_clim}</li>')
+            elif benchmark_line:
+                lines.append(f'<li><strong>Benchmark:</strong> {benchmark_line}</li>')
+            lines.append('</ul>')
+            summaries.append(''.join(lines))
+        return summaries
+
+    def _fallback_benchmark_summary(self, benchmark: List[Dict]) -> str:
+        if not benchmark:
+            return ''
+        lines = ['<ul>']
+        for row in benchmark:
+            lines.append(f'<li><strong>{row["station_label"]}:</strong> {self._benchmark_line(row)}</li>')
+        lines.append('</ul>')
+        return ''.join(lines)
+
+    def _benchmark_line(self, row: Dict[str, Any]) -> str:
+        direction = 'above' if row['pct_diff'] >= 0 else 'below'
+        return (
+            f"{row['feature_label']} mean is {abs(row['pct_diff']):.1f}% {direction} the {row['dataset']} "
+            f"dataset average, percentile rank {row['percentile_rank']:.0f}, z-score {row['z_score']:+.2f}."
+        )
 
     def _longest_streak(self, values: pd.Series, above: float = None, below: float = None) -> int:
         if above is not None:

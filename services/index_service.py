@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from .data_loader import DataRepository, SeriesRequest
+from .feature_registry import is_flow, is_precip
 
 
 # ── Alert level helpers ──────────────────────────────────────────────────────
@@ -65,17 +66,6 @@ def _flow_level(pct: float) -> Tuple[str, str]:
     return 'critical', 'Critically Low'
 
 
-# ── Feature name matching ────────────────────────────────────────────────────
-
-_RAIN_KEYWORDS = {'rainfall', 'precipitation', 'precip', 'rain', 'prec'}
-_FLOW_KEYWORDS = {'discharge', 'flow', 'streamflow', 'runoff', 'water_discharge',
-                  'water_level', 'waterlevel', 'stage', 'level'}
-
-
-def _matches_keywords(feature: str, keywords: set) -> bool:
-    fl = feature.lower()
-    return fl in keywords or any(kw in fl for kw in keywords)
-
 
 # ── Main service ─────────────────────────────────────────────────────────────
 
@@ -90,14 +80,14 @@ class IndexService:
     def _find_rain_feature(self, station: str) -> Optional[str]:
         meta = self.repository.get_station_metadata(station)
         for f in meta['features']:
-            if _matches_keywords(f, _RAIN_KEYWORDS):
+            if is_precip(f):
                 return f
         return None
 
     def _find_flow_feature(self, station: str) -> Optional[str]:
         meta = self.repository.get_station_metadata(station)
         for f in meta['features']:
-            if _matches_keywords(f, _FLOW_KEYWORDS):
+            if is_flow(f):
                 return f
         return None
 
