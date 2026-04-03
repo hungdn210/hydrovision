@@ -9,8 +9,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.io
 from plotly.subplots import make_subplots
-import scipy.stats
-
 from .data_loader import SeriesRequest
 
 
@@ -47,8 +45,10 @@ Analyze this hydrological scenario simulation result and provide 2-3 bullet-poin
 - Peak impact: {stats.get('max_delta', 0):+.2f} units
 - Average % change: {stats.get('mean_delta_pct', 0):+.1f}%
 - Elasticity (sensitivity): {sensitivity.get('elasticity', 0):.2f}
+- Dominant lag: {sensitivity.get('dominant_lag', 0)} month(s)
+- Model type: {sensitivity.get('model_type', 'unknown')}
 
-Provide brief, actionable insights about the scenario impact. Format as bullet points.
+Provide brief, actionable insights about the scenario impact. Make clear this is a statistical response model, not a physics simulation. Format as bullet points.
 """
 
         response = client.models.generate_content(
@@ -66,16 +66,15 @@ class ScenarioService:
     What-If scenario modelling.
 
     Workflow:
-      1. Load full historical series for the target feature (e.g. Discharge) and
-         the driver feature (e.g. Rainfall / Precipitation) at a station.
-      2. Resample both to monthly means and compute a linear sensitivity
-         coefficient:  beta = cov(target, driver) / var(driver)
-         Elasticity (dimensionless) = beta * mean_driver / mean_target
-      3. Load the pre-computed baseline forecast from the prediction CSV files.
-         If none is found, fall back to a simple exponential-smoothing projection.
-      4. Apply the scenario for `duration_months` starting at `start_offset`:
-             scenario[t] = baseline[t] * (1 + elasticity * scale_pct / 100)
-      5. Return both series + a Plotly figure (history + overlay + delta subplot).
+      1. Load historical target and driver series and resample to monthly means.
+      2. Remove monthly climatology to form relative anomalies.
+      3. Fit a distributed-lag response model with target persistence and
+         driver lags across the previous 0..3 months.
+      4. Load the baseline forecast from the prediction CSV files, or fall back
+         to a simple monthly projection.
+      5. Inject a driver shock during the selected months and propagate it
+         through the lagged response model to obtain month-varying target impacts.
+      6. Return both series + a Plotly figure.
     """
 
     # Map Mekong internal feature names → prediction folder names
@@ -85,6 +84,7 @@ class ScenarioService:
         'Rainfall': 'Rainfall',
         'Total_Suspended_Solids': 'Total_Suspended_Solids',
     }
+    _MAX_DRIVER_LAGS = 3
 
     def __init__(self, repository, data_dir: str | Path = 'data') -> None:
         self.repo = repository
@@ -141,31 +141,169 @@ class ScenarioService:
         baseline_val = float(ts_monthly.tail(12).mean())
         return pd.Series([baseline_val] * horizon, name='forecast')
 
+    def _monthly_relative_anomaly(self, ts: pd.Series) -> pd.Series:
+        """Relative anomaly versus monthly climatology."""
+        ts = ts.dropna()
+        if ts.empty:
+            return pd.Series(dtype=float)
+        df = ts.to_frame('value')
+        df['month'] = df.index.month
+        clim = df.groupby('month')['value'].mean()
+        denom = df['month'].map(clim).astype(float)
+        anomaly = pd.Series(np.zeros(len(df), dtype=float), index=df.index)
+        safe = denom.abs() > 1e-10
+        anomaly.loc[safe] = (df.loc[safe, 'value'] - denom.loc[safe]) / denom.loc[safe].abs()
+        return anomaly.rename('anomaly')
+
     def _compute_sensitivity(self, target_monthly: pd.Series, driver_monthly: pd.Series, direct: bool = False) -> Dict[str, Any]:
         """
-        Compute linear sensitivity between driver and target.
-        Returns dict with: beta, elasticity, r_value, p_value, n_months.
+        Fit a distributed-lag anomaly response model.
         """
         if direct:
-            # Direct scaling — elasticity is 1 by definition
-            return {'beta': 1.0, 'elasticity': 1.0, 'r_value': 1.0, 'p_value': 0.0, 'n_months': 0, 'direct': True}
+            return {
+                'beta': 1.0,
+                'elasticity': 1.0,
+                'r_value': 1.0,
+                'p_value': 0.0,
+                'n_months': 0,
+                'direct': True,
+                'model_type': 'direct_scaling',
+                'driver_lag_coeffs': [1.0],
+                'target_persistence': 0.0,
+                'dominant_lag': 0,
+                'cumulative_response': 1.0,
+                'residual_std': 0.0,
+                'fit_r2': 1.0,
+                'used_fallback': False,
+            }
 
         aligned = pd.concat([target_monthly.rename('target'), driver_monthly.rename('driver')], axis=1).dropna()
-        if len(aligned) < 12:
-            return {'beta': 0.0, 'elasticity': 0.0, 'r_value': 0.0, 'p_value': 1.0, 'n_months': len(aligned), 'direct': False}
+        if len(aligned) < 24:
+            return {
+                'beta': 0.0,
+                'elasticity': 0.0,
+                'r_value': 0.0,
+                'p_value': 1.0,
+                'n_months': len(aligned),
+                'direct': False,
+                'model_type': 'insufficient_data',
+                'driver_lag_coeffs': [0.0] * (self._MAX_DRIVER_LAGS + 1),
+                'target_persistence': 0.0,
+                'dominant_lag': 0,
+                'cumulative_response': 0.0,
+                'residual_std': 0.0,
+                'fit_r2': 0.0,
+                'used_fallback': True,
+            }
 
-        slope, intercept, r_value, p_value, _ = scipy.stats.linregress(aligned['driver'], aligned['target'])
+        target_anom = self._monthly_relative_anomaly(aligned['target'])
+        driver_anom = self._monthly_relative_anomaly(aligned['driver'])
+        model_df = pd.DataFrame({'target_anom': target_anom, 'driver_anom': driver_anom}).dropna()
+        model_df['target_lag1'] = model_df['target_anom'].shift(1)
+        for lag in range(self._MAX_DRIVER_LAGS + 1):
+            model_df[f'driver_lag_{lag}'] = model_df['driver_anom'].shift(lag)
+        model_df = model_df.dropna()
+
+        if len(model_df) < 18:
+            return {
+                'beta': 0.0,
+                'elasticity': 0.0,
+                'r_value': 0.0,
+                'p_value': 1.0,
+                'n_months': len(model_df),
+                'direct': False,
+                'model_type': 'insufficient_data',
+                'driver_lag_coeffs': [0.0] * (self._MAX_DRIVER_LAGS + 1),
+                'target_persistence': 0.0,
+                'dominant_lag': 0,
+                'cumulative_response': 0.0,
+                'residual_std': 0.0,
+                'fit_r2': 0.0,
+                'used_fallback': True,
+            }
+
+        feature_cols = ['target_lag1'] + [f'driver_lag_{lag}' for lag in range(self._MAX_DRIVER_LAGS + 1)]
+        X = model_df[feature_cols].to_numpy(dtype=float)
+        y = model_df['target_anom'].to_numpy(dtype=float)
+        coefs, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
+        phi = float(coefs[0])
+        driver_lag_coeffs = [float(v) for v in coefs[1:]]
+        fitted = X @ coefs
+        residuals = y - fitted
+        residual_std = float(np.nanstd(residuals)) if len(residuals) else 0.0
+        fit_r2 = float(1 - np.sum(residuals ** 2) / np.sum((y - y.mean()) ** 2)) if len(y) and np.sum((y - y.mean()) ** 2) > 0 else 0.0
+        fit_corr = float(np.corrcoef(y, fitted)[0, 1]) if len(y) > 1 else 0.0
+        if np.isnan(fit_corr):
+            fit_corr = 0.0
+        cumulative_response = float(np.sum(driver_lag_coeffs))
+        dominant_lag = int(np.argmax(np.abs(driver_lag_coeffs))) if driver_lag_coeffs else 0
         mean_driver = float(aligned['driver'].mean())
         mean_target = float(aligned['target'].mean())
-        elasticity = slope * mean_driver / mean_target if mean_target != 0 else 0.0
+        elasticity = cumulative_response * mean_driver / mean_target if mean_target != 0 else cumulative_response
         return {
-            'beta': float(slope),
+            'beta': float(cumulative_response),
             'elasticity': float(elasticity),
-            'r_value': float(r_value),
-            'p_value': float(p_value),
-            'n_months': len(aligned),
+            'r_value': fit_corr,
+            'p_value': 1.0,
+            'n_months': len(model_df),
             'direct': False,
+            'model_type': 'distributed_lag_anomaly_response',
+            'driver_lag_coeffs': driver_lag_coeffs,
+            'target_persistence': phi,
+            'dominant_lag': dominant_lag,
+            'cumulative_response': cumulative_response,
+            'residual_std': residual_std,
+            'fit_r2': fit_r2,
+            'used_fallback': abs(fit_corr) < 0.2,
         }
+
+    def _simulate_scenario_response(
+        self,
+        baseline: pd.Series,
+        scale_pct: float,
+        duration_months: int,
+        start_offset: int,
+        sensitivity: Dict[str, Any],
+    ) -> tuple[pd.Series, pd.Series, pd.Series]:
+        n = len(baseline)
+        driver_shock = np.zeros(n, dtype=float)
+        window_end = min(start_offset + duration_months, n)
+        driver_shock[start_offset:window_end] = scale_pct / 100.0
+
+        response = np.zeros(n, dtype=float)
+        if sensitivity.get('direct'):
+            response[start_offset:window_end] = scale_pct / 100.0
+        else:
+            phi = float(sensitivity.get('target_persistence', 0.0))
+            lag_coefs = list(sensitivity.get('driver_lag_coeffs', []))
+            if not lag_coefs:
+                lag_coefs = [0.0] * (self._MAX_DRIVER_LAGS + 1)
+            for t in range(n):
+                propagated = (phi * response[t - 1]) if t > 0 else 0.0
+                for lag, coef in enumerate(lag_coefs):
+                    if t - lag >= 0:
+                        propagated += float(coef) * driver_shock[t - lag]
+                response[t] = np.clip(propagated, -0.95, 3.0)
+
+        scenario = (baseline * (1.0 + response)).clip(lower=0).rename('scenario')
+        delta = (scenario - baseline).rename('delta')
+        delta_pct = pd.Series(response * 100.0, index=baseline.index, name='delta_pct')
+        return scenario, delta, delta_pct
+
+    def _relationship_strong_enough(self, sensitivity: Dict[str, Any]) -> bool:
+        if sensitivity.get('direct'):
+            return True
+        if sensitivity.get('model_type') != 'distributed_lag_anomaly_response':
+            return False
+        if sensitivity.get('n_months', 0) < 24:
+            return False
+        if abs(float(sensitivity.get('r_value', 0.0))) < 0.35:
+            return False
+        if float(sensitivity.get('fit_r2', 0.0)) < 0.12:
+            return False
+        if abs(float(sensitivity.get('cumulative_response', 0.0))) < 0.03:
+            return False
+        return True
 
     # ── main entry point ─────────────────────────────────────────────────────
 
@@ -209,7 +347,8 @@ class ScenarioService:
 
         is_direct = (driver_feature == target_feature)
         sensitivity = self._compute_sensitivity(target_monthly, driver_monthly, direct=is_direct)
-        elasticity = sensitivity['elasticity']
+        if not self._relationship_strong_enough(sensitivity):
+            raise ValueError('Relationship too weak for a reliable scenario estimate.')
 
         # ── 3. Build baseline forecast ────────────────────────────────────────
         effective_horizon = max(horizon, start_offset + duration_months)
@@ -241,18 +380,15 @@ class ScenarioService:
         baseline = pd.Series(baseline_vals[:effective_horizon], index=forecast_index[:effective_horizon], name='baseline')
 
         # ── 4. Apply scenario ─────────────────────────────────────────────────
-        scenario = baseline.copy().rename('scenario')
         window_start = start_offset
         window_end = min(start_offset + duration_months, effective_horizon)
-        scale_factor = elasticity * (scale_pct / 100.0)
-        scenario.iloc[window_start:window_end] = baseline.iloc[window_start:window_end] * (1.0 + scale_factor)
-
-        delta = (scenario - baseline).rename('delta')
-        delta_pct = ((delta / baseline.replace(0, np.nan)) * 100).rename('delta_pct')
+        scenario, delta, delta_pct = self._simulate_scenario_response(
+            baseline, scale_pct, duration_months, start_offset, sensitivity
+        )
 
         # ── 5. Build figure ───────────────────────────────────────────────────
         figure = self._build_figure(
-            target_monthly, baseline, scenario, delta_pct,
+            target_monthly, baseline, scenario, delta, delta_pct,
             station, target_feature, driver_label, scale_pct,
             duration_months, start_offset, unit, sensitivity,
         )
@@ -277,7 +413,14 @@ class ScenarioService:
             'sensitivity': sensitivity,
             'baseline': [{'date': str(d.date()), 'value': round(float(v), 4)} for d, v in baseline.items()],
             'scenario': [{'date': str(d.date()), 'value': round(float(v), 4)} for d, v in scenario.items()],
-            'delta': [{'date': str(d.date()), 'pct': round(float(p), 2)} for d, p in delta_pct.items()],
+            'delta_abs': [{'date': str(d.date()), 'value': round(float(v), 4)} for d, v in delta.items()],
+            'delta_pct': [{'date': str(d.date()), 'pct': round(float(p), 2)} for d, p in delta_pct.items()],
+            'model_note': (
+                ('Driver shocks are propagated through a monthly distributed-lag anomaly response model.'
+                 + (' Historical fit is weak, so interpret results cautiously.' if sensitivity.get('used_fallback') else ''))
+                if not sensitivity.get('direct')
+                else 'Direct scaling is applied because the driver and target are the same variable.'
+            ),
             'stats': {
                 'mean_delta': round(mean_delta, 3),
                 'max_delta': round(max_delta, 3),
@@ -303,14 +446,12 @@ class ScenarioService:
         history: pd.Series,
         baseline: pd.Series,
         scenario: pd.Series,
+        delta: pd.Series,
         delta_pct: pd.Series,
         station: str, target_feat: str, driver_feat: str,
         scale_pct: float, duration_months: int, start_offset: int,
         unit: str, sensitivity: Dict[str, Any],
     ) -> go.Figure:
-
-        # Show last 24 months of history for context
-        history_ctx = history.tail(24)
         sign = '+' if scale_pct >= 0 else ''
         driver_label = driver_feat.replace('_', ' ')
         target_label = target_feat.replace('_', ' ')
@@ -321,42 +462,35 @@ class ScenarioService:
             shared_xaxes=True,
             vertical_spacing=0.06,
             subplot_titles=(
-                f'{target_label} — Baseline vs. Scenario Forecast',
-                f'Delta (%) from baseline',
+                f'{target_label} forecast: baseline versus scenario',
+                f'Absolute change from baseline ({unit})' if unit else 'Absolute change from baseline',
             ),
         )
 
-        DARK_BG = '#07111f'
-        GRID = 'rgba(148,163,184,0.12)'
-        TEXT = '#e5eefc'
-        SOFT = '#9db0d1'
-        BLUE = '#38bdf8'
-        ORANGE = '#fb923c'
-        GREEN_POS = '#34d399'
-        RED_NEG = '#f87171'
-        SCENARIO_FILL = 'rgba(251,146,60,0.08)'
-
-        # History
-        fig.add_trace(go.Scatter(
-            x=history_ctx.index, y=history_ctx.values,
-            mode='lines', name='Historical',
-            line=dict(color=SOFT, width=1.5),
-            hovertemplate='%{x|%b %Y}<br>%{y:.2f} ' + unit + '<extra>Historical</extra>',
-        ), row=1, col=1)
+        GRID = 'rgba(148,163,184,0.16)'
+        TEXT = '#334155'
+        TITLE = '#0f172a'
+        SOFT = '#94a3b8'
+        BLUE = '#2563eb'
+        ORANGE = '#ea580c'
+        GREEN_POS = '#059669'
+        RED_NEG = '#dc2626'
+        SCENARIO_FILL = 'rgba(234,88,12,0.10)'
 
         # Baseline forecast
         fig.add_trace(go.Scatter(
             x=baseline.index, y=baseline.values,
             mode='lines', name='Baseline forecast',
-            line=dict(color=BLUE, width=2, dash='dot'),
+            line=dict(color=BLUE, width=2.2, dash='dash'),
             hovertemplate='%{x|%b %Y}<br>%{y:.2f} ' + unit + '<extra>Baseline</extra>',
         ), row=1, col=1)
 
         # Scenario forecast
         fig.add_trace(go.Scatter(
             x=scenario.index, y=scenario.values,
-            mode='lines', name=f'Scenario ({sign}{scale_pct:.0f}% {driver_label})',
-            line=dict(color=ORANGE, width=2.5),
+            mode='lines+markers', name=f'Scenario ({sign}{scale_pct:.0f}% {driver_label})',
+            line=dict(color=ORANGE, width=2.8),
+            marker=dict(size=6, color=ORANGE),
             hovertemplate='%{x|%b %Y}<br>%{y:.2f} ' + unit + '<extra>Scenario</extra>',
         ), row=1, col=1)
 
@@ -374,69 +508,95 @@ class ScenarioService:
         if len(window_dates) > 0:
             fig.add_vrect(
                 x0=window_dates[0], x1=window_dates[-1],
-                fillcolor='rgba(251,146,60,0.06)',
+                fillcolor='rgba(234,88,12,0.06)',
                 line_width=0,
                 row=1, col=1,
             )
             fig.add_vrect(
                 x0=window_dates[0], x1=window_dates[-1],
-                fillcolor='rgba(251,146,60,0.06)',
+                fillcolor='rgba(234,88,12,0.06)',
                 line_width=0,
                 row=2, col=1,
             )
+            fig.add_annotation(
+                x=window_dates[0],
+                y=1.02,
+                yref='paper',
+                text='Intervention window',
+                showarrow=False,
+                xanchor='left',
+                font=dict(size=10, color='#9a3412'),
+                bgcolor='rgba(255,255,255,0.82)',
+                bordercolor='rgba(234,88,12,0.18)',
+                borderwidth=1,
+                borderpad=4,
+            )
 
-        # Delta % bars
-        bar_colors = [GREEN_POS if v >= 0 else RED_NEG for v in delta_pct.values]
+        # Absolute delta bars
+        bar_colors = [GREEN_POS if v >= 0 else RED_NEG for v in delta.values]
         fig.add_trace(go.Bar(
-            x=delta_pct.index, y=delta_pct.values,
-            name='Delta (%)',
+            x=delta.index, y=delta.values,
+            name='Scenario impact',
             marker_color=bar_colors,
-            hovertemplate='%{x|%b %Y}<br>%{y:+.1f}%<extra>Δ%</extra>',
+            hovertemplate='%{x|%b %Y}<br>%{y:+.2f} ' + unit + '<extra>Impact</extra>',
         ), row=2, col=1)
 
         # Zero line for delta
         fig.add_hline(y=0, line_dash='solid', line_color=GRID, line_width=1, row=2, col=1)
 
         # Elasticity annotation
+        mean_pct = float(delta_pct.iloc[start_offset: start_offset + duration_months].mean()) if len(delta_pct) else 0.0
         elast_txt = (
-            f"Elasticity: {sensitivity['elasticity']:.2f}  |  "
-            f"R={sensitivity['r_value']:.2f}  |  "
-            f"n={sensitivity['n_months']} months"
+            f"Applied effect: about {mean_pct:+.1f}% during the intervention window  |  "
+            f"dominant lag: {sensitivity.get('dominant_lag', 0)} month(s)  |  "
+            f"fit R={sensitivity['r_value']:.2f}  |  "
+            f"R²={sensitivity.get('fit_r2', 0.0):.2f}"
             if not sensitivity.get('direct')
-            else 'Direct scaling (driver = target)'
+            else f'Direct scaling applied: about {mean_pct:+.1f}% during the intervention window'
         )
 
         fig.update_layout(
-            paper_bgcolor=DARK_BG,
-            plot_bgcolor=DARK_BG,
+            title=dict(
+                text='Scenario Projection Overview',
+                x=0.02,
+                xanchor='left',
+                font=dict(size=16, color=TITLE),
+            ),
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(248,250,252,0.72)',
             font=dict(family='Inter, sans-serif', color=TEXT, size=12),
             legend=dict(
-                orientation='h', yanchor='bottom', y=1.02,
+                orientation='h', yanchor='bottom', y=1.03,
                 xanchor='left', x=0,
-                font=dict(size=11), bgcolor='rgba(0,0,0,0)',
+                font=dict(size=11),
+                bgcolor='rgba(255,255,255,0.70)',
+                bordercolor='rgba(148,163,184,0.18)',
+                borderwidth=1,
             ),
-            margin=dict(l=10, r=20, t=60, b=80),
+            margin=dict(l=56, r=26, t=86, b=80),
             hovermode='x unified',
+            hoverlabel=dict(bgcolor='#ffffff', bordercolor='rgba(148,163,184,0.28)', font=dict(color='#0f172a', size=12)),
+            height=560,
             annotations=[
                 dict(
                     text=elast_txt,
                     xref='paper', yref='paper',
-                    x=0.98, y=-0.10,
-                    xanchor='right', yanchor='top',
-                    font=dict(size=10, color=SOFT),
+                    x=0.02, y=-0.12,
+                    xanchor='left', yanchor='top',
+                    font=dict(size=10, color=TEXT),
                     showarrow=False,
                 ),
             ],
         )
         axis_style = dict(
             gridcolor=GRID, zerolinecolor=GRID,
-            linecolor=GRID, tickfont=dict(size=10, color=SOFT),
+            linecolor=GRID, tickfont=dict(size=10, color=TEXT),
         )
         fig.update_xaxes(**axis_style)
         fig.update_yaxes(**axis_style)
         fig.update_yaxes(title_text=unit or target_label, row=1, col=1)
-        fig.update_yaxes(title_text='Δ%', row=2, col=1)
+        fig.update_yaxes(title_text=unit or 'Change', row=2, col=1)
         for ann in fig['layout']['annotations'][:2]:
-            ann['font'] = dict(size=12, color=SOFT)
+            ann['font'] = dict(size=12, color=TITLE)
 
         return fig

@@ -3823,7 +3823,7 @@
             : `${(meta.component || 'comparison').charAt(0).toUpperCase()}${(meta.component || 'comparison').slice(1)} Focus`;
         section.innerHTML = `
             <div class="compare-briefing-topbar">
-                <div class="compare-briefing-kicker">Comparison Briefing</div>
+                <div class="compare-briefing-kicker">Interpretation</div>
                 <div class="compare-briefing-meta">${escapeHtml(featureLabel)} · ${escapeHtml(datasetLabel)} · ${escapeHtml(componentLabel)}</div>
             </div>
             <div class="compare-briefing-body"></div>
@@ -4157,6 +4157,31 @@
         const body = card.querySelector('.workspace-card-body');
         const plot = body.querySelector('.plot-container');
 
+        const setupEl = document.createElement('div');
+        setupEl.className = 'scenario-setup-grid';
+        setupEl.innerHTML = `
+            <div class="scenario-setup-item">
+                <span class="scenario-setup-label">Station</span>
+                <span class="scenario-setup-value">${escapeHtml(stName)}</span>
+            </div>
+            <div class="scenario-setup-item">
+                <span class="scenario-setup-label">Target</span>
+                <span class="scenario-setup-value">${escapeHtml(target)}</span>
+            </div>
+            <div class="scenario-setup-item">
+                <span class="scenario-setup-label">Driver Adjustment</span>
+                <span class="scenario-setup-value">${escapeHtml(sign + result.scale_pct + '% ' + driver)}</span>
+            </div>
+            <div class="scenario-setup-item">
+                <span class="scenario-setup-label">Intervention Window</span>
+                <span class="scenario-setup-value">Month ${result.start_offset + 1} to Month ${result.start_offset + result.duration_months}</span>
+            </div>
+            <div class="scenario-setup-item">
+                <span class="scenario-setup-label">Response Model</span>
+                <span class="scenario-setup-value">${result.sensitivity?.direct ? 'Direct scaling' : 'Lagged monthly anomaly response'}</span>
+            </div>`;
+        body.insertBefore(setupEl, plot);
+
         // Stats bar
         const stats = result.stats;
         const statsEl = document.createElement('div');
@@ -4182,14 +4207,30 @@
                 <span class="scenario-stat-value">${result.sensitivity.elasticity.toFixed(2)}</span>
             </div>
             <div class="scenario-stat">
-                <span class="scenario-stat-label">R (driver↔target)</span>
+                <span class="scenario-stat-label">Fit R</span>
                 <span class="scenario-stat-value">${result.sensitivity.r_value.toFixed(2)}</span>
+            </div>
+            <div class="scenario-stat">
+                <span class="scenario-stat-label">Dominant lag</span>
+                <span class="scenario-stat-value">${result.sensitivity.dominant_lag} mo</span>
             </div>` : ''}
             <div class="scenario-stat scenario-stat--source">
                 <span class="scenario-stat-label">Baseline</span>
-                <span class="scenario-stat-value ${result.baseline_source === 'statistical_mean_fallback' ? 'scenario-source-fallback' : 'scenario-source-trained'}">${result.baseline_source === 'statistical_mean_fallback' ? '⚠️ Stat. mean' : '🧠 Model CSV'}</span>
+                <span class="scenario-stat-value ${result.baseline_source === 'statistical_mean_fallback' ? 'scenario-source-fallback' : 'scenario-source-trained'}">${result.baseline_source === 'statistical_mean_fallback' ? 'Statistical mean' : 'Model forecast'}</span>
             </div>`;
         body.insertBefore(statsEl, plot);
+
+        const plotLabel = document.createElement('div');
+        plotLabel.className = 'chart-section-label';
+        plotLabel.textContent = 'Forecast comparison';
+        body.insertBefore(plotLabel, plot);
+
+        const readingGuide = document.createElement('div');
+        readingGuide.className = 'scenario-reading-guide';
+        readingGuide.innerHTML = `
+            <strong>How to read:</strong> blue dashed line = baseline forecast, orange line = scenario-adjusted forecast, shaded band = months where the driver shock is applied, lower bars = absolute target change from baseline. ${escapeHtml(result.model_note || '')}
+        `;
+        body.insertBefore(readingGuide, plot);
 
         // Show fallback warning banner if no trained CSV was used
         if (result.baseline_source === 'statistical_mean_fallback') {
@@ -4212,7 +4253,7 @@
                 .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
             analysisEl.innerHTML = `
                 <div class="analysis-header">
-                    <h4>Key Insights</h4>
+                    <h4>Interpretation</h4>
                 </div>
                 <div class="analysis-content">
                     ${formattedAnalysis}

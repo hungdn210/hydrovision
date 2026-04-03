@@ -350,7 +350,7 @@
 
             <section class="panel-section hidden" data-sidebar-panel="scenario">
                 <div class="section-heading">What-If Scenario</div>
-                <p class="section-desc">Scale a driver feature and estimate the impact on a target over a forecast window using historical sensitivity analysis.</p>
+                <p class="section-desc">Test a statistical hydrology scenario: apply a driver shock and estimate how the target forecast responds over later months using a lagged monthly response model.</p>
 
                 <div class="control-group">
                     <label for="scenarioStationSelect">Station <span class="help-icon" title="The hydrological station where you want to simulate the scenario">?</span></label>
@@ -415,10 +415,13 @@
                 <div class="inline-message" id="scenarioMessage"></div>
 
                 <div class="network-caveats" style="margin-top:14px;">
+                    <p class="network-caveat-title">How To Read This</p>
+                    <p class="network-caveat-text">This is a statistical response model, not a hydraulic or rainfall-runoff process model. It estimates delayed target response from historical monthly anomalies and lag structure.</p>
+                    <p class="network-caveat-text">Best use: choose a driver such as Rainfall and a target such as Discharge or Water Level.</p>
                     <p class="network-caveat-title">Methodology</p>
                     <p class="network-caveat-text">Baseline uses pre-trained model predictions where available, otherwise exponential smoothing.</p>
-                    <p class="network-caveat-text">Impact estimated from historical linear regression between driver and target (monthly means).</p>
-                    <p class="network-caveat-small">Results are first-order sensitivity estimates, not hydraulic simulations.</p>
+                    <p class="network-caveat-text">Impact estimated using a distributed-lag monthly anomaly model with target persistence and driver lags up to 3 months.</p>
+                    <p class="network-caveat-small">Results are statistically informed scenario responses, not physical routing or hydraulic simulations.</p>
                 </div>
             </section>
 
