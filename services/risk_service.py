@@ -3,36 +3,83 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List, Optional
 
+import markdown
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.io
 import scipy.stats
 
+from .analysis_service import _gemini_generate
 from .data_loader import SeriesRequest
 from .feature_registry import get_valid_features_for_analysis
 
 
+def _fallback_risk_analysis(result: Dict[str, Any]) -> str:
+    summary = result.get('summary', {}) or {}
+    total = max(int(result.get('n_stations') or 0), 1)
+    flood = int(summary.get('flood', 0))
+    flood_watch = int(summary.get('flood_watch', 0))
+    normal = int(summary.get('normal', 0))
+    drought = int(summary.get('drought', 0))
+    severe_drought = int(summary.get('severe_drought', 0))
+    at_risk = flood + flood_watch + drought + severe_drought
+    flood_pct = (flood + flood_watch) / total * 100
+    drought_pct = (drought + severe_drought) / total * 100
+    at_risk_pct = at_risk / total * 100
+    feature = str(result.get('feature', '')).replace('_', ' ')
+    dataset = str(result.get('dataset', '')).replace('_', ' ')
+    lookback = result.get('lookback')
+
+    return (
+        '<p><strong>Executive Summary</strong></p>'
+        f'<p>The flood and drought screening for <strong>{feature}</strong> across the <strong>{dataset}</strong> dataset '
+        f'used a {lookback}-point recent window and classified {result.get("n_stations")} stations against their own historical percentiles. '
+        f'Overall, {at_risk} stations ({at_risk_pct:.1f}%) are outside the normal band, with '
+        f'{flood + flood_watch} in elevated flood conditions and {drought + severe_drought} in drought conditions.</p>'
+        '<p><strong>Detailed Insights</strong></p>'
+        '<ul>'
+        f'<li><strong>Risk Balance:</strong> {normal} of {result.get("n_stations")} stations remain normal, while {at_risk} are flagged as hydrologically stressed.</li>'
+        f'<li><strong>Flood Signal:</strong> {flood} stations are in Flood Risk and {flood_watch} are in Flood Watch, representing {flood_pct:.1f}% of the monitored network.</li>'
+        f'<li><strong>Drought Signal:</strong> {severe_drought} stations are in Severe Drought and {drought} are in Drought, representing {drought_pct:.1f}% of the monitored network.</li>'
+        '<li><strong>Operational Interpretation:</strong> Use the map as a basin-screening layer to prioritise station follow-up, but confirm any operational action with station hydrographs and local catchment context.</li>'
+        '</ul>'
+    )
+
+
 def _generate_risk_analysis(result: Dict[str, Any]) -> str:
     api_key = os.getenv('GEMINI_API_KEY')
-    if not api_key:
-        return ''
+    if not api_key or api_key == 'your_google_gemini_api_key_here' or not api_key.strip():
+        return _fallback_risk_analysis(result)
     try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
         summary = result.get('summary', {})
-        prompt = f"""Analyze this flood/drought risk map result and provide 3 concise bullet-point insights:
+        prompt = f"""Act as a professional hydrologist interpreting a basin risk-screening map.
+Write the response in markdown and structure it exactly as follows:
 
-Feature: {result.get('feature')} | Dataset: {result.get('dataset')}
-Lookback: {result.get('lookback')} days
+**Executive Summary**
+2-3 sentences summarising the overall flood-versus-drought balance, how many stations are outside normal conditions, and what that means operationally.
+
+**Detailed Insights**
+- **Risk Balance:** quantify the split between normal and at-risk stations.
+- **Flood Conditions:** interpret the counts in Flood Watch and Flood Risk.
+- **Drought Conditions:** interpret the counts in Drought and Severe Drought.
+- **Operational Interpretation:** state how water managers should use this map in practice.
+
+Rules:
+- Use professional hydrological language.
+- Always cite specific numbers from the provided results.
+- Replace underscores with spaces.
+- Do not include any introduction or sign-off outside the two sections.
+
+Feature: {str(result.get('feature', '')).replace('_', ' ')}
+Dataset: {str(result.get('dataset', '')).replace('_', ' ')}
+Lookback: {result.get('lookback')} data points
 Station risk summary: {summary}
 Total stations: {result.get('n_stations')}
-
-Focus on: current risk conditions, proportion of at-risk stations, and recommendations for water managers. Use **bold** for key terms."""
-        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
-        return resp.text.strip()
+"""
+        return markdown.markdown(_gemini_generate(api_key, prompt))
     except Exception:
-        return ''
+        return _fallback_risk_analysis(result)
 
 
 class RiskService:

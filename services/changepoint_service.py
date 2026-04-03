@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List, Optional
 
+import markdown
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -15,29 +16,75 @@ try:
 except ImportError:
     HAS_RUPTURES = False
 
+from .analysis_service import _gemini_generate
 from .data_loader import SeriesRequest
+
+
+def _fallback_changepoint_analysis(result: Dict[str, Any]) -> str:
+    s = result.get('stats', {}) or {}
+    title = str(result.get('title', '')).replace('_', ' ')
+    method = s.get('method')
+    n_breaks = s.get('n_breaks_detected', 0)
+    cp_dates = s.get('change_point_dates') or []
+    segments = s.get('segments') or []
+
+    if segments:
+        first_seg = segments[0]
+        last_seg = segments[-1]
+        transition_text = (
+            f'The first detected regime spans {first_seg.get("start")} to {first_seg.get("end")} with mean {first_seg.get("mean")} and trend {first_seg.get("trend")}, '
+            f'while the latest regime spans {last_seg.get("start")} to {last_seg.get("end")} with mean {last_seg.get("mean")} and trend {last_seg.get("trend")}.'
+        )
+    else:
+        transition_text = 'Segment-level statistics are limited, so the result should be interpreted mainly from the detected break dates.'
+
+    cp_text = ', '.join(cp_dates) if cp_dates else 'none detected'
+    return (
+        '<p><strong>Executive Summary</strong></p>'
+        f'<p>The change-point analysis for <strong>{title}</strong> used the <strong>{method}</strong> method and detected {n_breaks} structural break(s) at {cp_text}. '
+        'These break dates indicate candidate shifts in the underlying hydrological regime rather than proof of a specific physical cause.</p>'
+        '<p><strong>Detailed Insights</strong></p>'
+        '<ul>'
+        f'<li><strong>Break Structure:</strong> {n_breaks} change point(s) were detected, separating the series into {len(segments)} segment(s).</li>'
+        f'<li><strong>Segment Behaviour:</strong> {transition_text}</li>'
+        f'<li><strong>Hydrological Interpretation:</strong> Break dates at {cp_text} may reflect shifts in climate forcing, regulation, land-use change, or observation regime, but they should be cross-checked with basin history.</li>'
+        '<li><strong>Operational Interpretation:</strong> Treat the detected breaks as evidence that a single stationary model may be inappropriate across the full record, and consider segment-wise analysis for trend, forecasting, or design studies.</li>'
+        '</ul>'
+    )
 
 
 def _generate_changepoint_analysis(result: Dict[str, Any]) -> str:
     api_key = os.getenv('GEMINI_API_KEY')
-    if not api_key:
-        return ''
+    if not api_key or api_key == 'your_google_gemini_api_key_here' or not api_key.strip():
+        return _fallback_changepoint_analysis(result)
     try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
         s = result.get('stats', {})
-        prompt = f"""Analyze this change point detection result and provide 3 concise bullet-point insights:
+        prompt = f"""Act as a professional hydrologist interpreting a structural-break analysis.
+Write the response in markdown and structure it exactly as follows:
 
-Station/feature: {result.get('title', '')}
+**Executive Summary**
+2-3 sentences summarising how many breaks were found, when they occur, and why they matter for interpreting the historical record.
+
+**Detailed Insights**
+- **Break Structure:** interpret the number and dates of the detected change points.
+- **Segment Behaviour:** compare the reported segment means, variability, and trends.
+- **Hydrological Interpretation:** explain plausible hydrological meanings of the regime shifts.
+- **Operational Interpretation:** state how this result should affect downstream analysis and decision-making.
+
+Rules:
+- Use professional hydrological language.
+- Always cite specific numbers from the provided results.
+- Replace underscores with spaces.
+- Do not include any introduction or sign-off outside the two sections.
+
+Analysis title: {str(result.get('title', '')).replace('_', ' ')}
 Method: {s.get('method')}
 Change points detected: {s.get('n_breaks_detected')} at dates: {s.get('change_point_dates')}
 Segments: {s.get('segments')}
-
-Focus on: hydrological significance of the breaks, possible causes (dam construction, climate shift, land use change), and implications for water resource management. Use **bold** for key terms."""
-        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
-        return resp.text.strip()
+"""
+        return markdown.markdown(_gemini_generate(api_key, prompt))
     except Exception:
-        return ''
+        return _fallback_changepoint_analysis(result)
 
 
 class ChangePointService:

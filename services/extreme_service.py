@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List, Optional
 
+import markdown
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -14,11 +15,82 @@ from .data_loader import SeriesRequest
 from .feature_registry import get_valid_features_for_analysis
 
 
+def _fallback_extreme_analysis(result: Dict[str, Any], note: str | None = None) -> str:
+    station = result.get('station', '').replace('_', ' ')
+    feature = result.get('feature', '').replace('_', ' ')
+    unit = result.get('unit', '') or 'no unit'
+    n_years = result.get('n_years', 0)
+    year_range = result.get('year_range', [])
+    gev = result.get('gev_params') or {}
+    gumbel = result.get('gumbel_params') or {}
+    levels = result.get('return_levels', [])
+    ci_lower = result.get('ci_lower') or []
+    ci_upper = result.get('ci_upper') or []
+
+    def _level(T: int, key: str) -> Any:
+        row = next((r for r in levels if r.get('return_period') == T and key in r), None)
+        return row.get(key) if row else None
+
+    gev10 = _level(10, 'gev')
+    gev50 = _level(50, 'gev')
+    gev100 = _level(100, 'gev')
+    gumbel10 = _level(10, 'gumbel')
+    xi = gev.get('shape')
+    if xi is None:
+        tail_text = 'No stable GEV tail estimate was available, so interpretation should lean on the simpler Gumbel fit.'
+    elif xi > 0.05:
+        tail_text = f'The fitted GEV shape parameter is {xi:.3f}, indicating a heavier Fréchet-type upper tail and potentially more severe rare extremes.'
+    elif xi < -0.05:
+        tail_text = f'The fitted GEV shape parameter is {xi:.3f}, indicating a bounded Weibull-type upper tail rather than an unbounded extreme tail.'
+    else:
+        tail_text = f'The fitted GEV shape parameter is {xi:.3f}, which is close to Gumbel behaviour and suggests a moderately shaped extreme-value tail.'
+
+    reliability_bits = [f'The analysis uses {n_years} annual maxima']
+    if len(year_range) >= 2:
+        reliability_bits.append(f'covering {year_range[0]} to {year_range[1]}')
+    reliability = ' '.join(reliability_bits) + '.'
+    if ci_lower and ci_upper and gev50 is not None:
+        try:
+            idx50 = [r.get('return_period') for r in levels].index(50)
+            reliability += f' The 50-year GEV estimate is {gev50:.2f} {unit} with an approximate 95% interval of {ci_lower[idx50]:.2f} to {ci_upper[idx50]:.2f} {unit}.'
+        except Exception:
+            pass
+    elif n_years < 20:
+        reliability += ' The short record length means long return-period estimates should be treated cautiously.'
+
+    bullets = []
+    if gev10 is not None or gumbel10 is not None:
+        primary_10 = gev10 if gev10 is not None else gumbel10
+        primary_50 = gev50 if gev50 is not None else _level(50, 'gumbel')
+        primary_100 = gev100 if gev100 is not None else _level(100, 'gumbel')
+        bullets.append(
+            f'<li><strong>Return Levels:</strong> The fitted extreme-value model suggests a 10-year event near {primary_10:.2f} {unit}'
+            + (f', rising to about {primary_50:.2f} {unit} at 50 years' if primary_50 is not None else '')
+            + (f' and {primary_100:.2f} {unit} at 100 years.' if primary_100 is not None else '.')
+        )
+    bullets.append(f'<li><strong>Tail Behaviour:</strong> {tail_text}</li>')
+    bullets.append(f'<li><strong>Reliability:</strong> {reliability}</li>')
+    bullets.append(
+        '<li><strong>Operational Interpretation:</strong> Use the higher return-period estimates as screening-level design guidance, '
+        'but pair them with catchment context and hydraulic assessment before making infrastructure or flood-preparedness decisions.</li>'
+    )
+
+    note_html = f'<p><em>{note}</em></p>' if note else ''
+    return (
+        f'<p><strong>Executive Summary</strong></p>'
+        f'<p>{feature} at {station} was analysed using annual maxima extreme-value fitting in {unit}. '
+        f'The result provides screening-level return-period estimates for rare high-flow events and highlights how confident those estimates are given the available record length.</p>'
+        f'<p><strong>Detailed Insights</strong></p>'
+        f'<ul>{"".join(bullets)}</ul>'
+        f'{note_html}'
+    )
+
+
 def _generate_extreme_analysis(result: Dict[str, Any]) -> str:
     """Generate AI analysis of extreme event results using Gemini."""
     api_key = os.getenv('GEMINI_API_KEY')
     if not api_key:
-        return ''
+        return _fallback_extreme_analysis(result)
     try:
         from google import genai
         client = genai.Client(api_key=api_key)
@@ -29,20 +101,50 @@ def _generate_extreme_analysis(result: Dict[str, Any]) -> str:
         gev = result.get('gev_params')
         gumbel = result.get('gumbel_params')
         levels = result.get('return_levels', [])
-        prompt = f"""Analyze this extreme value analysis result for a hydrological station and provide 3 concise bullet-point insights:
+        gev_lines = '\n'.join(
+            f"- T={r['return_period']} yr: {r.get('gev', 'N/A')} {result.get('unit', '')}"
+            for r in levels if 'gev' in r
+        ) or '- No stable GEV return levels available.'
+        gumbel_lines = '\n'.join(
+            f"- T={r['return_period']} yr: {r.get('gumbel', 'N/A')} {result.get('unit', '')}"
+            for r in levels if 'gumbel' in r
+        ) or '- No Gumbel return levels available.'
+        prompt = f"""Act as a professional hydrologist interpreting an extreme value analysis for a station.
+Write the response in markdown and structure it exactly as follows:
+
+**Executive Summary**
+2-3 sentences summarising the overall flood-risk signal, how extreme the fitted return levels are, and whether the record length is adequate.
+
+**Detailed Insights**
+- **Return Levels:** interpret the 10-, 50-, and 100-year return levels using the reported values.
+- **Tail Behaviour:** explain what the GEV shape parameter implies about the tail type and extreme-event behaviour.
+- **Reliability:** comment on uncertainty, confidence intervals, and whether the record length supports robust inference.
+- **Operational Interpretation:** state what the result means for planning, design, or flood preparedness.
+
+Rules:
+- Use professional hydrological language.
+- Always cite specific numbers from the provided results.
+- Replace underscores with spaces.
+- Do not include any introduction or sign-off outside the two sections.
 
 Station: {station}
 Feature: {feature}
+Unit: {result.get('unit', '') or 'no unit'}
 Record length: {n_years} years ({yr[0] if yr else '?'}–{yr[1] if len(yr)>1 else '?'})
 GEV parameters: {gev if gev else 'Not fitted (unstable)'}
 Gumbel parameters: {gumbel}
-Return levels (Gumbel): {[(r['return_period'], r.get('gumbel')) for r in levels]}
+GEV return levels:
+{gev_lines}
 
-Focus on: flood risk interpretation, reliability of the estimates given the record length, and practical implications of the return levels. Keep each bullet point to 1-2 sentences. Use **bold** for key terms."""
+Gumbel return levels:
+{gumbel_lines}
+
+95% confidence interval lower bounds: {result.get('ci_lower') or 'N/A'}
+95% confidence interval upper bounds: {result.get('ci_upper') or 'N/A'}"""
         resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
-        return resp.text.strip()
+        return markdown.markdown(resp.text.strip())
     except Exception:
-        return ''
+        return _fallback_extreme_analysis(result)
 
 
 class ExtremeService:
@@ -258,8 +360,8 @@ class ExtremeService:
 
         fig = make_subplots(
             rows=2, cols=1,
-            row_heights=[0.62, 0.38],
-            vertical_spacing=0.10,
+            row_heights=[0.60, 0.40],
+            vertical_spacing=0.14,
             subplot_titles=(
                 f'{feature_label} — Return Period Curve',
                 f'Annual Maxima ({int(annual_max.index[0])}–{int(annual_max.index[-1])})',
@@ -366,7 +468,7 @@ class ExtremeService:
                 xanchor='left', x=0,
                 font=dict(size=11), bgcolor='rgba(0,0,0,0)',
             ),
-            margin=dict(l=60, r=30, t=80, b=50),
+            margin=dict(l=85, r=30, t=80, b=50),
             height=620,
             hovermode='x unified',
         )
@@ -387,7 +489,8 @@ class ExtremeService:
             row=1, col=1,
         )
         fig.update_xaxes(title_text='Year', row=2, col=1)
-        fig.update_yaxes(title_text=f'Max ({unit})' if unit else 'Max', row=2, col=1)
+        fig.update_yaxes(title_text=f'Max ({unit})' if unit else 'Max', title_standoff=10, row=2, col=1)
+        fig.update_yaxes(title_standoff=10, row=1, col=1)
         for ann in fig['layout']['annotations'][:2]:
             ann['font'] = dict(size=12, color=SOFT)
 

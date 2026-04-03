@@ -4,11 +4,13 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import markdown
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.io
 
+from .analysis_service import _gemini_generate
 from .data_loader import SeriesRequest
 
 
@@ -29,24 +31,77 @@ FEATURE_FOLDER = {
 
 def _generate_modelcompare_analysis(result: Dict[str, Any]) -> str:
     api_key = os.getenv('GEMINI_API_KEY')
-    if not api_key:
-        return ''
+    if not api_key or api_key == 'your_google_gemini_api_key_here' or not api_key.strip():
+        return _fallback_modelcompare_analysis(result)
     try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
         s = result.get('stats', {})
-        prompt = f"""Analyze this multi-model forecast comparison result and provide 3 concise bullet-point insights:
+        prompt = f"""Act as a professional hydrologist comparing multiple forecast models for operational use.
+Write the response in markdown and structure it exactly as follows:
 
-Station/feature: {result.get('title', '')}
+**Executive Summary**
+2-3 sentences summarising which model performs best, how large the skill differences are, and what that means for forecast confidence.
+
+**Detailed Insights**
+- **Best Model:** identify the best-performing model using the reported metrics.
+- **Performance Spread:** compare RMSE and MAPE across the available models.
+- **Forecast Confidence:** explain what the spread between models implies for confidence in the forecast.
+- **Operational Interpretation:** state how this comparison should be used in practice.
+
+Rules:
+- Use professional hydrological language.
+- Always cite specific numbers from the provided results.
+- Replace underscores with spaces.
+- Do not include any introduction or sign-off outside the two sections.
+
+Comparison title: {str(result.get('title', '')).replace('_', ' ')}
 Best model: {s.get('best_model_by_rmse')}
 Horizon: {s.get('horizon_days')} days
 Models: {s.get('models')}
-
-Focus on: which model performs best and why, confidence in the forecast, and recommendations for operational use. Use **bold** for key terms."""
-        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
-        return resp.text.strip()
+"""
+        return markdown.markdown(_gemini_generate(api_key, prompt))
     except Exception:
-        return ''
+        return _fallback_modelcompare_analysis(result)
+
+
+def _fallback_modelcompare_analysis(result: Dict[str, Any]) -> str:
+    s = result.get('stats', {}) or {}
+    title = str(result.get('title', '')).replace('_', ' ')
+    best = s.get('best_model_by_rmse', 'n/a')
+    horizon = s.get('horizon_days')
+    models = [m for m in (s.get('models') or []) if m.get('source_note') != 'no_data']
+
+    def _rmse(model):
+        try:
+            return float(model.get('RMSE'))
+        except Exception:
+            return None
+
+    ranked = sorted((m for m in models if _rmse(m) is not None), key=_rmse)
+    best_row = ranked[0] if ranked else None
+    second_row = ranked[1] if len(ranked) > 1 else None
+    spread_text = (
+        f'The lowest RMSE is {best_row.get("RMSE")} for {best_row.get("Model")}, compared with {second_row.get("RMSE")} for {second_row.get("Model")}.'
+        if best_row and second_row else
+        'Only one model has usable trained output for this station-feature combination, so cross-model spread is limited.'
+    )
+
+    mape_bits = ', '.join(
+        f'{m.get("Model")} {m.get("MAPE")}'
+        for m in models[:4]
+    ) or 'no valid MAPE values'
+
+    return (
+        '<p><strong>Executive Summary</strong></p>'
+        f'<p>The multi-model comparison for <strong>{title}</strong> evaluates a {horizon}-day forecast horizon and identifies <strong>{best}</strong> as the best performer by RMSE. '
+        f'This comparison provides a screening view of relative model skill rather than a full uncertainty quantification framework.</p>'
+        '<p><strong>Detailed Insights</strong></p>'
+        '<ul>'
+        f'<li><strong>Best Model:</strong> The current best model by RMSE is {best}, based on the reported historical fit metrics.</li>'
+        f'<li><strong>Performance Spread:</strong> {spread_text} Reported MAPE values are {mape_bits}.</li>'
+        '<li><strong>Forecast Confidence:</strong> When multiple models produce similar errors, forecast confidence is stronger; when their skill differs materially, the forecast should be interpreted with more caution.</li>'
+        '<li><strong>Operational Interpretation:</strong> Use the best-RMSE model as the default operational candidate, but review the model spread and plotted forecast divergence before making high-stakes decisions.</li>'
+        '</ul>'
+    )
 
 
 class ModelComparisonService:

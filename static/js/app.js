@@ -401,6 +401,7 @@
         populateScenarioControls();
         setEmptyState(els.scenarioCards, 'No scenarios yet. Configure a station and driver above, then click Run scenario.');
         populateQualityControls();
+        populateNetworkContribFromBootstrap();
         populateExtremeControls();
         setEmptyState(els.extremeCards, 'No analyses yet. Select a station and feature, then click Run analysis.');
         populateRiskControls();
@@ -1747,6 +1748,7 @@
         });
 
         els.analysisCards.prepend(card);
+        refreshPlotGrid(els.analysisCards);
         if (extraAnalysis) appendAnalysisSection(card.querySelector('.workspace-card-body'), extraAnalysis);
     }
     // ── End free-form analysis builder ────────────────────────────────────
@@ -2553,6 +2555,7 @@
             benchmarkEl.innerHTML = buildBenchmarkTables(analysis.benchmark, analysis.benchmark_analysis);
             analysisBlock.appendChild(benchmarkEl);
         }
+        refreshPlotGrid(els.analysisCards);
     }
 
     function appendPredictionCard(result) {
@@ -2655,6 +2658,7 @@
             const diagPlot = body.querySelectorAll('.plot-container')[2];
             if (diagPlot) renderPlot(diagPlot, result.figure_diagnostics);
         }
+        refreshPlotGrid(els.predictionCards);
     }
 
     function buildBaseCard(cardId, title, subtitle) {
@@ -2913,6 +2917,14 @@
         requestAnimationFrame(() => {
             const figure = JSON.parse(figureJson);
             stripPlotlyUids(figure);
+            const layoutHeight = Number(figure?.layout?.height || 0);
+            if (layoutHeight > 0) {
+                container.style.height = `${layoutHeight}px`;
+                container.style.minHeight = `${layoutHeight}px`;
+            } else {
+                container.style.height = '';
+                container.style.minHeight = '';
+            }
             if (container.dataset.graphType === 'Calendar Heatmap') {
                 figure.layout = figure.layout || {};
                 figure.layout.height = Math.max(Number(figure.layout.height || 0), 620);
@@ -2936,12 +2948,54 @@
                 // Attach a ResizeObserver if not already present
                 if (!container._resizeObserver) {
                     container._resizeObserver = new ResizeObserver(() => {
-                        Plotly.Plots.resize(container);
+                        if (container.data && container.layout) {
+                            // Clear existing width to allow autosizing to the new container width
+                            const updateLayout = { ...container.layout };
+                            delete updateLayout.width;
+                            Plotly.react(container, container.data, updateLayout, config);
+                        } else {
+                            Plotly.Plots.resize(container);
+                        }
                         applySeasonalTickPolicy(container);
                     });
                     container._resizeObserver.observe(container);
                 }
             });
+        });
+    }
+
+    function refreshPlotGrid(container) {
+        if (!container) return;
+        const config = {
+            responsive: true,
+            displaylogo: false,
+            modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d'],
+        };
+        const resizePlots = () => {
+            container.querySelectorAll('.plot-container[data-figure]').forEach((plot) => {
+                if (!plot.data || !plot.layout) {
+                    renderPlot(plot, plot.dataset.figure);
+                    return;
+                }
+                const originalFigure = plot.dataset.figure ? JSON.parse(plot.dataset.figure) : null;
+                const originalHeight = Number(originalFigure?.layout?.height || plot.layout?.height || 0);
+                if (originalHeight > 0) {
+                    plot.style.height = `${originalHeight}px`;
+                    plot.style.minHeight = `${originalHeight}px`;
+                }
+                const updateLayout = { ...plot.layout, autosize: true };
+                if (originalHeight > 0) updateLayout.height = originalHeight;
+                delete updateLayout.width;
+                Plotly.react(plot, plot.data, updateLayout, config).then(() => {
+                    Plotly.Plots.resize(plot);
+                    applySeasonalTickPolicy(plot);
+                });
+            });
+        };
+        requestAnimationFrame(() => {
+            resizePlots();
+            setTimeout(resizePlots, 80);
+            setTimeout(resizePlots, 220);
         });
     }
 
@@ -3622,6 +3676,30 @@
         }
     }
 
+    function appendCompareAnalysis(section, analysisText) {
+        if (!section || !analysisText) return;
+        const block = document.createElement('div');
+        block.className = 'scenario-analysis-section compare-analysis-section';
+        const looksLikeHtml = /<\/?(p|ul|li|h1|h2|h3|h4|strong|em|br)\b/i.test(analysisText);
+        const formatted = looksLikeHtml
+            ? analysisText
+            : escapeHtml(analysisText)
+                .replace(/\n/g, '<br>')
+                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        block.innerHTML = `
+            <div class="analysis-header">
+                <h4>Analysis Report</h4>
+            </div>
+            <div class="analysis-content">${formatted}</div>
+        `;
+        const header = section.querySelector('.compare-section-header');
+        if (header && header.nextSibling) {
+            section.insertBefore(block, header.nextSibling);
+        } else {
+            section.appendChild(block);
+        }
+    }
+
     function renderCorrelationMatrix(data) {
         const section = document.createElement('div');
         section.className = 'compare-section';
@@ -3636,6 +3714,9 @@
         const plotDiv = document.createElement('div');
         plotDiv.className = 'compare-heatmap-plot';
         section.innerHTML = header;
+        if (data.analysis) {
+            appendCompareAnalysis(section, data.analysis);
+        }
         section.appendChild(plotDiv);
         els.compareWorkspace.appendChild(section);
 
@@ -3690,13 +3771,6 @@
                 }).join('')}</tbody>
             </table>`;
         section.appendChild(tableWrap);
-        if (data.analysis) {
-            appendCompareBriefing(section, data.analysis, {
-                dataset: data.dataset,
-                feature: data.feature,
-                component: 'correlation',
-            });
-        }
     }
 
     const LEVEL_COLORS = { normal: '#64748b', watch: '#f59e0b', warning: '#f97316', critical: '#ef4444' };
@@ -3730,11 +3804,7 @@
                 }).join('')}
             </div>`;
         if (data.analysis) {
-            appendCompareBriefing(section, data.analysis, {
-                dataset: data.dataset,
-                feature: data.feature,
-                component: 'leaderboard',
-            });
+            appendCompareAnalysis(section, data.analysis);
         }
         els.compareWorkspace.appendChild(section);
     }
@@ -3774,6 +3844,9 @@
                 <span class="compare-section-meta">Highest: ${escapeHtml(data.highest_station.name)} · Lowest: ${escapeHtml(data.lowest_station.name)}</span>
             </div>
             <div class="basin-chips">${chips}</div>`;
+        if (data.analysis) {
+            appendCompareAnalysis(section, data.analysis);
+        }
 
         // Histogram
         if (data.histogram) {
@@ -3802,13 +3875,6 @@
             }, { responsive: true, displayModeBar: false });
         } else {
             els.compareWorkspace.appendChild(section);
-        }
-        if (data.analysis) {
-            appendCompareBriefing(section, data.analysis, {
-                dataset: data.dataset,
-                feature: data.feature,
-                component: 'summary',
-            });
         }
     }
 
@@ -3878,16 +3944,13 @@
             if (view === 'graph') {
                 renderNetworkGraph(_networkCache);
             } else if (view === 'travel') {
-                renderTravelTimes(_networkCache.travel_times);
+                renderTravelTimes(_networkCache.travel_times, includeAnalysis ? _networkCache.analysis : null);
             } else if (view === 'contribution') {
                 const station = els.networkContribStation?.value;
                 if (!station) { showMessage(els.networkMessage, 'Select a target station.', 'error'); return; }
-                await renderContribution(station);
+                await renderContribution(station, includeAnalysis);
             }
 
-            if (_networkCache.analysis && els.networkWorkspace) {
-                appendAnalysisSection(els.networkWorkspace, _networkCache.analysis);
-            }
             showMessage(els.networkMessage, 'Done.', 'success');
         } catch (err) {
             showMessage(els.networkMessage, err.message || 'Network analysis failed.', 'error');
@@ -3898,6 +3961,7 @@
 
     function populateNetworkContribSelect(nodes) {
         if (!els.networkContribStation) return;
+        const previousValue = els.networkContribStation.value;
         els.networkContribStation.innerHTML = '';
         // Main stem first, then tributaries
         const sorted = [...nodes].sort((a, b) => {
@@ -3905,18 +3969,45 @@
             if (!a.main_stem && b.main_stem) return 1;
             return a.name.localeCompare(b.name);
         });
-        let lastGroup = null;
+        let currentGroup = null;
         sorted.forEach(n => {
             const group = n.main_stem ? 'Main stem' : 'Tributaries';
-            if (group !== lastGroup) {
-                const og = document.createElement('optgroup');
-                og.label = group;
-                els.networkContribStation.appendChild(og);
-                lastGroup = group;
+            if (!currentGroup || currentGroup.label !== group) {
+                currentGroup = document.createElement('optgroup');
+                currentGroup.label = group;
+                els.networkContribStation.appendChild(currentGroup);
             }
             const opt = document.createElement('option');
             opt.value = n.id;
             opt.textContent = n.name.replace(/_/g, ' ');
+            if (n.id === previousValue) opt.selected = true;
+            currentGroup.appendChild(opt);
+        });
+        if (!els.networkContribStation.value && previousValue) {
+            const fallback = els.networkContribStation.querySelector(`option[value="${CSS.escape(previousValue)}"]`);
+            if (fallback) fallback.selected = true;
+        }
+    }
+
+    function populateNetworkContribFromBootstrap() {
+        if (!els.networkContribStation || !state.bootstrap) return;
+        // Only populate if dropdown is currently empty (don't overwrite network-API data)
+        if (els.networkContribStation.options.length > 0) return;
+        const stations = (state.bootstrap.stations || [])
+            .filter(s => s.dataset === 'mekong')
+            .sort((a, b) => a.name.localeCompare(b.name));
+        if (stations.length === 0) return;
+        els.networkContribStation.innerHTML = '';
+        const opt0 = document.createElement('option');
+        opt0.value = '';
+        opt0.textContent = '— select a station —';
+        opt0.disabled = true;
+        opt0.selected = true;
+        els.networkContribStation.appendChild(opt0);
+        stations.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s.station;
+            opt.textContent = (s.name || s.station).replace(/_/g, ' ');
             els.networkContribStation.appendChild(opt);
         });
     }
@@ -3925,11 +4016,11 @@
         if (!els.networkWorkspace) return;
 
         const section = document.createElement('div');
-        section.className = 'network-section';
+        section.className = 'network-section network-section-graph';
 
         const heading = document.createElement('h4');
         heading.className = 'network-section-title';
-        heading.textContent = 'Station Topology Graph';
+        heading.textContent = 'Mekong River Network';
         section.appendChild(heading);
 
         const noteEl = document.createElement('p');
@@ -3941,12 +4032,16 @@
         plotDiv.className = 'network-plot-container';
         section.appendChild(plotDiv);
 
+        if (result.analysis) {
+            appendAnalysisSection(section, result.analysis, { title: 'Analysis Report' });
+        }
+
         els.networkWorkspace.appendChild(section);
 
         renderPlot(plotDiv, result.figure);
     }
 
-    function renderTravelTimes(rows) {
+    function renderTravelTimes(rows, analysisText = null) {
         if (!els.networkWorkspace) return;
         const section = document.createElement('div');
         section.className = 'network-section';
@@ -3994,11 +4089,18 @@
         });
         table.appendChild(tbody);
         section.appendChild(table);
+
+        if (analysisText) {
+            appendAnalysisSection(section, analysisText, { title: 'Analysis Report' });
+        }
+
         els.networkWorkspace.appendChild(section);
     }
 
-    async function renderContribution(station) {
-        const res = await fetch(`/api/network/contribution?station=${encodeURIComponent(station)}&dataset=mekong`);
+    async function renderContribution(station, includeAnalysis = false) {
+        let url = `/api/network/contribution?station=${encodeURIComponent(station)}&dataset=mekong`;
+        if (includeAnalysis) url += '&include_analysis=true';
+        const res = await fetch(url);
         const data = await res.json();
         if (!data.ok) throw new Error(data.error);
         const result = data.result;
@@ -4053,6 +4155,10 @@
         caveat.className = 'network-caveat-text network-caveat-small';
         caveat.textContent = result.caveat;
         section.appendChild(caveat);
+
+        if (result.analysis) {
+            appendAnalysisSection(section, result.analysis, { title: 'Interpretation' });
+        }
 
         els.networkWorkspace.appendChild(section);
     }
@@ -4242,6 +4348,7 @@
 
         els.scenarioCards.prepend(card);
         renderPlot(plot, result.figure);
+        refreshPlotGrid(els.scenarioCards);
 
         // Analysis section (if included) — after the plot
         if (result.analysis) {
@@ -4368,9 +4475,6 @@
                 renderQualityAnomalies(data.result);
                 qualityResult = data.result;
             }
-            if (qualityResult?.analysis && els.qualityWorkspace) {
-                appendAnalysisSection(els.qualityWorkspace, qualityResult.analysis);
-            }
             activateDockTab('quality');
             showMessage(els.qualityMessage, 'Done.', 'success');
         } catch (err) {
@@ -4424,6 +4528,7 @@
         const plotDiv = document.createElement('div');
         plotDiv.className = 'quality-plot';
         section.appendChild(plotDiv);
+        appendAnalysisSection(section, r.analysis, { title: 'Interpretation' });
         els.qualityWorkspace.prepend(section);
         renderPlot(plotDiv, r.figure);
     }
@@ -4465,6 +4570,7 @@
                 </tr>`).join('')}
             </tbody></table>`;
         section.appendChild(tableWrap);
+        appendAnalysisSection(section, r.analysis, { title: 'Interpretation' });
         els.qualityWorkspace.prepend(section);
         renderPlot(plotDiv, r.figure);
     }
@@ -4500,6 +4606,7 @@
                 </tbody></table>`;
             section.appendChild(tableWrap);
         }
+        appendAnalysisSection(section, r.analysis, { title: 'Interpretation' });
         els.qualityWorkspace.prepend(section);
         renderPlot(plotDiv, r.figure);
     }
@@ -4516,6 +4623,7 @@
             p.className = 'quality-note';
             p.textContent = 'No anomaly candidates found at this threshold.';
             section.appendChild(p);
+            appendAnalysisSection(section, r.analysis, { title: 'Interpretation' });
             els.qualityWorkspace.prepend(section);
             return;
         }
@@ -4585,6 +4693,7 @@
         });
 
         section.appendChild(tableWrap);
+        appendAnalysisSection(section, r.analysis, { title: 'Interpretation' });
         els.qualityWorkspace.prepend(section);
     }
 
@@ -4712,7 +4821,8 @@
 
         els.extremeCards.prepend(card);
         renderPlot(plot, result.figure);
-        appendAnalysisSection(body, result.analysis);
+        refreshPlotGrid(els.extremeCards);
+        appendAnalysisSection(body, result.analysis, { title: 'Analysis Report' });
     }
 
     // ── Flood & Drought Risk Map ──────────────────────────────────────────────
@@ -4753,7 +4863,7 @@
             if (!data.ok) throw new Error(data.error);
             renderRiskMap(data.result);
             if (data.result.analysis && els.riskWorkspace) {
-                appendAnalysisSection(els.riskWorkspace, data.result.analysis);
+                appendAnalysisSection(els.riskWorkspace, data.result.analysis, { title: 'Analysis Report' });
             }
             activateDockTab('risk');
             showMessage(els.riskMessage, `${data.result.n_stations} stations classified.`, 'success');
@@ -4906,7 +5016,7 @@
         const body = card.querySelector('.workspace-card-body');
         els.climateCards.prepend(card);
         renderPlot(card.querySelector('.plot-container'), result.figure);
-        appendAnalysisSection(body, result.analysis);
+        appendAnalysisSection(body, result.analysis, { title: 'Analysis Report' });
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -4959,7 +5069,8 @@
         const body = card.querySelector('.workspace-card-body');
         els.changepointCards.prepend(card);
         renderPlot(card.querySelector('.plot-container'), result.figure);
-        appendAnalysisSection(body, result.analysis);
+        refreshPlotGrid(els.changepointCards);
+        appendAnalysisSection(body, result.analysis, { title: 'Analysis Report' });
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -5017,6 +5128,7 @@
         if (plotContainer) plotContainer.style.minHeight = '720px';
         els.animateCards.prepend(card);
         renderPlot(plotContainer, result.figure);
+        refreshPlotGrid(els.animateCards);
 
         // Custom play/pause toggle button — placed below the plot
         const btn = document.createElement('button');
@@ -5149,7 +5261,8 @@
             const plots = card.querySelectorAll('.plot-container');
             renderPlot(plots[plots.length - 1], result.figure_zoom);
         }
-        appendAnalysisSection(body, result.analysis);
+        refreshPlotGrid(els.mcCards);
+        appendAnalysisSection(body, result.analysis, { title: 'Analysis Report' });
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -5204,7 +5317,8 @@
         if (plotContainer) plotContainer.style.minHeight = '580px';
         els.decompCards.prepend(card);
         renderPlot(plotContainer, result.figure);
-        appendAnalysisSection(body, result.analysis);
+        refreshPlotGrid(els.decompCards);
+        appendAnalysisSection(body, result.analysis, { title: 'Analysis Report' });
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -5255,13 +5369,25 @@
         const body = card.querySelector('.workspace-card-body');
         const plotContainer = card.querySelector('.plot-container');
         if (plotContainer) plotContainer.style.minHeight = '460px';
+
+        const guide = document.createElement('div');
+        guide.className = 'scenario-reading-guide';
+        const dominant = result.stats?.dominant_periods_months?.length
+            ? result.stats.dominant_periods_months.join(', ') + ' months'
+            : 'not clearly identified';
+        guide.innerHTML = `
+            <strong>How to read:</strong> left panel shows <strong>when</strong> cycles were strong; right panel shows which periods are strongest <strong>overall</strong>. Brighter colors mean stronger repeating behavior. Bands near <strong>12 months</strong> suggest annual seasonality; longer bands suggest multi-year variability. Dominant periods here: ${escapeHtml(dominant)}.
+        `;
+
         els.waveletCards.prepend(card);
+        body.insertBefore(guide, plotContainer);
         renderPlot(plotContainer, result.figure);
-        appendAnalysisSection(body, result.analysis);
+        refreshPlotGrid(els.waveletCards);
+        appendAnalysisSection(body, result.analysis, { title: 'Analysis Report' });
     }
 
     // ── Shared AI analysis renderer ───────────────────────────────────────────
-    function appendAnalysisSection(body, analysisText) {
+    function appendAnalysisSection(body, analysisText, options = {}) {
         if (!analysisText || !body) return;
         const el = document.createElement('div');
         el.className = 'scenario-analysis-section';
@@ -5274,7 +5400,7 @@
         el.innerHTML = `
             <div class="analysis-header">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-                AI Analysis
+                ${escapeHtml(options.title || 'AI Analysis')}
             </div>
             <div class="analysis-content">${formatted}</div>`;
         body.appendChild(el);

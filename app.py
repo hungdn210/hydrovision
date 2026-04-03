@@ -348,10 +348,11 @@ def network_travel_times():
 def network_contribution():
     station = request.args.get('station', '').strip()
     dataset = request.args.get('dataset', 'mekong').strip()
+    include_analysis = request.args.get('include_analysis', 'false').lower() == 'true'
     if not station:
         return jsonify({'ok': False, 'error': 'station parameter required'}), 400
     try:
-        result = network_service.compute_contribution(station, dataset)
+        result = network_service.compute_contribution(station, dataset, include_analysis=include_analysis)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400

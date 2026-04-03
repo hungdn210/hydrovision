@@ -3,35 +3,92 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List, Optional
 
+import markdown
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.io
 import scipy.stats
 
+from .analysis_service import _gemini_generate
 from .data_loader import SeriesRequest
+
+
+def _fallback_climate_analysis(result: Dict[str, Any]) -> str:
+    s = result.get('stats', {}) or {}
+    scenarios = s.get('scenarios', {}) or {}
+    title = str(result.get('title', '')).replace('_', ' ')
+    trend = s.get('historical_trend_per_decade')
+    r2 = s.get('r_squared')
+    projection_years = s.get('projection_years')
+    scenario_names = list(scenarios.keys())
+
+    if scenario_names:
+        high = scenarios.get('SSP5-8.5') or scenarios[scenario_names[-1]]
+        low = scenarios.get('SSP1-2.6') or scenarios[scenario_names[0]]
+        high_change = high.get('projected_end_change_pct')
+        low_change = low.get('projected_end_change_pct')
+        high_value = high.get('projected_end_value')
+    else:
+        high_change = low_change = high_value = None
+
+    scenario_range_html = (
+        f'<li><strong>Scenario Range:</strong> By the end of the {projection_years}-year horizon, the low-emissions pathway changes by {low_change}% while the high-emissions pathway changes by {high_change}%, showing the uncertainty envelope tied to future warming.</li>'
+        if high_change is not None and low_change is not None else
+        '<li><strong>Scenario Range:</strong> Multiple SSP pathways are included to show how future outcomes diverge under different climate forcing assumptions.</li>'
+    )
+    high_risk_html = (
+        f'<li><strong>High-Risk Pathway:</strong> The strongest projected end-state reaches about {high_value} under the most severe scenario, which should be treated as the upper-risk planning case.</li>'
+        if high_value is not None else
+        '<li><strong>High-Risk Pathway:</strong> The higher-warming scenario provides the stress-test case for planning and infrastructure review.</li>'
+    )
+
+    return (
+        '<p><strong>Executive Summary</strong></p>'
+        f'<p>The climate projection for <strong>{title}</strong> extends the observed historical trend into the next {projection_years} years and applies scenario-based climate adjustments for three SSP pathways. '
+        f'The historical trend is {trend:+.4f} per decade with R²={r2}, while the end-of-period scenario spread indicates how strongly future risk depends on the emissions pathway.</p>'
+        '<p><strong>Detailed Insights</strong></p>'
+        '<ul>'
+        f'<li><strong>Historical Trend:</strong> The fitted historical trend is {trend:+.4f} per decade with R²={r2}, which summarises the long-run direction and strength of the observed annual signal.</li>'
+        f'{scenario_range_html}'
+        f'{high_risk_html}'
+        '<li><strong>Operational Interpretation:</strong> Use the scenario spread to test adaptation options, but treat the projection as a screening tool rather than a deterministic forecast for a specific future year.</li>'
+        '</ul>'
+    )
 
 
 def _generate_climate_analysis(result: Dict[str, Any]) -> str:
     api_key = os.getenv('GEMINI_API_KEY')
-    if not api_key:
-        return ''
+    if not api_key or api_key == 'your_google_gemini_api_key_here' or not api_key.strip():
+        return _fallback_climate_analysis(result)
     try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
         s = result.get('stats', {})
-        prompt = f"""Analyze this climate projection result and provide 3 concise bullet-point insights:
+        prompt = f"""Act as a professional hydrologist interpreting a climate-impact projection.
+Write the response in markdown and structure it exactly as follows:
 
-Station/feature: {result.get('title', '')}
+**Executive Summary**
+2-3 sentences summarising the historical trend, the projection horizon, and the significance of the scenario spread.
+
+**Detailed Insights**
+- **Historical Trend:** interpret the sign, magnitude, and strength of the historical trend.
+- **Scenario Spread:** compare low-, medium-, and high-emissions pathways using the provided end-state changes.
+- **Risk Interpretation:** explain what the most severe scenario implies for water-resource risk.
+- **Operational Interpretation:** state how the projection should be used in planning and decision-making.
+
+Rules:
+- Use professional hydrological language.
+- Always cite specific numbers from the provided results.
+- Replace underscores with spaces.
+- Do not include any introduction or sign-off outside the two sections.
+
+Projection title: {str(result.get('title', '')).replace('_', ' ')}
 Historical trend: {s.get('historical_trend_per_decade')} per decade (R²={s.get('r_squared')}, p={s.get('p_value')})
 Projection years: {s.get('projection_years')}
 Scenarios: {s.get('scenarios')}
-
-Focus on: trend significance, scenario spread/risk, and practical water management implications. Use **bold** for key terms."""
-        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
-        return resp.text.strip()
+"""
+        return markdown.markdown(_gemini_generate(api_key, prompt))
     except Exception:
-        return ''
+        return _fallback_climate_analysis(result)
 
 
 # SSP scenario definitions — delta_temp in °C above baseline,

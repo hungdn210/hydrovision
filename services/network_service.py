@@ -17,33 +17,158 @@ import math
 import os
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+import markdown
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.io
 
+from .analysis_service import _gemini_generate
 from .data_loader import DataRepository, MultiDataRepository, SeriesRequest
 
 
 def _generate_network_analysis(result: Dict[str, Any]) -> str:
     api_key = os.getenv('GEMINI_API_KEY')
-    if not api_key:
-        return ''
+    fallback = _fallback_network_analysis(result)
+    if not api_key or api_key == 'your_google_gemini_api_key_here' or not api_key.strip():
+        return fallback
     try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
-        prompt = f"""Analyze this Mekong river network result and provide 3 concise bullet-point insights:
-
-Node count: {result.get('node_count')}
-Edge count: {result.get('edge_count')}
-Main stem stations: {result.get('main_stem')}
-Travel times (sample): {result.get('travel_times', [])[:5]}
-
-Focus on: network connectivity, travel time patterns, and hydrological implications for flood forecasting and water management. Use **bold** for key terms."""
-        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
-        return resp.text.strip()
+        prompt = _network_prompt(result)
+        return markdown.markdown(_gemini_generate(api_key, prompt))
     except Exception:
-        return ''
+        return _fallback_network_analysis(result)
+
+
+def _network_prompt(result: Dict[str, Any]) -> str:
+    travel = result.get('travel_times') or []
+    sample = '\n'.join(
+        f"- {row['upstream_name'].replace('_', ' ')} -> {row['downstream_name'].replace('_', ' ')}: "
+        f"{row['lag_months']} month lag, corr={row['correlation']:.3f}, overlap={row['overlap_months']}"
+        for row in travel[:8]
+    ) or 'No travel-time pairs available.'
+    main_stem = ', '.join(s.replace('_', ' ') for s in result.get('main_stem', [])) or 'Unavailable'
+    return (
+        'Act as a professional hydrologist writing a technical interpretation for a river-network dashboard.\n\n'
+        'RESPONSE FORMAT (STRICT):\n'
+        'Use markdown with exactly these sections:\n'
+        '## Network Summary\n2-3 sentences.\n'
+        '## Connectivity Structure\nExactly 4 bullet points.\n'
+        '## Travel-Time Interpretation\nExactly 4 bullet points.\n'
+        '## Operational Relevance\nExactly 3 bullet points.\n\n'
+        'RULES:\n'
+        '- Cite the actual network statistics and travel-time evidence.\n'
+        '- Replace underscores with spaces.\n'
+        '- Keep the tone professional, technical, and concise.\n'
+        '- Do not describe this as a hydraulic routing model.\n\n'
+        f"Dataset: {result.get('dataset', 'mekong')}\n"
+        f"Node count: {result.get('node_count')}\n"
+        f"Edge count: {result.get('edge_count')}\n"
+        f"Main stem stations: {main_stem}\n"
+        f"Topology note: {result.get('note', '')}\n"
+        f"Travel-time sample:\n{sample}\n"
+    )
+
+
+def _fallback_network_analysis(result: Dict[str, Any], note: str | None = None) -> str:
+    travel = result.get('travel_times') or []
+    parts = ['## Network Summary']
+    intro = [
+        f"Network interpretation for the **{result.get('dataset', 'mekong').replace('_', ' ')}** river topology."
+    ]
+    parts.append(' '.join(intro))
+    parts.append('## Key Findings')
+    parts.append(
+        f"- **Topology extent:** the network view contains {result.get('node_count')} stations and "
+        f"{result.get('edge_count')} directed connections."
+    )
+    parts.append(
+        f"- **Main stem coverage:** {len(result.get('main_stem', []))} documented main-stem stations are represented from upstream to delta."
+    )
+    if travel:
+        strongest = max(travel, key=lambda row: row.get('correlation', 0.0))
+        longest = max(travel, key=lambda row: row.get('lag_months', 0))
+        parts.append(
+            f"- **Strongest travel-time pair:** {strongest['upstream_name'].replace('_', ' ')} to "
+            f"{strongest['downstream_name'].replace('_', ' ')} with correlation {strongest['correlation']:.3f}."
+        )
+        parts.append(
+            f"- **Longest inferred lag:** {longest['upstream_name'].replace('_', ' ')} to "
+            f"{longest['downstream_name'].replace('_', ' ')} at {longest['lag_months']} month(s)."
+        )
+    else:
+        parts.append('- **Travel-time evidence:** insufficient overlapping monthly discharge data for cross-correlation.')
+    parts.append('## Operational Relevance')
+    parts.append('- **Monitoring use:** the topology view is best used to explain upstream-downstream connectivity and station placement.')
+    parts.append('- **Forecasting use:** empirical lags can guide broad timing expectations, but they are not hydraulic routing times.')
+    parts.append('- **Interpretation note:** tributary assignments remain approximate and should be communicated as basin-network context rather than exact channel geometry.')
+    return markdown.markdown('\n'.join(parts))
+
+
+def _generate_contrib_analysis(result: Dict[str, Any]) -> str:
+    api_key = os.getenv('GEMINI_API_KEY')
+    fallback = _fallback_contrib_analysis(result)
+    if not api_key or api_key == 'your_google_gemini_api_key_here' or not api_key.strip():
+        return fallback
+    try:
+        prompt = _contrib_prompt(result)
+        return markdown.markdown(_gemini_generate(api_key, prompt))
+    except Exception:
+        return _fallback_contrib_analysis(result)
+
+
+def _contrib_prompt(result: Dict[str, Any]) -> str:
+    target = result.get('target_name', 'Unknown')
+    target_q = result.get('target_mean_q', 'Unknown')
+    rows = result.get('rows', [])
+    top_contrib = '\\n'.join(
+        f"- {r['name'].replace('_', ' ')}: {r['contrib_pct']}% ({r['mean_q']} m³/s)"
+        for r in rows[:5]
+    ) or 'No upstream contributions available.'
+    
+    return (
+        f'Act as a professional hydrologist analyzing discharge contributions for the target station {target.replace("_", " ")}.\\n\\n'
+        'RESPONSE FORMAT (STRICT):\\n'
+        'Use markdown with exactly these sections:\\n'
+        '## Contribution Summary\\n2-3 sentences.\\n'
+        '## Dominant Upstream Sources\\nExactly 3 bullet points.\\n'
+        '## Methodological Context\\nExactly 2 bullet points explaining the limitations of a discharge-ratio proxy.\\n\\n'
+        'RULES:\\n'
+        '- Cite the actual percentage and discharge values provided.\\n'
+        '- Replace underscores with spaces.\\n'
+        '- Keep the tone professional and technical.\\n'
+        '- Do not describe this as a hydraulic routing model.\\n\\n'
+        f"Target Station: {target.replace('_', ' ')}\\n"
+        f"Target Mean Discharge: {target_q} m³/s\\n"
+        f"Upstream Station Count: {result.get('upstream_count', 0)}\\n"
+        f"Top Contributors:\\n{top_contrib}\\n"
+    )
+
+
+def _fallback_contrib_analysis(result: Dict[str, Any], note: str | None = None) -> str:
+    parts = ['## Contribution Summary']
+    intro = [
+        f"Analysis of upstream discharge contributions to **{result.get('target_name', 'the target station').replace('_', ' ')}**."
+    ]
+    if note:
+        intro.append(note)
+    parts.append(' '.join(intro))
+    parts.append('## Dominant Upstream Sources')
+    
+    rows = result.get('rows', [])
+    if rows:
+        top = rows[0]
+        parts.append(f"- **Primary contributor:** {top['name'].replace('_', ' ')} accounts for approximately {top['contrib_pct']}% of the target discharge.")
+        if len(rows) > 1:
+            second = rows[1]
+            parts.append(f"- **Secondary contributor:** {second['name'].replace('_', ' ')} provides roughly {second['contrib_pct']}% of the flow.")
+        parts.append(f"- **Total tracked upstream:** {len(rows)} upstream stations are included in the proxy estimate.")
+    else:
+        parts.append("- **No upstream sources found** in the documented topology.")
+        
+    parts.append('## Methodological Context')
+    parts.append('- **Proxy metric:** Contribution percentages are derived from the ratio of mean upstream discharge to mean target discharge.')
+    parts.append('- **Limitations:** This approach is an approximation and does not account for channel losses, evaporation, parallel unmeasured tributaries, or complex delta distributaries.')
+    return markdown.markdown('\\n'.join(parts))
 
 
 # ── Mekong river topology ─────────────────────────────────────────────────────
@@ -268,7 +393,7 @@ class NetworkService:
     # ── upstream contribution proxy ───────────────────────────────────────────
 
     def compute_contribution(
-        self, target_station: str, dataset: str = 'mekong'
+        self, target_station: str, dataset: str = 'mekong', include_analysis: bool = False
     ) -> Dict[str, Any]:
         """
         Estimate discharge contribution of each upstream station to target.
@@ -305,7 +430,7 @@ class NetworkService:
         rows.sort(key=lambda r: (r['contrib_pct'] or 0), reverse=True)
 
         target_meta = repo.station_index[target_station]
-        return {
+        res = {
             'target_station': target_station,
             'target_name':    target_meta.get('name', target_station) or target_station,
             'target_mean_q':  round(target_mean, 2) if target_mean is not None else None,
@@ -318,6 +443,13 @@ class NetworkService:
                 'losses, evaporation, or tributary splitting.'
             ),
         }
+        
+        if include_analysis:
+            analysis = _generate_contrib_analysis(res)
+            if analysis:
+                res['analysis'] = analysis
+                
+        return res
 
     # ── Plotly network figure ─────────────────────────────────────────────────
 
@@ -343,6 +475,13 @@ class NetworkService:
         def _coord(s: str) -> Tuple[float, float]:
             m = idx[s]
             return float(m['lon']), float(m['lat'])
+
+        all_lons = [float(meta['lon']) for meta in idx.values()]
+        all_lats = [float(meta['lat']) for meta in idx.values()]
+        lon_min = min(all_lons) - 1.2
+        lon_max = max(all_lons) + 1.2
+        lat_min = min(all_lats) - 1.0
+        lat_max = max(all_lats) + 1.0
 
         # ── Build in-degree for node sizing ──────────────────────────────────
         in_deg: Dict[str, int] = {s: 0 for s in idx}
@@ -519,26 +658,28 @@ class NetworkService:
             title=dict(
                 text='Mekong River Network — Spatial Station Topology',
                 x=0.5, xanchor='center',
-                font=dict(size=15, color=TEXT),
+                font=dict(size=16, color=TEXT),
                 pad=dict(t=8),
             ),
             xaxis=dict(
                 title=dict(text='Longitude (°E)', font=dict(size=11, color=SOFT)),
-                range=[99.5, 109],
+                range=[lon_min, lon_max],
                 gridcolor=GRID,
                 zeroline=False,
                 tickfont=dict(size=10, color=SOFT),
                 linecolor='rgba(148,163,184,0.15)',
                 dtick=2,
+                automargin=True,
             ),
             yaxis=dict(
                 title=dict(text='Latitude (°N)', font=dict(size=11, color=SOFT)),
-                range=[9, 23],
+                range=[lat_min, lat_max],
                 gridcolor=GRID,
                 zeroline=False,
                 tickfont=dict(size=10, color=SOFT),
                 linecolor='rgba(148,163,184,0.15)',
                 dtick=2,
+                automargin=True,
             ),
             legend=dict(
                 orientation='v',
@@ -552,7 +693,7 @@ class NetworkService:
                 itemsizing='constant',
                 tracegroupgap=4,
             ),
-            margin=dict(l=55, r=20, t=50, b=50),
+            margin=dict(l=70, r=36, t=54, b=54),
             height=780,
             hovermode='closest',
             hoverlabel=dict(

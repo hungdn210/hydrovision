@@ -3226,6 +3226,10 @@ html[data-theme="light"] .network-stat-value {
     overflow: hidden;
 }
 
+.network-section-graph {
+    padding-bottom: 8px;
+}
+
 .network-section-title {
     font-size: 13px;
     font-weight: 700;
@@ -3245,8 +3249,9 @@ html[data-theme="light"] .network-stat-value {
 
 .network-plot-container {
     width: 100%;
-    min-height: 520px;
-    padding: 0 8px 12px;
+    height: 780px;
+    padding: 0 16px 8px;
+    box-sizing: border-box;
 }
 
 /* Network tables */

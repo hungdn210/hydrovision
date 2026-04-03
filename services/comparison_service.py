@@ -21,14 +21,14 @@ from .data_loader import DataRepository, MultiDataRepository, SeriesRequest
 
 def _generate_component_analysis(component: str, data: Dict[str, Any], feature: str) -> str:
     api_key = os.getenv('GEMINI_API_KEY')
-    fallback = _fallback_component_analysis(component, data, feature, note='AI disabled in configuration.')
+    fallback = _fallback_component_analysis(component, data, feature)
     if not api_key or api_key == 'your_google_gemini_api_key_here' or not api_key.strip():
         return fallback
     try:
         prompt = _component_prompt(component, data, feature)
         return markdown.markdown(_gemini_generate(api_key, prompt))
-    except Exception as e:
-        return _fallback_component_analysis(component, data, feature, note=f'Live AI analysis unavailable ({e}).')
+    except Exception:
+        return _fallback_component_analysis(component, data, feature)
 
 
 def _component_prompt(component: str, data: Dict[str, Any], feature: str) -> str:

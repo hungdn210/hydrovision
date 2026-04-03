@@ -830,8 +830,8 @@ class PredictionService:
             ).replace('{h}', str(actual_h)).replace('{n}', str(n_windows)).replace('{start}', date_start).replace('{end}', date_end)
             html_content = markdown.markdown(_gemini_generate(api_key, prompt))
             return html_content
-        except Exception as e:
-            return base + f'\n\n*(AI Analysis Failed: {str(e)})*'
+        except Exception:
+            return base
 
     def _prediction_summary(
         self,
@@ -872,7 +872,7 @@ class PredictionService:
 
         api_key = os.environ.get('GEMINI_API_KEY')
         if not api_key or api_key == 'your_google_gemini_api_key_here' or not api_key.strip():
-            return base_summary + '\n\n*(Note: Set GEMINI_API_KEY in the .env file to enable AI-powered prediction analysis)*'
+            return base_summary
 
         try:
             prompt = (
@@ -918,5 +918,5 @@ class PredictionService:
             )
             html_content = markdown.markdown(_gemini_generate(api_key, prompt))
             return html_content
-        except Exception as e:
-            return base_summary + f'\n\n*(AI Analysis Failed: {str(e)})*'
+        except Exception:
+            return base_summary

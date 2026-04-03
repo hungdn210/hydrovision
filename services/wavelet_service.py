@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, Optional
 
+import markdown
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -10,29 +11,62 @@ import plotly.io
 import pywt
 from plotly.subplots import make_subplots
 
+from .analysis_service import _gemini_generate
 from .data_loader import SeriesRequest
+
+
+def _fallback_wavelet_analysis(result: Dict[str, Any]) -> str:
+    s = result.get('stats', {}) or {}
+    title = str(result.get('title', '')).replace('_', ' ')
+    dom = s.get('dominant_periods_months') or []
+    dom_text = ', '.join(str(p) for p in dom) if dom else 'none identified'
+    return (
+        '<p><strong>Executive Summary</strong></p>'
+        f'<p>The wavelet analysis for <strong>{title}</strong> examines how periodic behaviour evolves through time over {s.get("n_months")} months. '
+        f'The strongest detected periodicities are {dom_text} months within an analysed range of {s.get("period_range_months")} months.</p>'
+        '<p><strong>Detailed Insights</strong></p>'
+        '<ul>'
+        f'<li><strong>Dominant Cycles:</strong> The leading periodicities are {dom_text} months, indicating the main oscillatory scales in the series.</li>'
+        f'<li><strong>Scale Context:</strong> The analysis spans approximately {s.get("period_range_months")} months, allowing comparison between short seasonal cycles and longer inter-annual variability.</li>'
+        '<li><strong>Hydrological Interpretation:</strong> Periods near 12 months usually indicate annual monsoonal seasonality, while multi-year bands may reflect broader climate drivers such as ENSO-scale variability.</li>'
+        '<li><strong>Operational Interpretation:</strong> Use the dominant bands to inform monitoring windows, seasonal preparedness, and interpretation of whether the system is controlled mainly by annual or multi-year variability.</li>'
+        '</ul>'
+    )
 
 
 def _generate_wavelet_analysis(result: Dict[str, Any]) -> str:
     api_key = os.getenv('GEMINI_API_KEY')
-    if not api_key:
-        return ''
+    if not api_key or api_key == 'your_google_gemini_api_key_here' or not api_key.strip():
+        return _fallback_wavelet_analysis(result)
     try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
         s = result.get('stats', {})
-        prompt = f"""Analyze this wavelet analysis result and provide 3 concise bullet-point insights:
+        prompt = f"""Act as a professional hydrologist interpreting a wavelet power analysis.
+Write the response in markdown and structure it exactly as follows:
 
-Station/feature: {result.get('title', '')}
+**Executive Summary**
+2-3 sentences summarising the dominant periodicities and whether variability is concentrated at seasonal or multi-year scales.
+
+**Detailed Insights**
+- **Dominant Cycles:** interpret the strongest reported periodicities.
+- **Scale Context:** explain what the analysed period range captures.
+- **Hydrological Interpretation:** relate the periodicities to plausible physical drivers such as monsoon or ENSO-scale variability.
+- **Operational Interpretation:** state how this information should be used in planning and monitoring.
+
+Rules:
+- Use professional hydrological language.
+- Always cite specific numbers from the provided results.
+- Replace underscores with spaces.
+- Do not include any introduction or sign-off outside the two sections.
+
+Analysis title: {str(result.get('title', '')).replace('_', ' ')}
 Record length: {s.get('n_months')} months
 Dominant periodicities: {s.get('dominant_periods_months')} months
 Period range analyzed: {s.get('period_range_months')} months
-
-Focus on: dominant cycles and their physical drivers (ENSO ~48-60 months, monsoon ~12 months, multi-decadal), time-varying behavior, and implications for seasonal water resource planning. Use **bold** for key terms."""
-        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
-        return resp.text.strip()
+Wavelet: {s.get('wavelet')}
+"""
+        return markdown.markdown(_gemini_generate(api_key, prompt))
     except Exception:
-        return ''
+        return _fallback_wavelet_analysis(result)
 
 
 class WaveletService:
@@ -172,7 +206,7 @@ class WaveletService:
         fig = make_subplots(
             rows=1, cols=2,
             column_widths=[0.78, 0.22],
-            subplot_titles=['Wavelet Power Spectrum (Scalogram)', 'Global Power Spectrum'],
+            subplot_titles=['Time-Varying Cycle Strength', 'Average Cycle Strength'],
             horizontal_spacing=0.04,
         )
 
@@ -194,9 +228,16 @@ class WaveletService:
 
         # Dominant period horizontal lines on scalogram
         PERIOD_COLORS = ['#f59e0b', '#34d399', '#f87171']
-        period_labels = {12: 'Annual (12 mo)', 36: 'ENSO (36 mo)', 60: 'ENSO (60 mo)'}
+        period_labels = {
+            6: 'Semi-annual',
+            12: 'Annual',
+            24: '2-year',
+            36: '3-year',
+            48: 'ENSO-scale',
+            60: 'ENSO-scale',
+        }
         for dp, col in zip(dominant_periods[:3], PERIOD_COLORS):
-            label = period_labels.get(dp, f'{dp} mo')
+            label = f'{period_labels.get(dp, str(dp) + " mo")} ({dp} mo)'
             fig.add_hline(
                 y=dp, line_color=col, line_width=1.2, line_dash='dash',
                 annotation_text=label,
@@ -241,6 +282,15 @@ class WaveletService:
             ),
             showlegend=False,
             margin=dict(l=60, r=80, t=70, b=50),
+        )
+        fig.add_annotation(
+            x=0.01, y=1.12,
+            xref='paper', yref='paper',
+            showarrow=False,
+            xanchor='left',
+            align='left',
+            font=dict(color='rgba(229,238,252,0.78)', size=10),
+            text='Brighter colors = stronger repeating cycles. Higher periods mean longer-term variability.',
         )
 
         # Y-axis: period (log scale looks cleaner)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, Optional
 
+import markdown
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -10,31 +11,62 @@ import plotly.io
 from plotly.subplots import make_subplots
 from statsmodels.tsa.seasonal import STL
 
+from .analysis_service import _gemini_generate
 from .data_loader import SeriesRequest
+
+
+def _fallback_decomp_analysis(result: Dict[str, Any]) -> str:
+    s = result.get('stats', {}) or {}
+    title = str(result.get('title', '')).replace('_', ' ')
+    return (
+        '<p><strong>Executive Summary</strong></p>'
+        f'<p>The STL decomposition for <strong>{title}</strong> separates the monthly signal into trend, seasonal, and residual components over {s.get("n_months")} months. '
+        f'The reported strength metrics indicate whether long-run drift or recurring annual seasonality is the dominant control on the series.</p>'
+        '<p><strong>Detailed Insights</strong></p>'
+        '<ul>'
+        f'<li><strong>Signal Dominance:</strong> Trend strength is {s.get("strength_trend")} and seasonal strength is {s.get("strength_seasonal")}, which indicates whether long-term change or recurring seasonality is more prominent.</li>'
+        f'<li><strong>Seasonal Timing:</strong> The seasonal component peaks in {s.get("seasonal_peak_month")} and reaches its trough in {s.get("seasonal_trough_month")}, which helps identify likely high-flow versus low-flow timing.</li>'
+        f'<li><strong>Trend Behaviour:</strong> The fitted trend slope is {s.get("trend_slope_per_decade")} per decade, providing a compact summary of long-run directional change.</li>'
+        f'<li><strong>Operational Interpretation:</strong> Use the decomposition to separate persistent trend from recurring seasonality before drawing conclusions about drought, flood timing, or regime change; residual standard deviation is {s.get("residual_std")}.</li>'
+        '</ul>'
+    )
 
 
 def _generate_decomp_analysis(result: Dict[str, Any]) -> str:
     api_key = os.getenv('GEMINI_API_KEY')
-    if not api_key:
-        return ''
+    if not api_key or api_key == 'your_google_gemini_api_key_here' or not api_key.strip():
+        return _fallback_decomp_analysis(result)
     try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
         s = result.get('stats', {})
-        prompt = f"""Analyze this STL decomposition result and provide 3 concise bullet-point insights:
+        prompt = f"""Act as a professional hydrologist interpreting an STL decomposition.
+Write the response in markdown and structure it exactly as follows:
 
-Station/feature: {result.get('title', '')}
+**Executive Summary**
+2-3 sentences summarising whether the series is dominated by trend, seasonality, or residual noise.
+
+**Detailed Insights**
+- **Signal Dominance:** interpret the reported trend and seasonal strength values.
+- **Seasonal Timing:** explain the hydrological meaning of the seasonal peak and trough months.
+- **Trend Behaviour:** interpret the sign and magnitude of the long-run trend slope.
+- **Operational Interpretation:** state how the decomposition should be used for hydrological interpretation and planning.
+
+Rules:
+- Use professional hydrological language.
+- Always cite specific numbers from the provided results.
+- Replace underscores with spaces.
+- Do not include any introduction or sign-off outside the two sections.
+
+Analysis title: {str(result.get('title', '')).replace('_', ' ')}
 Record length: {s.get('n_months')} months
 Trend strength: {s.get('strength_trend')} (0=no trend, 1=strong trend)
 Seasonal strength: {s.get('strength_seasonal')} (0=no seasonality, 1=strong seasonality)
 Peak month: {s.get('seasonal_peak_month')}, Trough month: {s.get('seasonal_trough_month')}
 Trend slope: {s.get('trend_slope_per_decade')} per decade
-
-Focus on: dominant signal type (trend vs seasonal), seasonal flood/drought timing, and hydrological significance. Use **bold** for key terms."""
-        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
-        return resp.text.strip()
+Residual std: {s.get('residual_std')}
+"""
+        return markdown.markdown(_gemini_generate(api_key, prompt))
     except Exception:
-        return ''
+        return _fallback_decomp_analysis(result)
 
 
 class DecompositionService:

@@ -321,15 +321,8 @@ Focus on: key trends, anomalies, and practical water management implications. Us
             while len(sections) < n:
                 sections.append('')
             return [markdown.markdown(s) if s else '' for s in sections[:n]]
-        except Exception as e:
-            return [
-                summary.replace(
-                    '</ul>',
-                    f'<li><strong>AI status:</strong> Live AI summary unavailable ({e}). Local statistical fallback shown instead.</li></ul>',
-                    1,
-                ) if '</ul>' in summary else summary
-                for summary in fallback
-            ]
+        except Exception:
+            return fallback
 
     def analyse(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         chart_payload = self.chart_service.generate_chart(payload)
@@ -383,7 +376,7 @@ Focus on: key trends, anomalies, and practical water management implications. Us
 
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key or api_key == "your_google_gemini_api_key_here" or not api_key.strip():
-            return self._fallback_summary(frames, findings, comparisons, climatology, benchmark, note='AI disabled in configuration.')
+            return self._fallback_summary(frames, findings, comparisons, climatology, benchmark)
 
         try:
             prompt = (
@@ -413,8 +406,8 @@ Focus on: key trends, anomalies, and practical water management implications. Us
             )
             html_content = markdown.markdown(_gemini_generate(api_key, prompt))
             return html_content
-        except Exception as e:
-            return self._fallback_summary(frames, findings, comparisons, climatology, benchmark, note=f'Live AI summary unavailable ({e}).')
+        except Exception:
+            return self._fallback_summary(frames, findings, comparisons, climatology, benchmark)
 
     def _format_findings_for_prompt(self, findings: List[Dict]) -> str:
         """Format the rich findings dict into a readable block for the Gemini prompt."""
@@ -686,11 +679,8 @@ Focus on: key trends, anomalies, and practical water management implications. Us
         comparisons: List[str],
         climatology: List[str] | None = None,
         benchmark: List[Dict] | None = None,
-        note: str | None = None,
     ) -> str:
         parts = ['<p><strong>Local statistical summary</strong></p>', '<ul>']
-        if note:
-            parts.append(f'<li><strong>AI status:</strong> {note}</li>')
 
         for finding in findings[: min(2, len(findings))]:
             parts.append(

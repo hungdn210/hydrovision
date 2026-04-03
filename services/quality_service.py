@@ -12,26 +12,165 @@ import plotly.graph_objects as go
 import plotly.io
 from plotly.subplots import make_subplots
 
+import markdown
+
+from .analysis_service import _gemini_generate
 from .data_loader import SeriesRequest
 
 
 def generate_quality_analysis(view: str, result: Dict[str, Any]) -> str:
     api_key = os.getenv('GEMINI_API_KEY')
-    if not api_key:
-        return ''
+    fallback = _fallback_quality_analysis(view, result)
+    if not api_key or api_key == 'your_google_gemini_api_key_here' or not api_key.strip():
+        return fallback
     try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
-        prompt = f"""Analyze this data quality result and provide 3 concise bullet-point insights:
-
-Quality view: {view}
-Result summary: {str(result)[:800]}
-
-Focus on: data reliability, extent of quality issues, and recommendations for data handling. Use **bold** for key terms."""
-        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
-        return resp.text.strip()
+        prompt = _quality_prompt(view, result)
+        return markdown.markdown(_gemini_generate(api_key, prompt))
     except Exception:
-        return ''
+        return _fallback_quality_analysis(view, result)
+
+
+def _quality_prompt(view: str, result: Dict[str, Any]) -> str:
+    if view == 'completeness':
+        return (
+            'Act as a professional hydrologist performing a data-quality audit.\n\n'
+            'RESPONSE FORMAT (STRICT):\n'
+            'Use markdown with exactly these sections:\n'
+            '## Quality Summary\n2-3 sentences.\n'
+            '## Coverage Assessment\nExactly 4 bullet points.\n'
+            '## Reliability Implications\nExactly 4 bullet points.\n'
+            '## Recommended Handling\nExactly 3 bullet points.\n\n'
+            'RULES:\n'
+            '- Cite the actual completeness statistics.\n'
+            '- Replace underscores with spaces.\n'
+            '- Keep the tone technical and concise.\n\n'
+            f"Station: {result.get('station', '').replace('_', ' ')}\n"
+            f"Feature: {result.get('feature', '').replace('_', ' ')}\n"
+            f"Overall completeness: {result.get('overall_pct')}%\n"
+            f"Missing months: {result.get('missing_months')}\n"
+            f"Low-completeness months (<50%): {result.get('low_months')}\n"
+            f"Total months evaluated: {result.get('total_months')}\n"
+        )
+    if view == 'imputation':
+        top_rows = (result.get('rows') or [])[:8]
+        top_text = '\n'.join(
+            f"- {r['name']} · {r['feature'].replace('_', ' ')}: {r['imp_pct']:.1f}% imputed "
+            f"({r['imputed']} of {r['observations']})"
+            for r in top_rows
+        ) or 'No station rows available.'
+        return (
+            'Act as a professional hydrologist performing a data-quality audit.\n\n'
+            'RESPONSE FORMAT (STRICT):\n'
+            'Use markdown with exactly these sections:\n'
+            '## Quality Summary\n2-3 sentences.\n'
+            '## Imputation Distribution\nExactly 4 bullet points.\n'
+            '## Reliability Implications\nExactly 4 bullet points.\n'
+            '## Recommended Handling\nExactly 3 bullet points.\n\n'
+            'RULES:\n'
+            '- Cite actual imputation statistics and affected stations.\n'
+            '- Replace underscores with spaces.\n'
+            '- Keep the tone technical and concise.\n\n'
+            f"Dataset: {result.get('dataset')}\n"
+            f"Feature filter: {(result.get('feature') or 'all features').replace('_', ' ')}\n"
+            f"Overall imputation: {result.get('overall_imp_pct')}%\n"
+            f"Total observations: {result.get('total_observations')}\n"
+            f"Total imputed: {result.get('total_imputed')}\n"
+            f"Stations with imputation: {result.get('stations_with_imputation')}\n"
+            f"High-imputation stations (>=20%): {result.get('high_imputation_stations')}\n"
+            f"Top affected rows:\n{top_text}\n"
+        )
+    if view == 'gaps':
+        gap_rows = (result.get('gaps') or [])[:8]
+        gap_text = '\n'.join(
+            f"- {g['start']} to {g['end']}: {g['length']} {g['unit']} ({g['severity']})"
+            for g in gap_rows
+        ) or 'No gaps recorded.'
+        return (
+            'Act as a professional hydrologist performing a data-quality audit.\n\n'
+            'RESPONSE FORMAT (STRICT):\n'
+            'Use markdown with exactly these sections:\n'
+            '## Quality Summary\n2-3 sentences.\n'
+            '## Gap Structure\nExactly 4 bullet points.\n'
+            '## Reliability Implications\nExactly 4 bullet points.\n'
+            '## Recommended Handling\nExactly 3 bullet points.\n\n'
+            'RULES:\n'
+            '- Cite actual gap counts and durations.\n'
+            '- Replace underscores with spaces.\n'
+            '- Keep the tone technical and concise.\n\n'
+            f"Station: {result.get('station', '').replace('_', ' ')}\n"
+            f"Feature: {result.get('feature', '').replace('_', ' ')}\n"
+            f"Missing share: {result.get('missing_pct')}%\n"
+            f"Gap count: {result.get('gap_count')}\n"
+            f"Major gaps: {result.get('major')}\n"
+            f"Moderate gaps: {result.get('moderate')}\n"
+            f"Minor gaps: {result.get('minor')}\n"
+            f"Largest gaps:\n{gap_text}\n"
+        )
+    candidates = (result.get('candidates') or [])[:8]
+    cand_text = '\n'.join(
+        f"- {c['date']}: value {c['value']} {result.get('unit', '')}, |z|={c['z_score']}, "
+        f"{'imputed' if c.get('is_imputed') else 'observed'}, flag={c.get('flag')}"
+        for c in candidates
+    ) or 'No anomaly candidates.'
+    return (
+        'Act as a professional hydrologist performing a data-quality audit.\n\n'
+        'RESPONSE FORMAT (STRICT):\n'
+        'Use markdown with exactly these sections:\n'
+        '## Quality Summary\n2-3 sentences.\n'
+        '## Candidate Structure\nExactly 4 bullet points.\n'
+        '## Reliability Implications\nExactly 4 bullet points.\n'
+        '## Recommended Handling\nExactly 3 bullet points.\n\n'
+        'RULES:\n'
+        '- Cite actual anomaly counts, z-scores, and flag status.\n'
+        '- Replace underscores with spaces.\n'
+        '- Keep the tone technical and concise.\n\n'
+        f"Station: {result.get('station', '').replace('_', ' ')}\n"
+        f"Feature: {result.get('feature', '').replace('_', ' ')}\n"
+        f"Z threshold: {result.get('z_thresh')}\n"
+        f"Mean: {result.get('mean')}\n"
+        f"Std: {result.get('std')}\n"
+        f"Total candidates: {result.get('total')}\n"
+        f"Unflagged: {result.get('unflagged')}\n"
+        f"Candidate examples:\n{cand_text}\n"
+    )
+
+
+def _fallback_quality_analysis(view: str, result: Dict[str, Any], note: str | None = None) -> str:
+    parts = ['## Quality Summary']
+    intro = [f"Quality interpretation for **{view.replace('_', ' ')}**."]
+    if note:
+        intro.append(note)
+    parts.append(' '.join(intro))
+    parts.append('## Key Findings')
+    if view == 'completeness':
+        parts.append(f"- **Coverage:** overall completeness is {result.get('overall_pct')}% across {result.get('total_months')} evaluated months.")
+        parts.append(f"- **Missing periods:** {result.get('missing_months')} months are fully missing and {result.get('low_months')} months fall below 50% completeness.")
+        parts.append('- **Reliability:** low temporal coverage weakens seasonal and trend interpretation.')
+    elif view == 'imputation':
+        parts.append(f"- **Overall imputation:** {result.get('overall_imp_pct')}% of {result.get('total_observations')} observations are imputed.")
+        parts.append(f"- **Affected stations:** {result.get('stations_with_imputation')} stations contain imputed values; {result.get('high_imputation_stations')} have rates at or above 20%.")
+        top = (result.get('rows') or [])[:1]
+        if top:
+            r = top[0]
+            parts.append(f"- **Highest example:** {r['name']} · {r['feature'].replace('_', ' ')} has {r['imp_pct']:.1f}% imputation.")
+    elif view == 'gaps':
+        parts.append(f"- **Missing share:** {result.get('missing_pct')}% with {result.get('gap_count')} detected gaps.")
+        parts.append(f"- **Gap severity:** major {result.get('major')}, moderate {result.get('moderate')}, minor {result.get('minor')}.")
+        largest = (result.get('gaps') or [])[:1]
+        if largest:
+            g = largest[0]
+            parts.append(f"- **Largest gap:** {g['start']} to {g['end']} spanning {g['length']} {g['unit']}.")
+    else:
+        parts.append(f"- **Candidate count:** {result.get('total')} anomaly candidates with {result.get('unflagged')} still unflagged.")
+        parts.append(f"- **Thresholding:** candidates were detected at |z| >= {result.get('z_thresh')}.")
+        first = (result.get('candidates') or [])[:1]
+        if first:
+            c = first[0]
+            parts.append(f"- **Example:** {c['date']} has value {c['value']} and |z|={c['z_score']}.")
+    parts.append('## Recommended Handling')
+    parts.append('- **Use with caution:** quality issues should be considered before interpreting hydrological extremes, trends, or model results.')
+    parts.append('- **Operational step:** review flagged periods and high-imputation segments before downstream analysis.')
+    return markdown.markdown('\n'.join(parts))
 
 MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
