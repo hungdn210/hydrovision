@@ -5125,10 +5125,29 @@
         const cardId = `animate-${++state.cardCounters.animate}`;
         const card = buildBaseCard(cardId, result.title, result.subtitle);
         const plotContainer = card.querySelector('.plot-container');
-        if (plotContainer) plotContainer.style.minHeight = '720px';
+        const originalHeight = Number(result?.figure?.layout?.height || 720);
+        const lockAnimateHeight = () => {
+            if (!plotContainer) return;
+            plotContainer.style.height = `${originalHeight}px`;
+            plotContainer.style.minHeight = `${originalHeight}px`;
+            if (plotContainer.layout) {
+                const updateLayout = { autosize: true, height: originalHeight };
+                delete updateLayout.width;
+                Plotly.relayout(plotContainer, updateLayout).catch(() => {});
+            }
+        };
+        if (plotContainer) {
+            plotContainer.style.height = `${originalHeight}px`;
+            plotContainer.style.minHeight = `${originalHeight}px`;
+        }
         els.animateCards.prepend(card);
         renderPlot(plotContainer, result.figure);
         refreshPlotGrid(els.animateCards);
+        requestAnimationFrame(() => {
+            lockAnimateHeight();
+            setTimeout(lockAnimateHeight, 80);
+            setTimeout(lockAnimateHeight, 220);
+        });
 
         // Custom play/pause toggle button — placed below the plot
         const btn = document.createElement('button');
@@ -5144,6 +5163,8 @@
                 mode: 'immediate',
                 transition: { duration: 0 },
             });
+            lockAnimateHeight();
+            setTimeout(lockAnimateHeight, 80);
         }
 
         btn.addEventListener('click', () => {
@@ -5151,6 +5172,7 @@
             if (!playing) {
                 playing = true;
                 btn.innerHTML = '&#9646;&#9646; Pause';
+                lockAnimateHeight();
                 Plotly.animate(plotContainer, null, {
                     frame: { duration: frameDuration, redraw: true },
                     fromcurrent: true,
@@ -5159,6 +5181,8 @@
                     // Reached end naturally
                     if (playing) stopAnim();
                 });
+                setTimeout(lockAnimateHeight, 80);
+                setTimeout(lockAnimateHeight, 220);
             } else {
                 stopAnim();
             }
@@ -5376,7 +5400,7 @@
             ? result.stats.dominant_periods_months.join(', ') + ' months'
             : 'not clearly identified';
         guide.innerHTML = `
-            <strong>How to read:</strong> left panel shows <strong>when</strong> cycles were strong; right panel shows which periods are strongest <strong>overall</strong>. Brighter colors mean stronger repeating behavior. Bands near <strong>12 months</strong> suggest annual seasonality; longer bands suggest multi-year variability. Dominant periods here: ${escapeHtml(dominant)}.
+            <strong>How to read:</strong> the top heatmap shows <strong>when</strong> repeating cycles were strongest, and the lower summary shows which cycle lengths are strongest <strong>overall</strong>. Brighter colors mean stronger repeating behavior. Bands near <strong>12 months</strong> suggest annual seasonality; longer periods suggest multi-year variability. Dominant periods here: ${escapeHtml(dominant)}.
         `;
 
         els.waveletCards.prepend(card);

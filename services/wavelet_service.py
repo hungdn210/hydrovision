@@ -194,136 +194,261 @@ class WaveletService:
         # ── Build figure ──────────────────────────────────────────────────────
         DARK_BG = '#07111f'
         TEXT = '#e5eefc'
+        SOFT = 'rgba(229,238,252,0.72)'
+        GRID = 'rgba(148,163,184,0.10)'
+        visible_period_max = min(max_period, 60)
 
-        # Downsample if too many periods (keep ≤60 for performance)
-        step = max(1, len(periods) // 60)
+        # Downsample and focus the default view on the most interpretable range
+        step = max(1, len(periods) // 72)
         p_plot = periods[::step]
         pw_plot = power_masked[::step, :]
         gp_plot = global_power[::step]
+        visible_mask = p_plot <= visible_period_max
+        p_plot = p_plot[visible_mask]
+        pw_plot = pw_plot[visible_mask, :]
+        gp_plot = gp_plot[visible_mask]
 
-        date_strs = [d.strftime('%Y-%m') for d in dates]
+        valid_power = pw_plot[np.isfinite(pw_plot)]
+        zmax = float(np.nanpercentile(valid_power, 98)) if valid_power.size else 1.0
+
+        def _period_label(period: int) -> str:
+            if period <= 7:
+                return 'Semi-annual scale'
+            if period <= 14:
+                return 'Annual seasonal scale'
+            if period <= 24:
+                return '1-2 year variability'
+            if period <= 36:
+                return '2-3 year variability'
+            return 'Multi-year / ENSO-scale'
+
+        dominant_visible = [dp for dp in dominant_periods if dp <= visible_period_max][:3]
+        if not dominant_visible and len(p_plot):
+            dominant_visible = [int(p_plot[int(np.nanargmax(gp_plot))])]
 
         fig = make_subplots(
-            rows=1, cols=2,
-            column_widths=[0.78, 0.22],
-            subplot_titles=['Time-Varying Cycle Strength', 'Average Cycle Strength'],
-            horizontal_spacing=0.04,
+            rows=2, cols=1,
+            row_heights=[0.76, 0.24],
+            vertical_spacing=0.12,
+            subplot_titles=['Cycle Strength Through Time', 'Dominant Periods Overall'],
         )
 
-        # Scalogram
-        fig.add_trace(go.Heatmap(
-            x=date_strs,
-            y=p_plot.tolist(),
-            z=pw_plot.tolist(),
-            colorscale='RdBu_r',
-            zsmooth='fast',
-            colorbar=dict(
-                title=dict(text='Power', font=dict(color=TEXT, size=10)),
-                tickfont=dict(color=TEXT, size=9),
-                len=0.8, x=0.76, thickness=12,
-            ),
-            hovertemplate='Date: %{x}<br>Period: %{y} mo<br>Power: %{z:.3f}<extra></extra>',
-            name='Power',
-        ), row=1, col=1)
-
-        # Dominant period horizontal lines on scalogram
-        PERIOD_COLORS = ['#f59e0b', '#34d399', '#f87171']
-        period_labels = {
-            6: 'Semi-annual',
-            12: 'Annual',
-            24: '2-year',
-            36: '3-year',
-            48: 'ENSO-scale',
-            60: 'ENSO-scale',
-        }
-        for dp, col in zip(dominant_periods[:3], PERIOD_COLORS):
-            label = f'{period_labels.get(dp, str(dp) + " mo")} ({dp} mo)'
-            fig.add_hline(
-                y=dp, line_color=col, line_width=1.2, line_dash='dash',
-                annotation_text=label,
-                annotation_font=dict(color=col, size=9),
-                annotation_position='right',
+        # Heatmap guide bands
+        period_bands = [
+            (5, 7, 'Semi-annual zone', 'rgba(52,211,153,0.07)'),
+            (10, 14, 'Annual zone', 'rgba(245,158,11,0.07)'),
+            (24, 36, '2-3 year zone', 'rgba(96,165,250,0.07)'),
+            (36, 60, 'Multi-year zone', 'rgba(248,113,113,0.06)'),
+        ]
+        for y0, y1, _label, fill in period_bands:
+            if y0 >= visible_period_max:
+                continue
+            fig.add_hrect(
+                y0=y0, y1=min(y1, visible_period_max),
+                fillcolor=fill, line_width=0,
                 row=1, col=1,
             )
 
-        # Global power spectrum
-        fig.add_trace(go.Scatter(
-            x=gp_plot.tolist(),
+        # Scalogram
+        fig.add_trace(go.Heatmap(
+            x=dates,
             y=p_plot.tolist(),
-            mode='lines',
-            name='Global power',
-            line=dict(color='#60a5fa', width=2),
-            fill='tozerox',
-            fillcolor='rgba(96,165,250,0.15)',
-            hovertemplate='Period: %{y} mo<br>Power: %{x:.3f}<extra></extra>',
-        ), row=1, col=2)
+            z=pw_plot.tolist(),
+            colorscale='Turbo',
+            zmin=0,
+            zmax=zmax,
+            zsmooth='best',
+            colorbar=dict(
+                title=dict(text='Cycle strength', font=dict(color=TEXT, size=10)),
+                tickfont=dict(color=TEXT, size=9),
+                len=0.58,
+                y=0.74,
+                x=1.03,
+                thickness=13,
+                outlinewidth=0,
+            ),
+            customdata=[[ _period_label(int(p)) for _ in range(len(dates)) ] for p in p_plot.tolist()],
+            hovertemplate='Date: %{x|%Y-%m}<br>Period: %{y} months<br>Interpretation: %{customdata}<br>Cycle strength: %{z:.3f}<extra></extra>',
+            name='Cycle strength',
+        ), row=1, col=1)
 
-        # Mark dominant periods on global spectrum
-        for dp, col in zip(dominant_periods[:3], PERIOD_COLORS):
-            idx = np.argmin(np.abs(p_plot - dp))
-            if idx < len(gp_plot):
-                fig.add_trace(go.Scatter(
-                    x=[gp_plot[idx]],
-                    y=[p_plot[idx]],
-                    mode='markers',
-                    marker=dict(color=col, size=8, symbol='diamond'),
-                    showlegend=False,
-                    hovertemplate=f'{p_plot[idx]} mo: %{{x:.3f}}<extra></extra>',
-                ), row=1, col=2)
+        # Cone of influence boundary: periods above this curve are edge-affected
+        coi_boundary = np.clip(edge_dist / np.sqrt(2), float(np.min(p_plot)), float(visible_period_max))
+        fig.add_trace(go.Scatter(
+            x=dates + dates[::-1],
+            y=coi_boundary.tolist() + [float(visible_period_max)] * len(dates),
+            mode='lines',
+            fill='toself',
+            fillcolor='rgba(7,17,31,0.32)',
+            line=dict(width=0),
+            hoverinfo='skip',
+            showlegend=False,
+        ), row=1, col=1)
+        fig.add_trace(go.Scatter(
+            x=dates,
+            y=coi_boundary.tolist(),
+            mode='lines',
+            line=dict(color='rgba(229,238,252,0.5)', width=1.1, dash='dot'),
+            hovertemplate='COI boundary<br>Date: %{x|%Y-%m}<br>Reliable below ~%{y:.1f} months<extra></extra>',
+            showlegend=False,
+            name='COI boundary',
+        ), row=1, col=1)
+
+        PERIOD_COLORS = ['#f59e0b', '#34d399', '#60a5fa']
+        for dp, col in zip(dominant_visible[:3], PERIOD_COLORS):
+            fig.add_hline(
+                y=dp,
+                line_color=col,
+                line_width=1.4,
+                line_dash='dash',
+                opacity=0.9,
+                row=1, col=1,
+            )
+            fig.add_annotation(
+                x=1.005,
+                y=dp,
+                xref='paper',
+                yref='y',
+                text=f'{_period_label(dp)} ({dp} mo)',
+                showarrow=False,
+                xanchor='left',
+                font=dict(color=col, size=10),
+            )
+        fig.add_annotation(
+            x=dates[min(8, len(dates) - 1)],
+            y=min(visible_period_max - 3, max(42, visible_period_max * 0.72)),
+            xref='x',
+            yref='y',
+            text='Edge-affected region',
+            showarrow=False,
+            xanchor='left',
+            font=dict(color='rgba(229,238,252,0.68)', size=10),
+            bgcolor='rgba(7,17,31,0.55)',
+            bordercolor='rgba(229,238,252,0.14)',
+            borderwidth=1,
+            borderpad=4,
+        )
+
+        # Bottom summary: overall strongest periods
+        fig.add_trace(go.Scatter(
+            x=p_plot.tolist(),
+            y=gp_plot.tolist(),
+            mode='lines',
+            name='Overall cycle strength',
+            line=dict(color='#60a5fa', width=2.8),
+            fill='tozeroy',
+            fillcolor='rgba(96,165,250,0.12)',
+            hovertemplate='Period: %{x} months<br>Overall cycle strength: %{y:.3f}<extra></extra>',
+        ), row=2, col=1)
+
+        for x0, x1, _label, fill in period_bands:
+            if x0 >= visible_period_max:
+                continue
+            fig.add_vrect(
+                x0=x0, x1=min(x1, visible_period_max),
+                fillcolor=fill, line_width=0,
+                row=2, col=1,
+            )
+
+        for dp, col in zip(dominant_visible[:3], PERIOD_COLORS):
+            idx = int(np.argmin(np.abs(p_plot - dp)))
+            fig.add_vline(
+                x=dp,
+                line_color=col,
+                line_width=1.3,
+                line_dash='dash',
+                opacity=0.9,
+                row=2, col=1,
+            )
+            fig.add_trace(go.Scatter(
+                x=[int(p_plot[idx])],
+                y=[float(gp_plot[idx])],
+                mode='markers+text',
+                text=[f'{int(p_plot[idx])} mo'],
+                textposition='top center',
+                marker=dict(color=col, size=9, symbol='diamond'),
+                textfont=dict(color=col, size=10),
+                showlegend=False,
+                hovertemplate=f'Period: {int(p_plot[idx])} months<br>Overall cycle strength: %{{y:.3f}}<extra></extra>',
+            ), row=2, col=1)
 
         fig.update_layout(
             paper_bgcolor=DARK_BG,
             plot_bgcolor='rgba(0,0,0,0)',
             font=dict(family='Inter, sans-serif', color=TEXT, size=11),
             title=dict(
-                text=f'Wavelet Analysis (CWT · Morlet) — {feature_label} · {station_name}',
-                font=dict(size=14, color=TEXT),
+                text=f'Wavelet Cycle Analysis — {feature_label} · {station_name}',
+                font=dict(size=18, color=TEXT),
                 x=0.5, xanchor='center',
+                y=0.98,
             ),
             showlegend=False,
-            margin=dict(l=60, r=80, t=70, b=50),
+            margin=dict(l=82, r=110, t=120, b=60),
+            height=660,
         )
         fig.add_annotation(
-            x=0.01, y=1.12,
+            x=0.0, y=1.13,
             xref='paper', yref='paper',
             showarrow=False,
             xanchor='left',
             align='left',
-            font=dict(color='rgba(229,238,252,0.78)', size=10),
-            text='Brighter colors = stronger repeating cycles. Higher periods mean longer-term variability.',
+            font=dict(color=SOFT, size=12),
+            text='Shows when repeating cycles were strongest and which cycle lengths dominate overall.',
+        )
+        fig.add_annotation(
+            x=0.0, y=1.08,
+            xref='paper', yref='paper',
+            showarrow=False,
+            xanchor='left',
+            align='left',
+            font=dict(color='rgba(229,238,252,0.66)', size=10),
+            text='How to read: brighter colors indicate stronger repeating behavior. Around 12 months suggests annual seasonality; longer periods suggest multi-year variability.',
         )
 
-        # Y-axis: period (log scale looks cleaner)
         fig.update_yaxes(
-            title_text='Period (months)', type='log',
-            gridcolor='rgba(148,163,184,0.08)', zeroline=False,
-            tickfont=dict(color=TEXT, size=10),
-            tickvals=[2, 4, 6, 12, 24, 36, 60, 120],
-            ticktext=['2', '4', '6', '12', '24', '36', '60', '120'],
-            row=1, col=1,
-        )
-        fig.update_yaxes(
-            type='log', gridcolor='rgba(148,163,184,0.08)', zeroline=False,
-            tickfont=dict(color=TEXT, size=10),
-            tickvals=[2, 4, 6, 12, 24, 36, 60, 120],
-            ticktext=['2', '4', '6', '12', '24', '36', '60', '120'],
-            row=1, col=2,
-        )
-        fig.update_xaxes(
-            gridcolor='rgba(148,163,184,0.08)', zeroline=False,
+            title_text='Period (months)',
+            range=[2, visible_period_max],
+            tickmode='array',
+            tickvals=[2, 3, 6, 12, 24, 36, 48, 60],
+            ticktext=['2', '3', '6', '12', '24', '36', '48', '60'],
+            gridcolor=GRID,
+            zeroline=False,
             tickfont=dict(color=TEXT, size=10),
             row=1, col=1,
         )
         fig.update_xaxes(
-            title_text='Power', gridcolor='rgba(148,163,184,0.08)',
-            zeroline=False, tickfont=dict(color=TEXT, size=10),
-            row=1, col=2,
+            showgrid=True,
+            gridcolor=GRID,
+            zeroline=False,
+            tickfont=dict(color=TEXT, size=10),
+            tickformat='%Y',
+            row=1, col=1,
+        )
+        fig.update_xaxes(
+            title_text='Cycle length (months)',
+            range=[2, visible_period_max],
+            tickmode='array',
+            tickvals=[2, 6, 12, 24, 36, 48, 60],
+            ticktext=['2', '6', '12', '24', '36', '48', '60'],
+            showgrid=True,
+            gridcolor=GRID,
+            zeroline=False,
+            tickfont=dict(color=TEXT, size=10),
+            row=2, col=1,
+        )
+        fig.update_yaxes(
+            title_text='Overall cycle strength',
+            showgrid=True,
+            gridcolor=GRID,
+            zeroline=False,
+            tickfont=dict(color=TEXT, size=10),
+            row=2, col=1,
         )
 
-        # Style subplot titles
-        for ann in fig.layout.annotations:
+        # Style subplot titles only
+        for ann in fig.layout.annotations[:2]:
             ann.font.color = TEXT
-            ann.font.size = 11
+            ann.font.size = 13
 
         result = {
             'title': f'Wavelet Analysis · {station_name}',
