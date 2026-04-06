@@ -23,7 +23,7 @@ _WATER_Q_KEYWORDS = {'total_suspended_solids', 'tss', 'dissolved_oxygen', 'do2',
 def get_feature_type(feature_name: str) -> FeatureType:
     fl = feature_name.lower()
     
-    if fl in _FLOW_KEYWORDS or any(kw in fl for kw in _FLOW_KEYWORDS):
+    if fl in _FLOW_KEYWORDS or any(kw in fl for kw in _FLOW_KEYWORDS if kw != 'q_') or fl.startswith('q_'):
         return FeatureType.FLOW
     if fl in _PRECIP_KEYWORDS or any(kw in fl for kw in _PRECIP_KEYWORDS):
         return FeatureType.PRECIP

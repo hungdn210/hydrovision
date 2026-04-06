@@ -298,9 +298,17 @@ class ComparisonService:
 
     def compute_correlation_matrix(self, dataset: str, feature: str) -> Dict[str, Any]:
         """
-        Pearson correlation matrix across all stations (capped for LamaH).
-        Resamples every station to monthly means then calls DataFrame.corr().
+        Pearson and Spearman correlation matrices across all stations (capped for LamaH).
+        Resamples every station to monthly means.
+
+        Both metrics are returned:
+          - Pearson r: linear association (sensitive to normality assumption).
+          - Spearman ρ: monotonic association (robust to skewness — preferred for
+            hydrological discharge, which is typically right-skewed).
+        The primary reported matrix uses Spearman; Pearson is included for reference.
+        min_periods=12 applied to both to guard against spurious short-record correlations.
         """
+        from scipy.stats import spearmanr
         repo = self._repo_for(dataset)
         cap = self.CORR_CAP.get(dataset, 65)
         all_info = self._stations_for_feature(dataset, feature)
@@ -324,19 +332,29 @@ class ComparisonService:
             raise ValueError('Could not load data for enough stations.')
 
         combined = pd.DataFrame(frames)
-        corr = combined.corr(method='pearson', min_periods=12)
+        # Pearson (kept for reference)
+        corr_pearson = combined.corr(method='pearson', min_periods=12)
+        # Spearman (primary — robust for skewed hydrological data)
+        corr_spearman = combined.corr(method='spearman', min_periods=12)
 
-        station_ids = list(corr.columns)
+        station_ids = list(corr_spearman.columns)
         pretty = [
             (repo.station_index[s].get('name', s) or s).replace('_', ' ')
             for s in station_ids
         ]
-        matrix = [
-            [None if pd.isna(v) else round(float(v), 3) for v in row]
-            for row in corr.values.tolist()
-        ]
 
-        # Compute mean correlation per station (excluding self)
+        def _to_matrix(df):
+            return [
+                [None if pd.isna(v) else round(float(v), 3) for v in row]
+                for row in df.reindex(index=station_ids, columns=station_ids).values.tolist()
+            ]
+
+        matrix_spearman = _to_matrix(corr_spearman)
+        matrix_pearson  = _to_matrix(corr_pearson)
+        # Backward-compat: 'matrix' = Spearman (primary)
+        matrix = matrix_spearman
+
+        # Mean correlation per station (excluding self) — Spearman
         mean_corrs = []
         n = len(station_ids)
         for i in range(n):
@@ -346,8 +364,17 @@ class ComparisonService:
         return {
             'stations': pretty,
             'station_ids': station_ids,
-            'matrix': matrix,
-            'mean_correlations': mean_corrs,
+            'matrix': matrix,                       # Spearman (primary)
+            'matrix_spearman': matrix_spearman,
+            'matrix_pearson': matrix_pearson,
+            'mean_correlations': mean_corrs,        # Spearman means
+            'primary_correlation': 'spearman',
+            'correlation_note': (
+                'Primary correlation metric is Spearman rank correlation, which is robust to '
+                'the right-skewness typical of hydrological discharge series. '
+                'Pearson correlation is provided for reference (assumes linearity and normality). '
+                'min_periods=12 applied to both.'
+            ),
             'feature': feature,
             'unit': unit,
             'dataset': dataset,
@@ -436,6 +463,12 @@ class ComparisonService:
             'feature': feature,
             'unit': unit,
             'dataset': dataset,
+            'threshold_note': (
+                'Anomaly classification thresholds (±20%, ±40%, ±70%) are operational '
+                'heuristics for hydrological monitoring, not statistically derived bounds. '
+                'They indicate the magnitude of departure from climatology relative to '
+                'expert-defined severity levels.'
+            ),
         }
 
     # ── 3. Basin-wide summary ────────────────────────────────────────────────

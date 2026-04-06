@@ -13,6 +13,10 @@ import scipy.stats
 from .analysis_service import _gemini_generate
 from .data_loader import SeriesRequest
 from .feature_registry import get_valid_features_for_analysis
+from .figure_theme import (
+    DARK_BG, TEXT,
+    legend_v, MARGIN_MAP,
+)
 
 
 def _fallback_risk_analysis(result: Dict[str, Any]) -> str:
@@ -88,15 +92,24 @@ class RiskService:
 
     Methodology:
       - Load full historical series for each station that has the target feature.
-      - Compute percentile thresholds (5th, 20th, 80th, 95th) from the historical record.
+      - Compute percentile thresholds (5th, 20th, 80th, 95th) from the historical
+        record (full-record mode) or from the same calendar-month subset
+        (seasonal mode, default).
       - Take the mean of the most recent `lookback` data points as the "current" value.
-      - Classify the percentile rank of the current value against history:
+      - Classify the percentile rank of the current value:
           < 5th  → Severe Drought
           5–20th → Drought
           20–80th→ Normal
           80–95th→ Flood Watch
           > 95th → Flood Risk
       - Return station list + Plotly Scattermapbox figure.
+
+    Seasonal mode (default):
+      Percentile thresholds are computed from the same calendar-month subset
+      of the historical record.  This removes the seasonal confound that causes
+      normal wet-season values to appear as "Flood Watch" when compared against
+      the full-year distribution.  Follows standard operational hydrological
+      monitoring practice (WMO flood early-warning guidelines).
     """
 
     # (key, low_pct, high_pct, color, label) — ordered high-to-low for legend
@@ -152,6 +165,7 @@ class RiskService:
         feature: str,
         lookback: int = 30,
         include_analysis: bool = False,
+        seasonal: bool = True,
     ) -> Dict[str, Any]:
         repo = self._find_repo_for_dataset(dataset)
         if repo is None:
@@ -184,8 +198,24 @@ class RiskService:
             lb = min(lookback, len(values))
             recent_mean = float(np.nanmean(values[-lb:]))
 
-            # Percentile rank of recent value vs full history
-            pct_rank = float(scipy.stats.percentileofscore(values, recent_mean))
+            if seasonal:
+                # ── Seasonal mode: compare against same calendar-month history ──
+                # Determine dominant calendar month in the lookback window
+                lookback_months = pd.Series(ts.iloc[-lb:].index.month, dtype='int64')
+                cal_month = int(lookback_months.mode().iloc[0])
+                historical_season = ts[ts.index.month == cal_month].values.astype(float)
+                if len(historical_season) < 3:
+                    # Not enough same-month observations — fall back to full record
+                    reference = values
+                    percentile_mode_station = 'full_record_fallback'
+                else:
+                    reference = historical_season
+                    percentile_mode_station = f'seasonal_month_{cal_month}'
+            else:
+                reference = values
+                percentile_mode_station = 'full_record'
+
+            pct_rank = float(scipy.stats.percentileofscore(reference, recent_mean))
             risk_key, risk_color, risk_label = self._classify(pct_rank)
 
             results.append({
@@ -198,6 +228,7 @@ class RiskService:
                 'color': risk_color,
                 'recent_value': round(recent_mean, 3),
                 'percentile_rank': round(pct_rank, 1),
+                'percentile_mode': percentile_mode_station,
                 'unit': unit,
             })
 
@@ -211,6 +242,10 @@ class RiskService:
 
         figure = self._build_map_figure(results, dataset, feature, unit)
 
+        percentile_mode_label = (
+            'seasonal (same calendar-month percentiles)' if seasonal
+            else 'full-record percentiles'
+        )
         result = {
             'dataset': dataset,
             'feature': feature,
@@ -220,6 +255,16 @@ class RiskService:
             'summary': summary,
             'stations': results,
             'figure': plotly.io.to_json(figure),
+            'percentile_mode': 'seasonal' if seasonal else 'full_record',
+            'method_note': (
+                f'Risk classification uses {percentile_mode_label} '
+                f'(P5/P20/P80/P95 thresholds). '
+                + ('Seasonal mode removes the confounding effect of regular '
+                   'seasonal cycles on risk classification. '
+                   if seasonal else
+                   'Full-record mode does not remove seasonal effects — '
+                   'wet-season values may appear elevated relative to the full-year distribution. ')
+            ),
         }
 
         if include_analysis:
@@ -239,14 +284,11 @@ class RiskService:
         unit: str,
     ) -> go.Figure:
 
-        DARK_BG = '#07111f'
-        TEXT = '#e5eefc'
-
         center_lat = float(np.mean([r['lat'] for r in results]))
         center_lon = float(np.mean([r['lon'] for r in results]))
 
         # Zoom: Mekong basin is narrow, LamaH is broader
-        zoom = 4 if dataset == 'mekong' else 4
+        zoom = 4 if dataset == 'mekong' else 6
 
         fig = go.Figure()
 
@@ -282,17 +324,9 @@ class RiskService:
             ),
             paper_bgcolor=DARK_BG,
             font=dict(family='Inter, sans-serif', color=TEXT, size=12),
-            legend=dict(
-                orientation='v',
-                yanchor='top', y=0.99,
-                xanchor='left', x=0.01,
-                font=dict(size=11),
-                bgcolor='rgba(7,17,31,0.82)',
-                bordercolor='rgba(148,163,184,0.15)',
-                borderwidth=1,
-            ),
+            legend=legend_v(),
             height=680,
-            margin=dict(l=0, r=0, t=40, b=0),
+            margin=MARGIN_MAP,
             title=dict(
                 text=f'{feature_label} Risk Map — {dataset.capitalize()}',
                 font=dict(size=14, color=TEXT),

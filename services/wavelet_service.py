@@ -13,6 +13,11 @@ from plotly.subplots import make_subplots
 
 from .analysis_service import _gemini_generate
 from .data_loader import SeriesRequest
+from .figure_theme import (
+    DARK_BG, TEXT, SOFT, GRID,
+    TITLE_SIZE, SUBTITLE_SIZE, TICK_SIZE, SUBTLE_TEXT,
+    style_subplot_titles,
+)
 
 
 def _fallback_wavelet_analysis(result: Dict[str, Any]) -> str:
@@ -185,17 +190,37 @@ class WaveletService:
 
         # Dominant periods (peaks in global spectrum)
         from scipy.signal import argrelmax
+        from scipy.stats import chi2 as chi2_dist
         peak_idxs = argrelmax(global_power, order=2)[0]
         if len(peak_idxs) == 0:
             peak_idxs = [int(np.nanargmax(global_power))]
         top_peaks = sorted(peak_idxs, key=lambda i: -global_power[i])[:3]
         dominant_periods = [int(periods[i]) for i in top_peaks if i < len(periods)]
 
+        # ── AR(1) red-noise significance (Torrence & Compo 1998, Eq. 16) ─────
+        # Estimate lag-1 autocorrelation of the normalised series
+        alpha1 = float(np.corrcoef(x_norm[:-1], x_norm[1:])[0, 1])
+        alpha1 = float(np.clip(alpha1, 0.0, 0.99))  # AR(1) coeff must be ≥ 0
+
+        # Theoretical AR(1) red-noise power spectrum at each scale's freq
+        # Frequency in cycles per sample: f = central_freq / (scale * dt)
+        freqs_per_sample = central_freq / (scales * dt)   # shape: (n_scales,)
+        # Background spectrum (Torrence & Compo Eq. 16):
+        # P(s) = (1 - alpha1^2) / |1 - alpha1*exp(-2*pi*i*f)|^2
+        #       = (1 - alpha1^2) / (1 + alpha1^2 - 2*alpha1*cos(2*pi*f))
+        denom = 1.0 + alpha1 ** 2 - 2.0 * alpha1 * np.cos(2.0 * np.pi * freqs_per_sample)
+        background_power = (1.0 - alpha1 ** 2) / np.maximum(denom, 1e-12)
+
+        # 95% significance threshold: chi²(2) / 2  (2 dof for complex Morlet)
+        sig95_scale = chi2_dist.ppf(0.95, df=2) / 2.0
+
+        # Significance threshold matrix: power must exceed background * sig95_scale
+        sig_threshold = background_power[:, np.newaxis] * sig95_scale  # (n_scales, N)
+
+        # Significance mask (True where power exceeds 95% threshold, outside COI)
+        sig_mask = (power > sig_threshold) & (~coi_mask)
+
         # ── Build figure ──────────────────────────────────────────────────────
-        DARK_BG = '#07111f'
-        TEXT = '#e5eefc'
-        SOFT = 'rgba(229,238,252,0.72)'
-        GRID = 'rgba(148,163,184,0.10)'
         visible_period_max = min(max_period, 60)
 
         # Downsample and focus the default view on the most interpretable range
@@ -228,7 +253,7 @@ class WaveletService:
 
         fig = make_subplots(
             rows=2, cols=1,
-            row_heights=[0.76, 0.24],
+            row_heights=[0.60, 0.40],
             vertical_spacing=0.12,
             subplot_titles=['Cycle Strength Through Time', 'Dominant Periods Overall'],
         )
@@ -292,6 +317,27 @@ class WaveletService:
             hovertemplate='COI boundary<br>Date: %{x|%Y-%m}<br>Reliable below ~%{y:.1f} months<extra></extra>',
             showlegend=False,
             name='COI boundary',
+        ), row=1, col=1)
+
+        # ── 95% red-noise significance contour ───────────────────────────────
+        # Downsample sig_mask to match the display grid (same step/visible filter as power)
+        sig_mask_plot = sig_mask[::step, :][visible_mask, :]
+        # Build a binary z-array: 1 where significant, 0 elsewhere
+        sig_z = sig_mask_plot.astype(float)
+        # Use a Contour trace to draw the boundary at level 0.5 (boundary of sig region)
+        fig.add_trace(go.Contour(
+            x=dates,
+            y=p_plot.tolist(),
+            z=sig_z.tolist(),
+            contours=dict(
+                start=0.5, end=0.5, size=0,
+                coloring='none',
+            ),
+            line=dict(color='rgba(255,255,200,0.85)', width=1.4),
+            showscale=False,
+            showlegend=False,
+            hoverinfo='skip',
+            name='95% sig (red noise)',
         ), row=1, col=1)
 
         PERIOD_COLORS = ['#f59e0b', '#34d399', '#60a5fa']
@@ -376,35 +422,33 @@ class WaveletService:
             paper_bgcolor=DARK_BG,
             plot_bgcolor='rgba(0,0,0,0)',
             font=dict(family='Inter, sans-serif', color=TEXT, size=11),
-            title=dict(
-                text=f'Wavelet Cycle Analysis — {feature_label} · {station_name}',
-                font=dict(size=18, color=TEXT),
-                x=0.5, xanchor='center',
-                y=0.98,
-            ),
             showlegend=False,
-            margin=dict(l=82, r=110, t=120, b=60),
-            height=660,
+            # right margin widened so right-side period annotations don't clip
+            margin=dict(l=70, r=200, t=95, b=60),
+            height=850,
         )
+        # Subtitle help-text annotations — positioned above the subplot title
         fig.add_annotation(
-            x=0.0, y=1.13,
+            x=0.0, y=1.11,
             xref='paper', yref='paper',
             showarrow=False,
             xanchor='left',
             align='left',
-            font=dict(color=SOFT, size=12),
+            font=dict(color=SUBTLE_TEXT, size=11),
             text='Shows when repeating cycles were strongest and which cycle lengths dominate overall.',
         )
         fig.add_annotation(
-            x=0.0, y=1.08,
+            x=0.0, y=1.06,
             xref='paper', yref='paper',
             showarrow=False,
             xanchor='left',
             align='left',
-            font=dict(color='rgba(229,238,252,0.66)', size=10),
-            text='How to read: brighter colors indicate stronger repeating behavior. Around 12 months suggests annual seasonality; longer periods suggest multi-year variability.',
+            font=dict(color='rgba(182,194,217,0.80)', size=10),
+            text='How to read: brighter colours = stronger repeating behaviour. '
+                 '~12 months = annual seasonality; longer periods = multi-year variability.',
         )
 
+        _tick_font = dict(color=TEXT, size=TICK_SIZE)
         fig.update_yaxes(
             title_text='Period (months)',
             range=[2, visible_period_max],
@@ -413,14 +457,14 @@ class WaveletService:
             ticktext=['2', '3', '6', '12', '24', '36', '48', '60'],
             gridcolor=GRID,
             zeroline=False,
-            tickfont=dict(color=TEXT, size=10),
+            tickfont=_tick_font,
             row=1, col=1,
         )
         fig.update_xaxes(
             showgrid=True,
             gridcolor=GRID,
             zeroline=False,
-            tickfont=dict(color=TEXT, size=10),
+            tickfont=_tick_font,
             tickformat='%Y',
             row=1, col=1,
         )
@@ -433,7 +477,7 @@ class WaveletService:
             showgrid=True,
             gridcolor=GRID,
             zeroline=False,
-            tickfont=dict(color=TEXT, size=10),
+            tickfont=_tick_font,
             row=2, col=1,
         )
         fig.update_yaxes(
@@ -441,15 +485,13 @@ class WaveletService:
             showgrid=True,
             gridcolor=GRID,
             zeroline=False,
-            tickfont=dict(color=TEXT, size=10),
+            tickfont=_tick_font,
             row=2, col=1,
         )
 
-        # Style subplot titles only
-        for ann in fig.layout.annotations[:2]:
-            ann.font.color = TEXT
-            ann.font.size = 13
+        style_subplot_titles(fig)
 
+        n_sig_pixels = int(np.sum(sig_mask_plot))
         result = {
             'title': f'Wavelet Analysis · {station_name}',
             'subtitle': (
@@ -462,6 +504,16 @@ class WaveletService:
                 'period_range_months': [int(min_period), int(max_period)],
                 'dominant_periods_months': dominant_periods[:3],
                 'wavelet': 'Morlet',
+                'ar1_alpha': round(alpha1, 3),
+                'sig95_pixels': n_sig_pixels,
+                'method_note': (
+                    'CWT follows Torrence & Compo (1998): Morlet wavelet, scale-normalised power '
+                    '|W|²/scale, cone of influence √2·scale. '
+                    '95% significance contour (pale yellow line) is computed against an AR(1) '
+                    f'red-noise background spectrum (α={alpha1:.3f}), following T&C Eq. 16. '
+                    'Features inside the contour exceed the 95% confidence level relative to '
+                    'red noise. Features outside the contour or inside the COI are descriptive only.'
+                ),
             },
         }
 

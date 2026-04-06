@@ -2185,7 +2185,6 @@ html[data-theme="light"] .benchmark-analysis {
 }
 
 .modal-body .plot-container {
-    height: 60vh;
     min-height: 500px;
 }
 
@@ -3230,28 +3229,140 @@ html[data-theme="light"] .network-stat-value {
     padding-bottom: 8px;
 }
 
+.network-graph-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 14px 16px 8px;
+    align-items: flex-start;
+}
+
+.network-graph-titlewrap {
+    min-width: 0;
+    flex: 1 1 320px;
+}
+
 .network-section-title {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 700;
     color: var(--text);
     letter-spacing: 0.03em;
-    padding: 12px 16px 0;
-    margin: 0 0 10px;
+    padding: 0;
+    margin: 0 0 6px;
 }
 
 .network-note {
     font-size: 12px;
     color: var(--text-soft);
-    padding: 0 16px 12px;
     margin: 0;
-    line-height: 1.5;
+    line-height: 1.45;
+    max-width: 720px;
+}
+
+.network-graph-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    justify-content: flex-end;
+    flex: 0 1 520px;
+    padding-top: 2px;
+}
+
+.network-legend-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-soft);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.network-legend-swatch {
+    display: inline-block;
+    flex: 0 0 auto;
+}
+
+.network-legend-swatch-main {
+    width: 28px;
+    height: 0;
+    border-top: 4px solid #7dd3fc;
+}
+
+.network-legend-swatch-trib-line {
+    width: 24px;
+    height: 0;
+    border-top: 2px solid rgba(161, 177, 198, 0.5);
+}
+
+.network-legend-swatch-node-main {
+    width: 11px;
+    height: 11px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #46bfe9, #f3d27b);
+    border: 1.5px solid rgba(229, 238, 252, 0.9);
+    box-shadow: 0 0 0 3px rgba(70, 191, 233, 0.14);
+}
+
+.network-legend-swatch-node-trib {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(161, 177, 198, 0.56);
+    border: 1px solid rgba(211, 223, 239, 0.58);
+}
+
+.network-legend-arrow {
+    color: #d8f1ff;
+    font-size: 14px;
+    line-height: 1;
 }
 
 .network-plot-container {
     width: 100%;
-    height: 780px;
-    padding: 0 16px 8px;
+    height: 760px;
+    padding: 0 16px 0;
     box-sizing: border-box;
+}
+
+.network-graph-footer {
+    margin: 10px 16px 0;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.network-graph-guide {
+    color: var(--text);
+    font-size: 12px;
+    line-height: 1.5;
+    font-weight: 600;
+}
+
+.network-graph-caveat {
+    color: rgba(157, 176, 209, 0.72);
+    font-size: 11px;
+    line-height: 1.5;
+    margin-top: 6px;
+}
+
+@media (max-width: 980px) {
+    .network-graph-header {
+        flex-direction: column;
+    }
+
+    .network-graph-legend {
+        justify-content: flex-start;
+    }
+
+    .network-plot-container {
+        height: 680px;
+    }
 }
 
 /* Network tables */
@@ -3534,6 +3645,22 @@ html[data-theme="light"] .network-stat-value {
     color: var(--text);
 }
 
+.analysis-content ul {
+    margin: 8px 0 8px 0;
+    padding-left: 18px;
+    list-style: disc;
+}
+
+.analysis-content li {
+    display: list-item;
+    margin-bottom: 6px;
+    line-height: 1.7;
+}
+
+.analysis-content p {
+    margin: 0 0 10px 0;
+}
+
 .analysis-content br {
     display: block;
     content: '';
@@ -3764,6 +3891,33 @@ html[data-theme="light"] .scenario-slider::-webkit-slider-thumb {
 .quality-flag-clear {
     opacity: 0.55;
     padding: 2px 6px;
+}
+
+.quality-page-info {
+    font-size: 11px;
+    color: var(--text-soft);
+    padding: 6px 0 4px;
+}
+
+.quality-page-btns {
+    display: flex;
+    gap: 6px;
+    padding-bottom: 8px;
+}
+
+.quality-page-btn {
+    padding: 3px 10px;
+    font-size: 11px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.quality-page-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
 }
 
 /* ── Extreme Event Analysis ──────────────────────────────────────────────── */

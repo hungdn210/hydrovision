@@ -10,6 +10,8 @@ import plotly.io
 import scipy.stats
 
 from .data_loader import SeriesRequest
+from .figure_theme import DARK_BG, TEXT, SUBTLE_TEXT, TITLE_SIZE
+from .metrics import mann_kendall
 
 
 # Risk classification thresholds (percentile-based, same as RiskService)
@@ -42,6 +44,85 @@ def _marker_size(pct: float) -> float:
     if pct >= 80 or pct < 20:
         return 15
     return 12
+
+
+def _build_animation_narrative(
+    year_stats: List[Dict],
+    feature_label: str,
+    dataset: str,
+    unit: str,
+    years: List[int],
+) -> str:
+    """
+    Build a local HTML narrative for the animated map.
+
+    *year_stats* is the list collected during the frames loop, each entry::
+
+        {'year': int, 'wet_pct': float, 'dry_pct': float,
+         'dominant': str, 'n_active': int}
+    """
+    if not year_stats:
+        return ''
+
+    wet_series = np.array([s['wet_pct'] for s in year_stats])
+    dry_series = np.array([s['dry_pct'] for s in year_stats])
+
+    worst_flood   = max(year_stats, key=lambda s: s['wet_pct'])
+    worst_drought = max(year_stats, key=lambda s: s['dry_pct'])
+    avg_wet = float(np.mean(wet_series))
+    avg_dry = float(np.mean(dry_series))
+
+    # Mann-Kendall trend on the wet-fraction time series
+    mk = mann_kendall(wet_series)
+    sig_note = ' (p<0.05, statistically significant)' if mk['significant'] else ' (not statistically significant at p=0.05)'
+    trend_text = mk['trend']
+
+    # First-third vs last-third decadal comparison
+    n = len(year_stats)
+    if n >= 6:
+        third = max(1, n // 3)
+        early = year_stats[:third]
+        late  = year_stats[-third:]
+        early_wet  = float(np.mean([s['wet_pct'] for s in early]))
+        late_wet   = float(np.mean([s['wet_pct'] for s in late]))
+        early_span = f"{early[0]['year']}–{early[-1]['year']}"
+        late_span  = f"{late[0]['year']}–{late[-1]['year']}"
+        diff = late_wet - early_wet
+        if diff > 5:
+            shift = (
+                f'Wet-risk stations increased from {early_wet:.0f}% in {early_span} '
+                f'to {late_wet:.0f}% in {late_span}, suggesting a wetting shift.'
+            )
+        elif diff < -5:
+            shift = (
+                f'Wet-risk stations decreased from {early_wet:.0f}% in {early_span} '
+                f'to {late_wet:.0f}% in {late_span}, suggesting a drying shift.'
+            )
+        else:
+            shift = (
+                f'Wet-risk station fractions were broadly stable between {early_span} '
+                f'({early_wet:.0f}%) and {late_span} ({late_wet:.0f}%), '
+                f'indicating no strong multi-decadal shift.'
+            )
+    else:
+        shift = 'The record is too short for a reliable decadal comparison.'
+
+    unit_note = f' {unit}' if unit else ''
+    return (
+        f'<p><strong>Basin Animation Summary — {feature_label} · {dataset.capitalize()}</strong></p>'
+        f'<ul>'
+        f'<li><strong>Peak Flood Year:</strong> <strong>{worst_flood["year"]}</strong> had the highest proportion of '
+        f'flood-risk stations ({worst_flood["wet_pct"]:.0f}% of active stations above the 80th historical percentile).</li>'
+        f'<li><strong>Peak Drought Year:</strong> <strong>{worst_drought["year"]}</strong> had the highest proportion of '
+        f'drought-risk stations ({worst_drought["dry_pct"]:.0f}% below the 20th percentile).</li>'
+        f'<li><strong>Long-term Trend:</strong> The wet-risk station fraction shows a '
+        f'<strong>{trend_text}</strong> trend over {years[0]}–{years[-1]}{sig_note}.</li>'
+        f'<li><strong>Baseline Conditions:</strong> On average, {avg_wet:.0f}% of stations were in '
+        f'flood-watch or flood-risk condition and {avg_dry:.0f}% were in drought or severe drought '
+        f'across the {len(years)}-year record.</li>'
+        f'<li><strong>Decadal Shift:</strong> {shift}</li>'
+        f'</ul>'
+    )
 
 
 class AnimationService:
@@ -90,7 +171,20 @@ class AnimationService:
         self,
         dataset: str,
         feature: str,
+        speed: float = 2.0,
     ) -> Dict[str, Any]:
+        """
+        Build the animated map.
+
+        Parameters
+        ----------
+        speed : float, 1–5
+            Animation playback speed.  Maps to frame duration:
+            1 → 1000 ms (slowest), 2 → 500 ms, 3 → 250 ms,
+            4 → 125 ms, 5 → 62 ms (fastest).
+            The Plotly slider steps use this duration so manual
+            stepping and the play button stay in sync.
+        """
         repo = self._find_repo(dataset)
         if repo is None:
             raise ValueError(f"Dataset '{dataset}' not found.")
@@ -142,9 +236,6 @@ class AnimationService:
         for rec in records:
             rec['all_vals'] = rec['ts'].values.astype(float)
 
-        DARK_BG = '#07111f'
-        TEXT = '#e5eefc'
-        SUBTLE_TEXT = '#b6c2d9'
         feature_label = feature.replace('_', ' ').title()
 
         def make_year_annotation(year: int) -> Dict[str, Any]:
@@ -191,9 +282,15 @@ class AnimationService:
         max_range = max(lat_range, lon_range, 0.5)
         zoom = round(max(3.0, min(8.0, math.log2(360 / max_range) - 0.5)), 1)
 
+        # Speed → frame duration mapping (matches JS frameDurations array)
+        _speed = max(1, min(5, int(round(speed))))
+        frame_ms = int(1000 / (2 ** (_speed - 1)))   # 1→1000, 2→500, 3→250, 4→125, 5→62
+        transition_ms = min(frame_ms // 2, 200)
+
         # ── Build one frame per year ──────────────────────────────────────────
         frames = []
         slider_steps = []
+        year_stats: List[Dict] = []
 
         for year in years:
             lats, lons, colors, texts, sizes = [], [], [], [], []
@@ -222,6 +319,10 @@ class AnimationService:
             wet_share = (counts['Flood Watch'] + counts['Flood Risk']) / total * 100
             dry_share = (counts['Drought'] + counts['Severe Drought']) / total * 100
             dominant_label = max(counts.items(), key=lambda item: item[1])[0]
+            year_stats.append({
+                'year': year, 'wet_pct': wet_share, 'dry_pct': dry_share,
+                'dominant': dominant_label, 'n_active': len(lats),
+            })
             status_html = (
                 f"<b>{dominant_label}</b><br>"
                 f"<span style='color:{SUBTLE_TEXT}'>Wet-risk stations</span> {wet_share:.0f}%"
@@ -262,9 +363,9 @@ class AnimationService:
             ))
             slider_steps.append(dict(
                 args=[[str(year)], dict(
-                    frame=dict(duration=400, redraw=True),
+                    frame=dict(duration=frame_ms, redraw=True),
                     mode='immediate',
-                    transition=dict(duration=200),
+                    transition=dict(duration=transition_ms),
                 )],
                 label=str(year),
                 method='animate',
@@ -337,15 +438,21 @@ class AnimationService:
             )],
         )
 
+        narrative = _build_animation_narrative(
+            year_stats, feature_label, dataset, unit, years,
+        )
+
         return {
             'title': f'Animated Map · {feature_label} · {dataset.capitalize()}',
             'subtitle': f'{len(records)} stations · {years[0]}–{years[-1]} · {len(years)} frames',
             'figure': plotly.io.to_json(fig),
+            'analysis': narrative,
             'stats': {
                 'n_stations': len(records),
                 'n_years': len(years),
                 'year_range': [years[0], years[-1]],
                 'feature': feature,
                 'dataset': dataset,
+                'speed': _speed,
             },
         }

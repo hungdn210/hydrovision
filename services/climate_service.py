@@ -12,6 +12,12 @@ import scipy.stats
 
 from .analysis_service import _gemini_generate
 from .data_loader import SeriesRequest
+from .figure_theme import (
+    TEXT, SOFT, GRID_LIGHT,
+    dark_layout, axis_style,
+    legend_v, MARGIN_STD,
+    forecast_divider_shape, forecast_divider_annotation,
+)
 
 
 def _fallback_climate_analysis(result: Dict[str, Any]) -> str:
@@ -45,14 +51,18 @@ def _fallback_climate_analysis(result: Dict[str, Any]) -> str:
 
     return (
         '<p><strong>Executive Summary</strong></p>'
-        f'<p>The climate projection for <strong>{title}</strong> extends the observed historical trend into the next {projection_years} years and applies scenario-based climate adjustments for three SSP pathways. '
-        f'The historical trend is {trend:+.4f} per decade with R²={r2}, while the end-of-period scenario spread indicates how strongly future risk depends on the emissions pathway.</p>'
+        f'<p>The climate sensitivity analysis for <strong>{title}</strong> extends the observed historical trend into the next {projection_years} years and applies illustrative SSP delta-scaling brackets. '
+        f'The historical trend is {trend:+.4f} per decade with R²={r2}. '
+        f'The end-of-period scenario spread indicates how strongly future conditions may diverge under different warming assumptions.</p>'
+        f'<p><em>Note: SSP scaling factors are illustrative sensitivity proxies, not CMIP6 ensemble projections. '
+        f'Treat these envelopes as directional planning brackets, not deterministic forecasts.</em></p>'
         '<p><strong>Detailed Insights</strong></p>'
         '<ul>'
         f'<li><strong>Historical Trend:</strong> The fitted historical trend is {trend:+.4f} per decade with R²={r2}, which summarises the long-run direction and strength of the observed annual signal.</li>'
         f'{scenario_range_html}'
         f'{high_risk_html}'
-        '<li><strong>Operational Interpretation:</strong> Use the scenario spread to test adaptation options, but treat the projection as a screening tool rather than a deterministic forecast for a specific future year.</li>'
+        '<li><strong>Operational Interpretation:</strong> Use the scenario spread to test adaptation options and stress-test planning assumptions. '
+        'These are sensitivity envelopes — pair them with local hydrological knowledge and, where available, downscaled CMIP6 projections before making infrastructure decisions.</li>'
         '</ul>'
     )
 
@@ -63,23 +73,26 @@ def _generate_climate_analysis(result: Dict[str, Any]) -> str:
         return _fallback_climate_analysis(result)
     try:
         s = result.get('stats', {})
-        prompt = f"""Act as a professional hydrologist interpreting a climate-impact projection.
+        prompt = f"""Act as a professional hydrologist interpreting a climate sensitivity analysis.
 Write the response in markdown and structure it exactly as follows:
 
 **Executive Summary**
 2-3 sentences summarising the historical trend, the projection horizon, and the significance of the scenario spread.
+Always note that SSP scaling factors are illustrative sensitivity brackets, not CMIP6 ensemble projections.
 
 **Detailed Insights**
 - **Historical Trend:** interpret the sign, magnitude, and strength of the historical trend.
-- **Scenario Spread:** compare low-, medium-, and high-emissions pathways using the provided end-state changes.
-- **Risk Interpretation:** explain what the most severe scenario implies for water-resource risk.
-- **Operational Interpretation:** state how the projection should be used in planning and decision-making.
+- **Scenario Spread:** compare low-, medium-, and high-warming sensitivity brackets using the provided end-state changes.
+- **Risk Interpretation:** explain what the most severe sensitivity bracket implies for water-resource planning.
+- **Operational Interpretation:** state how the sensitivity envelopes should be used in planning and decision-making, and remind the reader these are not CMIP6 projections.
 
 Rules:
 - Use professional hydrological language.
 - Always cite specific numbers from the provided results.
 - Replace underscores with spaces.
 - Do not include any introduction or sign-off outside the two sections.
+- Use the term "sensitivity envelope" or "sensitivity bracket" rather than "projection" for the future scenarios.
+- Acknowledge the illustrative nature of the SSP delta scaling.
 
 Projection title: {str(result.get('title', '')).replace('_', ' ')}
 Historical trend: {s.get('historical_trend_per_decade')} per decade (R²={s.get('r_squared')}, p={s.get('p_value')})
@@ -91,30 +104,50 @@ Scenarios: {s.get('scenarios')}
         return _fallback_climate_analysis(result)
 
 
+# ── Methodological disclaimer ─────────────────────────────────────────────────
+# The scaling factors below are illustrative delta proxies, NOT derived from
+# CMIP6 GCM ensemble output.  They represent plausible directional sensitivity
+# brackets tied to IPCC-reported warming levels, but should be treated as
+# "what-if" sensitivity envelopes rather than calibrated climate projections.
+# For true climate projections, CMIP6 bias-corrected regional outputs
+# (e.g. ISIMIP3, CORDEX-SEA) are required.
+SSP_DISCLAIMER = (
+    'Scaling factors are illustrative delta proxies and do not derive from '
+    'CMIP6 GCM ensemble output. These scenarios visualise directional '
+    'sensitivity under different warming assumptions and should not be '
+    'interpreted as calibrated climate projections.'
+)
+
 # SSP scenario definitions — delta_temp in °C above baseline,
 # discharge_scale / precip_scale as fractional change by end of projection window
 SCENARIOS = {
-    'SSP1-2.6': {'delta_temp': 1.5, 'q_scale': -0.08, 'p_scale': 0.05, 'color': '#34d399', 'dash': 'dot'},
-    'SSP2-4.5': {'delta_temp': 2.5, 'q_scale': -0.16, 'p_scale': 0.09, 'color': '#60a5fa', 'dash': 'dash'},
-    'SSP5-8.5': {'delta_temp': 4.5, 'q_scale': -0.30, 'p_scale': 0.15, 'color': '#f87171', 'dash': 'dashdot'},
+    'SSP1-2.6 (Low)':  {'delta_temp': 1.5, 'q_scale': -0.08, 'p_scale': 0.05, 'color': '#34d399', 'dash': 'dot'},
+    'SSP2-4.5 (Med)':  {'delta_temp': 2.5, 'q_scale': -0.16, 'p_scale': 0.09, 'color': '#60a5fa', 'dash': 'dash'},
+    'SSP5-8.5 (High)': {'delta_temp': 4.5, 'q_scale': -0.30, 'p_scale': 0.15, 'color': '#f87171', 'dash': 'dashdot'},
 }
 
 from .feature_registry import get_feature_type, FeatureType
 
 class ClimateService:
     """
-    Climate Change Impact Projector.
+    Climate Sensitivity Projector (illustrative SSP delta-change approach).
 
-    Methodology (delta-change approach):
+    Methodology:
       1. Compute the linear trend and inter-annual variability from the full
          historical record (annual means).
       2. Extend the baseline trend into the future projection window.
       3. Apply scenario-specific progressive scaling factors that represent
-         the expected direction and magnitude of change under each SSP.
+         the expected direction and magnitude of change under each SSP
+         warming bracket.
       4. Add uncertainty bands that widen with time, scaled by the warming
          level of each scenario.
       5. Return a Plotly figure with historical data, trend, and projected
-         bands for all three SSP scenarios.
+         sensitivity envelopes for three SSP-labelled warming brackets.
+
+    IMPORTANT — Academic limitation:
+      The SSP scaling factors are illustrative proxies, NOT CMIP6 ensemble
+      output. Results are sensitivity envelopes for planning purposes, not
+      calibrated climate projections. See SSP_DISCLAIMER for details.
     """
 
     def __init__(self, repository) -> None:
@@ -196,8 +229,6 @@ class ClimateService:
         # Progress fraction 0→1 over projection window
         t_frac = (future_years - future_years[0]) / max(projection_years - 1, 1)
 
-        DARK_BG = '#07111f'
-        TEXT = '#e5eefc'
         fig = go.Figure()
 
         # ── Historical annual data ────────────────────────────────────────────
@@ -217,7 +248,7 @@ class ClimateService:
             y=trend_y,
             mode='lines',
             name=f'Historical trend  ({slope * 10:+.3f} {unit}/decade)',
-            line=dict(color='#e5eefc', width=1.5, dash='dash'),
+            line=dict(color=TEXT, width=1.5, dash='dash'),
         ))
 
         # ── SSP scenario projections ──────────────────────────────────────────
@@ -271,56 +302,25 @@ class ClimateService:
         feature_label = feature.replace('_', ' ').title()
         station_name = repo.station_index[station].get('name', station)
 
-        fig.update_layout(
-            paper_bgcolor=DARK_BG,
-            plot_bgcolor='rgba(0,0,0,0)',
-            font=dict(family='Inter, sans-serif', color=TEXT, size=12),
-            title=dict(
-                text=f'Climate Impact Projection — {feature_label} · {station_name}',
-                font=dict(size=14, color=TEXT),
-                x=0.5, xanchor='center',
-            ),
-            xaxis=dict(
-                title='Year',
-                gridcolor='rgba(148,163,184,0.08)',
-                showgrid=True,
-                zeroline=False,
-            ),
-            yaxis=dict(
-                title=f'{feature_label} ({unit})' if unit else feature_label,
-                gridcolor='rgba(148,163,184,0.08)',
-                showgrid=True,
-                zeroline=False,
-            ),
-            legend=dict(
-                orientation='v',
-                yanchor='top', y=0.99,
-                xanchor='left', x=0.01,
-                bgcolor='rgba(7,17,31,0.82)',
-                bordercolor='rgba(148,163,184,0.15)',
-                borderwidth=1,
-                font=dict(size=10),
-            ),
-            margin=dict(l=60, r=20, t=50, b=50),
-            shapes=[dict(
-                type='line',
-                x0=last_year, x1=last_year,
-                y0=0, y1=1, yref='paper',
-                line=dict(color='rgba(148,163,184,0.4)', dash='dot', width=1),
-            )],
-            annotations=[dict(
-                x=last_year, y=1.04, yref='paper',
-                xanchor='center', showarrow=False,
-                text='↑ Projection',
-                font=dict(color='rgba(148,163,184,0.6)', size=10),
-            )],
-        )
+        _ax = axis_style(grid=GRID_LIGHT)
+        fig.update_layout(**dark_layout(
+            title=f'Climate Sensitivity Analysis — {feature_label} · {station_name}',
+            height=520,
+            margin=MARGIN_STD,
+            show_legend=True,
+            xaxis=dict(**_ax, title='Year', showgrid=True, zeroline=False),
+            yaxis=dict(**_ax, title=f'{feature_label} ({unit})' if unit else feature_label,
+                       showgrid=True, zeroline=False),
+            legend=legend_v(),
+            shapes=[forecast_divider_shape(last_year)],
+            annotations=[forecast_divider_annotation(last_year, label='↑ Projection')],
+        ))
 
         result = {
-            'title': f'Climate Projection · {station_name}',
+            'title': f'Climate Sensitivity Analysis · {station_name}',
             'subtitle': (
                 f'{feature_label} · {int(years_hist[0])}–{last_year} historical '
-                f'+ {projection_years}-year projection'
+                f'+ {projection_years}-year sensitivity projection'
             ),
             'series': [{'station': station, 'feature': feature,
                         'start_date': str(annual.index[0].date()),
@@ -334,6 +334,12 @@ class ClimateService:
                 'projection_years': projection_years,
                 'scenarios': scenario_stats,
             },
+            'method_note': (
+                'Linear trend extrapolation + illustrative SSP delta-scaling brackets. '
+                'Historical trend fitted by ordinary least squares on annual means.'
+            ),
+            'caveat': SSP_DISCLAIMER,
+            'analysis_strength': 'illustrative_sensitivity',
         }
 
         if include_analysis:

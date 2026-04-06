@@ -4,61 +4,191 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
+import markdown
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.io
 from plotly.subplots import make_subplots
+from .analysis_service import _gemini_generate
 from .data_loader import SeriesRequest
+from .figure_theme import (
+    GRID, dark_layout, axis_style,
+    legend_h, MARGIN_SUBPLOT, style_subplot_titles,
+    method_note_annotation,
+)
+
+
+def _fallback_scenario_analysis(scenario_result: Dict[str, Any]) -> str:
+    """
+    Local rule-based analysis for scenario results.
+    Always returns useful structured HTML — no external AI required.
+    """
+    station  = scenario_result.get('station', '').replace('_', ' ')
+    target   = scenario_result.get('target_feature', '').replace('_', ' ')
+    driver   = scenario_result.get('driver_feature', '').replace('_', ' ')
+    scale    = float(scenario_result.get('scale_pct', 0))
+    duration = int(scenario_result.get('duration_months', 0))
+    unit     = scenario_result.get('unit', '')
+    stats    = scenario_result.get('stats', {}) or {}
+    sens     = scenario_result.get('sensitivity', {}) or {}
+
+    mean_delta     = float(stats.get('mean_delta', 0))
+    max_delta      = float(stats.get('max_delta', 0))
+    mean_delta_pct = float(stats.get('mean_delta_pct', 0))
+    elasticity     = float(sens.get('elasticity', 0))
+    dominant_lag   = int(sens.get('dominant_lag', 0))
+    r_value        = float(sens.get('r_value', 0))
+    fit_r2         = float(sens.get('fit_r2', 0))
+    used_fallback  = bool(sens.get('used_fallback', False))
+    model_type     = str(sens.get('model_type', 'statistical'))
+    is_direct      = bool(sens.get('direct', False))
+    baseline_source = scenario_result.get('baseline_source', 'unknown')
+
+    # ── Interpret direction ────────────────────────────────────────────────────
+    driver_direction = 'increase' if scale > 0 else 'decrease'
+    response_direction = 'increase' if mean_delta > 0 else 'decrease'
+    sign = '+' if scale >= 0 else ''
+
+    # ── Classify elasticity ────────────────────────────────────────────────────
+    abs_elast = abs(elasticity)
+    if abs_elast > 1.5:
+        elast_class = 'highly elastic'
+        elast_note  = f'A 1% {driver_direction} in {driver} produces approximately {abs_elast:.2f}% change in {target} — a strong amplified response.'
+    elif abs_elast > 0.5:
+        elast_class = 'moderately elastic'
+        elast_note  = f'A 1% {driver_direction} in {driver} produces approximately {abs_elast:.2f}% change in {target} — a proportional response.'
+    else:
+        elast_class = 'inelastic'
+        elast_note  = f'A 1% {driver_direction} in {driver} produces only {abs_elast:.2f}% change in {target} — a muted, dampened response.'
+
+    # ── Interpret lag ──────────────────────────────────────────────────────────
+    if is_direct:
+        lag_note = f'{target} responds instantaneously because the driver and target are the same variable (direct scaling applied).'
+    elif dominant_lag == 0:
+        lag_note = f'The dominant response occurs within the same month as the driver change — near-instantaneous propagation.'
+    else:
+        lag_note = (
+            f'The dominant response lags the driver by {dominant_lag} month(s), meaning the peak effect on {target} '
+            f'propagates approximately {dominant_lag} month(s) after the driver change is applied.'
+        )
+
+    # ── Classify model confidence ──────────────────────────────────────────────
+    if is_direct:
+        confidence_note = 'Confidence is not applicable — direct scaling was used (driver equals target variable).'
+    elif used_fallback:
+        confidence_note = (
+            f'The fitted model has a low historical correlation (R={r_value:.2f}, R²={fit_r2:.2f}). '
+            f'The relationship between {driver} and {target} is weak — treat this scenario as indicative only.'
+        )
+    elif r_value >= 0.7:
+        confidence_note = (
+            f'The model shows a strong historical fit (R={r_value:.2f}, R²={fit_r2:.2f}), '
+            f'supporting reasonable confidence in the directional scenario estimate.'
+        )
+    else:
+        confidence_note = (
+            f'The model shows a moderate historical fit (R={r_value:.2f}, R²={fit_r2:.2f}). '
+            f'Interpret the scenario as a directional estimate, not a precise projection.'
+        )
+
+    # ── Baseline source note ───────────────────────────────────────────────────
+    if baseline_source == 'trained_model_csv':
+        baseline_note = 'The baseline forecast is drawn from a trained ML model CSV.'
+    else:
+        baseline_note = 'The baseline forecast uses a statistical mean projection (no trained model CSV was available).'
+
+    # ── Unit-safe formatting ───────────────────────────────────────────────────
+    unit_str = f' {unit}' if unit else ''
+    mean_delta_str = f'{mean_delta:+.3f}{unit_str}'
+    max_delta_str  = f'{max_delta:.3f}{unit_str}'
+
+    return (
+        '<p><strong>Scenario Impact Summary</strong></p>'
+        f'<p>A <strong>{sign}{scale:.0f}% {driver_direction}</strong> in <strong>{driver}</strong> '
+        f'applied over <strong>{duration} month(s)</strong> at <strong>{station}</strong> is projected to cause '
+        f'a mean <strong>{response_direction} of {mean_delta_str} ({mean_delta_pct:+.1f}%)</strong> '
+        f'in <strong>{target}</strong>.</p>'
+        '<p><strong>Detailed Insights</strong></p>'
+        '<ul>'
+        f'<li><strong>Driver &amp; Response:</strong> The {sign}{scale:.0f}% {driver_direction} in {driver} '
+        f'produces a mean {response_direction} of {mean_delta_str} in {target}, '
+        f'with a peak single-month impact of {max_delta_str}.</li>'
+        f'<li><strong>Sensitivity (Elasticity):</strong> The system is <strong>{elast_class}</strong> '
+        f'(elasticity = {elasticity:.2f}). {elast_note}</li>'
+        f'<li><strong>Lag Dynamics:</strong> {lag_note}</li>'
+        f'<li><strong>Model Confidence:</strong> {confidence_note}</li>'
+        f'<li><strong>Baseline &amp; Methodology:</strong> {baseline_note} '
+        f'This is a <em>statistical response model</em> based on historical co-variation between {driver} and {target}. '
+        f'It does not simulate physical processes and should not be used outside the historical range of the driver.</li>'
+        '</ul>'
+    )
 
 
 def _generate_scenario_analysis(scenario_result: Dict[str, Any]) -> str:
-    """Generate AI analysis of scenario results using Gemini."""
-    api_key = os.getenv('GEMINI_API_KEY')
-    if not api_key:
-        return ''
+    """
+    Generate AI-enhanced scenario analysis using Gemini.
+    Falls back to the local rule-based analysis on any failure.
+    """
+    api_key = os.getenv('GEMINI_API_KEY', '').strip()
+    if not api_key or api_key == 'your_google_gemini_api_key_here':
+        return _fallback_scenario_analysis(scenario_result)
+
+    station  = scenario_result.get('station', '').replace('_', ' ')
+    target   = scenario_result.get('target_feature', '').replace('_', ' ')
+    driver   = scenario_result.get('driver_feature', '').replace('_', ' ')
+    scale    = scenario_result.get('scale_pct', 0)
+    duration = scenario_result.get('duration_months', 0)
+    unit     = scenario_result.get('unit', '')
+    stats    = scenario_result.get('stats', {}) or {}
+    sens     = scenario_result.get('sensitivity', {}) or {}
+
+    prompt = (
+        'Act as a professional hydrologist interpreting a hydrological scenario simulation.\n\n'
+        'Write the response in markdown and structure it exactly as follows:\n\n'
+        '**Scenario Impact Summary**\n'
+        '2-3 sentences: what the scenario simulates, the overall direction of impact, '
+        'and whether the effect is large or small relative to normal conditions.\n\n'
+        '**Detailed Insights**\n'
+        '- **Driver & Response:** Quantify the mean and peak impact with units. '
+        'State whether the effect is proportional to the driver change.\n'
+        '- **Sensitivity (Elasticity):** Interpret the elasticity value. '
+        'Is the target highly sensitive or dampened to driver changes?\n'
+        '- **Lag Dynamics:** Explain what the dominant lag means operationally — '
+        'how soon after a driver change does the target respond?\n'
+        '- **Model Confidence:** Interpret R and R² values. '
+        'State how much trust a water manager should place in these estimates.\n'
+        '- **Operational Implications:** What should a water manager do with this result? '
+        'What decisions could it inform (reservoir releases, irrigation scheduling, flood preparedness)?\n\n'
+        'Rules:\n'
+        '- Use professional hydrological language.\n'
+        '- Always cite specific numbers.\n'
+        '- Replace underscores with spaces.\n'
+        '- Make clear this is a statistical response model, not a physical simulation.\n'
+        '- No introduction, no sign-off.\n\n'
+        f'Station: {station}\n'
+        f'Target variable: {target} ({unit})\n'
+        f'Driver variable: {driver}\n'
+        f'Driver change: {scale:+.0f}%\n'
+        f'Duration: {duration} month(s)\n'
+        f'Mean impact: {stats.get("mean_delta", 0):+.3f} {unit}\n'
+        f'Peak impact: {stats.get("max_delta", 0):.3f} {unit}\n'
+        f'Mean % change: {stats.get("mean_delta_pct", 0):+.1f}%\n'
+        f'Elasticity: {sens.get("elasticity", 0):.2f}\n'
+        f'Dominant lag: {sens.get("dominant_lag", 0)} month(s)\n'
+        f'Model fit R: {sens.get("r_value", 0):.2f}\n'
+        f'Model fit R²: {sens.get("fit_r2", 0):.2f}\n'
+        f'Model type: {sens.get("model_type", "unknown")}\n'
+        f'Weak fit warning: {sens.get("used_fallback", False)}\n'
+    )
 
     try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
-
-        station = scenario_result.get('station', '').replace('_', ' ')
-        target = scenario_result.get('target_feature', '').replace('_', ' ')
-        driver = scenario_result.get('driver_feature', '').replace('_', ' ')
-        scale = scenario_result.get('scale_pct', 0)
-        duration = scenario_result.get('duration_months', 0)
-        stats = scenario_result.get('stats', {})
-        sensitivity = scenario_result.get('sensitivity', {})
-
-        prompt = f"""
-Analyze this hydrological scenario simulation result and provide 2-3 bullet-point insights:
-
-**Scenario Details:**
-- Station: {station}
-- Target variable: {target}
-- Driver variable: {driver}
-- Driver change: {scale:+.0f}%
-- Application duration: {duration} month(s)
-
-**Results:**
-- Mean impact: {stats.get('mean_delta', 0):+.2f} units
-- Peak impact: {stats.get('max_delta', 0):+.2f} units
-- Average % change: {stats.get('mean_delta_pct', 0):+.1f}%
-- Elasticity (sensitivity): {sensitivity.get('elasticity', 0):.2f}
-- Dominant lag: {sensitivity.get('dominant_lag', 0)} month(s)
-- Model type: {sensitivity.get('model_type', 'unknown')}
-
-Provide brief, actionable insights about the scenario impact. Make clear this is a statistical response model, not a physics simulation. Format as bullet points.
-"""
-
-        response = client.models.generate_content(
-            model='gemini-3.1-flash-lite-preview',
-            contents=prompt
-        )
-        return response.text.strip()
-    except Exception as e:
-        # Silently fail — analysis is optional
-        return ''
+        raw = _gemini_generate(api_key, prompt)
+        if not raw or not raw.strip():
+            return _fallback_scenario_analysis(scenario_result)
+        return markdown.markdown(raw)
+    except Exception:
+        return _fallback_scenario_analysis(scenario_result)
 
 
 class ScenarioService:
@@ -239,12 +369,45 @@ class ScenarioService:
         dominant_lag = int(np.argmax(np.abs(driver_lag_coeffs))) if driver_lag_coeffs else 0
         mean_driver = float(aligned['driver'].mean())
         mean_target = float(aligned['target'].mean())
-        elasticity = cumulative_response * mean_driver / mean_target if mean_target != 0 else cumulative_response
+        # Marginal response ratio (linear sensitivity — labelled "elasticity" for legacy compat)
+        # Interpretation: % change in target per % change in driver (cumulative, linear).
+        marginal_response_ratio = cumulative_response * mean_driver / mean_target if mean_target != 0 else cumulative_response
+
+        # ── F-test p-value for model significance ────────────────────────────
+        n_obs = len(y)
+        k_params = len(coefs)  # number of regressors
+        ss_res = float(np.sum(residuals ** 2))
+        ss_tot = float(np.sum((y - y.mean()) ** 2))
+        if ss_tot > 0 and n_obs > k_params:
+            f_stat = ((ss_tot - ss_res) / k_params) / (ss_res / (n_obs - k_params))
+            from scipy.stats import f as f_dist
+            p_value = float(1.0 - f_dist.cdf(f_stat, k_params, n_obs - k_params))
+        else:
+            f_stat = 0.0
+            p_value = 1.0
+
+        # ── Durbin-Watson statistic ────────────────────────────────────────────
+        # DW < 1.5 → positive autocorrelation; 1.5–2.5 → acceptable; > 2.5 → negative
+        if len(residuals) > 1:
+            dw = float(np.sum(np.diff(residuals) ** 2) / (np.sum(residuals ** 2) + 1e-12))
+        else:
+            dw = 2.0
+        autocorrelation_warning = dw < 1.5 or dw > 2.5
+
         return {
             'beta': float(cumulative_response),
-            'elasticity': float(elasticity),
+            'elasticity': float(marginal_response_ratio),           # legacy key
+            'marginal_response_ratio': float(marginal_response_ratio),  # descriptive key
             'r_value': fit_corr,
-            'p_value': 1.0,
+            'p_value': round(p_value, 4),
+            'f_stat': round(f_stat, 4),
+            'significance': (
+                'significant' if p_value < 0.05 else
+                'marginal' if p_value < 0.10 else
+                'not_significant'
+            ),
+            'durbin_watson': round(dw, 3),
+            'autocorrelation_warning': autocorrelation_warning,
             'n_months': len(model_df),
             'direct': False,
             'model_type': 'distributed_lag_anomaly_response',
@@ -255,6 +418,11 @@ class ScenarioService:
             'residual_std': residual_std,
             'fit_r2': fit_r2,
             'used_fallback': abs(fit_corr) < 0.2,
+            'method_note': (
+                'Distributed-lag linear regression with AR(1) persistence (OLS). '
+                'Significance tested via F-test; Durbin-Watson statistic checks residual autocorrelation. '
+                'Marginal response ratio is a linear sensitivity estimate, not a structural elasticity parameter.'
+            ),
         }
 
     def _simulate_scenario_response(
@@ -264,7 +432,8 @@ class ScenarioService:
         duration_months: int,
         start_offset: int,
         sensitivity: Dict[str, Any],
-    ) -> tuple[pd.Series, pd.Series, pd.Series]:
+        non_negative: bool = True,
+    ) -> tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
         n = len(baseline)
         driver_shock = np.zeros(n, dtype=float)
         window_end = min(start_offset + duration_months, n)
@@ -285,22 +454,35 @@ class ScenarioService:
                         propagated += float(coef) * driver_shock[t - lag]
                 response[t] = np.clip(propagated, -0.95, 3.0)
 
-        scenario = (baseline * (1.0 + response)).clip(lower=0).rename('scenario')
-        delta = (scenario - baseline).rename('delta')
+        floor = 0.0 if non_negative else None
+        # Apply the same physical floor to both series so delta is consistent.
+        # Without this, a baseline that dips below zero produces a spurious
+        # positive delta even when scale_pct == 0.
+        baseline_floored = baseline.clip(lower=floor).rename('baseline_floored')
+        scenario = (baseline * (1.0 + response)).clip(lower=floor).rename('scenario')
+        delta = (scenario - baseline_floored).rename('delta')
         delta_pct = pd.Series(response * 100.0, index=baseline.index, name='delta_pct')
-        return scenario, delta, delta_pct
+        return scenario, delta, delta_pct, baseline_floored
 
     def _relationship_strong_enough(self, sensitivity: Dict[str, Any]) -> bool:
+        """
+        Gate on statistical significance of the distributed-lag model.
+        Primary criterion: F-test p-value < 0.10 (marginal significance).
+        Secondary: minimum data length and non-trivial cumulative response.
+        The heuristic |r|/R² thresholds are retained as secondary guards but
+        the F-test p-value is the academically defensible primary criterion.
+        """
         if sensitivity.get('direct'):
             return True
         if sensitivity.get('model_type') != 'distributed_lag_anomaly_response':
             return False
         if sensitivity.get('n_months', 0) < 24:
             return False
-        if abs(float(sensitivity.get('r_value', 0.0))) < 0.35:
+        # Primary: F-test p-value (statistically defensible)
+        p_value = float(sensitivity.get('p_value', 1.0))
+        if p_value >= 0.10:
             return False
-        if float(sensitivity.get('fit_r2', 0.0)) < 0.12:
-            return False
+        # Secondary: cumulative response must be non-trivial
         if abs(float(sensitivity.get('cumulative_response', 0.0))) < 0.03:
             return False
         return True
@@ -382,19 +564,24 @@ class ScenarioService:
         # ── 4. Apply scenario ─────────────────────────────────────────────────
         window_start = start_offset
         window_end = min(start_offset + duration_months, effective_horizon)
-        scenario, delta, delta_pct = self._simulate_scenario_response(
-            baseline, scale_pct, duration_months, start_offset, sensitivity
+        # non_negative: apply a zero floor to both baseline and scenario so that
+        # delta is computed symmetrically. Prevents spurious deltas when the ML
+        # baseline forecast dips below zero (physically impossible for discharge).
+        non_negative = float(target_monthly.dropna().min()) >= 0
+        scenario, delta, delta_pct, baseline_floored = self._simulate_scenario_response(
+            baseline, scale_pct, duration_months, start_offset, sensitivity,
+            non_negative=non_negative,
         )
 
         # ── 5. Build figure ───────────────────────────────────────────────────
         figure = self._build_figure(
-            target_monthly, baseline, scenario, delta, delta_pct,
+            target_monthly, baseline_floored, scenario, delta, delta_pct,
             station, target_feature, driver_label, scale_pct,
             duration_months, start_offset, unit, sensitivity,
         )
 
         # ── 6. Build summary stats ────────────────────────────────────────────
-        window_baseline = baseline.iloc[window_start:window_end]
+        window_baseline = baseline_floored.iloc[window_start:window_end]
         window_scenario = scenario.iloc[window_start:window_end]
         mean_delta = float((window_scenario - window_baseline).mean())
         max_delta = float((window_scenario - window_baseline).abs().max())
@@ -411,15 +598,23 @@ class ScenarioService:
             'model': model,
             'unit': unit,
             'sensitivity': sensitivity,
-            'baseline': [{'date': str(d.date()), 'value': round(float(v), 4)} for d, v in baseline.items()],
+            'baseline': [{'date': str(d.date()), 'value': round(float(v), 4)} for d, v in baseline_floored.items()],
             'scenario': [{'date': str(d.date()), 'value': round(float(v), 4)} for d, v in scenario.items()],
             'delta_abs': [{'date': str(d.date()), 'value': round(float(v), 4)} for d, v in delta.items()],
             'delta_pct': [{'date': str(d.date()), 'pct': round(float(p), 2)} for d, p in delta_pct.items()],
             'model_note': (
-                ('Driver shocks are propagated through a monthly distributed-lag anomaly response model.'
-                 + (' Historical fit is weak, so interpret results cautiously.' if sensitivity.get('used_fallback') else ''))
+                ('Driver shocks are propagated through a monthly distributed-lag anomaly response model '
+                 f'(F-test p={sensitivity.get("p_value", "N/A")}, DW={sensitivity.get("durbin_watson", "N/A")}). '
+                 + (' Historical fit is weak — interpret results as indicative only.' if sensitivity.get('used_fallback') else '')
+                 + (' Residual autocorrelation detected (DW outside 1.5–2.5); coefficient SEs may be underestimated.' if sensitivity.get('autocorrelation_warning') else ''))
                 if not sensitivity.get('direct')
                 else 'Direct scaling is applied because the driver and target are the same variable.'
+            ),
+            'analysis_strength': 'exploratory_sensitivity',
+            'caveat': (
+                'This is an exploratory distributed-lag sensitivity model, not a causal attribution framework. '
+                'Results describe historical statistical relationships and should not be interpreted as '
+                'mechanistic flow predictions. Linearity and stationarity are assumed.'
             ),
             'stats': {
                 'mean_delta': round(mean_delta, 3),
@@ -431,11 +626,9 @@ class ScenarioService:
             'baseline_source': baseline_source,
         }
 
-        # Generate analysis if requested
+        # Generate analysis if requested — always produces output (AI or local fallback)
         if include_analysis:
-            analysis = _generate_scenario_analysis(result)
-            if analysis:
-                result['analysis'] = analysis
+            result['analysis'] = _generate_scenario_analysis(result)
 
         return result
 
@@ -467,22 +660,18 @@ class ScenarioService:
             ),
         )
 
-        GRID = 'rgba(148,163,184,0.16)'
-        TEXT = '#334155'
-        TITLE = '#0f172a'
-        SOFT = '#94a3b8'
-        BLUE = '#2563eb'
-        ORANGE = '#ea580c'
-        GREEN_POS = '#059669'
-        RED_NEG = '#dc2626'
-        SCENARIO_FILL = 'rgba(234,88,12,0.10)'
+        BLUE          = '#38bdf8'
+        ORANGE        = '#fb923c'
+        GREEN_POS     = '#34d399'
+        RED_NEG       = '#f87171'
+        SCENARIO_FILL = 'rgba(251,146,60,0.10)'
 
         # Baseline forecast
         fig.add_trace(go.Scatter(
             x=baseline.index, y=baseline.values,
             mode='lines', name='Baseline forecast',
             line=dict(color=BLUE, width=2.2, dash='dash'),
-            hovertemplate='%{x|%b %Y}<br>%{y:.2f} ' + unit + '<extra>Baseline</extra>',
+            hovertemplate='%{x|%b %Y} — %{y:.2f} ' + unit + '<extra>Baseline</extra>',
         ), row=1, col=1)
 
         # Scenario forecast
@@ -491,7 +680,7 @@ class ScenarioService:
             mode='lines+markers', name=f'Scenario ({sign}{scale_pct:.0f}% {driver_label})',
             line=dict(color=ORANGE, width=2.8),
             marker=dict(size=6, color=ORANGE),
-            hovertemplate='%{x|%b %Y}<br>%{y:.2f} ' + unit + '<extra>Scenario</extra>',
+            hovertemplate='%{x|%b %Y} — %{y:.2f} ' + unit + '<extra>Scenario</extra>',
         ), row=1, col=1)
 
         # Filled area between baseline and scenario
@@ -506,18 +695,11 @@ class ScenarioService:
         # Shade scenario window
         window_dates = baseline.index[start_offset: start_offset + duration_months]
         if len(window_dates) > 0:
-            fig.add_vrect(
-                x0=window_dates[0], x1=window_dates[-1],
-                fillcolor='rgba(234,88,12,0.06)',
-                line_width=0,
-                row=1, col=1,
-            )
-            fig.add_vrect(
-                x0=window_dates[0], x1=window_dates[-1],
-                fillcolor='rgba(234,88,12,0.06)',
-                line_width=0,
-                row=2, col=1,
-            )
+            _vrect_fill = 'rgba(251,146,60,0.07)'
+            fig.add_vrect(x0=window_dates[0], x1=window_dates[-1],
+                          fillcolor=_vrect_fill, line_width=0, row=1, col=1)
+            fig.add_vrect(x0=window_dates[0], x1=window_dates[-1],
+                          fillcolor=_vrect_fill, line_width=0, row=2, col=1)
             fig.add_annotation(
                 x=window_dates[0],
                 y=1.02,
@@ -525,9 +707,9 @@ class ScenarioService:
                 text='Intervention window',
                 showarrow=False,
                 xanchor='left',
-                font=dict(size=10, color='#9a3412'),
-                bgcolor='rgba(255,255,255,0.82)',
-                bordercolor='rgba(234,88,12,0.18)',
+                font=dict(size=10, color=ORANGE),
+                bgcolor='rgba(7,17,31,0.75)',
+                bordercolor='rgba(251,146,60,0.30)',
                 borderwidth=1,
                 borderpad=4,
             )
@@ -555,48 +737,23 @@ class ScenarioService:
             else f'Direct scaling applied: about {mean_pct:+.1f}% during the intervention window'
         )
 
-        fig.update_layout(
-            title=dict(
-                text='Scenario Projection Overview',
-                x=0.02,
-                xanchor='left',
-                font=dict(size=16, color=TITLE),
-            ),
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(248,250,252,0.72)',
-            font=dict(family='Inter, sans-serif', color=TEXT, size=12),
-            legend=dict(
-                orientation='h', yanchor='bottom', y=1.03,
-                xanchor='left', x=0,
-                font=dict(size=11),
-                bgcolor='rgba(255,255,255,0.70)',
-                bordercolor='rgba(148,163,184,0.18)',
-                borderwidth=1,
-            ),
-            margin=dict(l=56, r=26, t=86, b=80),
+        _note_ann = method_note_annotation(elast_txt, y=-0.12)
+        fig.update_layout(**dark_layout(
+            title='',
+            height=680,
+            margin=MARGIN_SUBPLOT,
             hovermode='x unified',
-            hoverlabel=dict(bgcolor='#ffffff', bordercolor='rgba(148,163,184,0.28)', font=dict(color='#0f172a', size=12)),
-            height=560,
-            annotations=[
-                dict(
-                    text=elast_txt,
-                    xref='paper', yref='paper',
-                    x=0.02, y=-0.12,
-                    xanchor='left', yanchor='top',
-                    font=dict(size=10, color=TEXT),
-                    showarrow=False,
-                ),
-            ],
-        )
-        axis_style = dict(
-            gridcolor=GRID, zerolinecolor=GRID,
-            linecolor=GRID, tickfont=dict(size=10, color=TEXT),
-        )
-        fig.update_xaxes(**axis_style)
-        fig.update_yaxes(**axis_style)
+            show_legend=True,
+        ))
+        fig.update_layout(legend=legend_h())
+        fig.add_annotation(**_note_ann)
+
+        _ax = axis_style()
+        fig.update_xaxes(**_ax)
+        fig.update_yaxes(**_ax)
         fig.update_yaxes(title_text=unit or target_label, row=1, col=1)
         fig.update_yaxes(title_text=unit or 'Change', row=2, col=1)
-        for ann in fig['layout']['annotations'][:2]:
-            ann['font'] = dict(size=12, color=TITLE)
+
+        style_subplot_titles(fig)
 
         return fig

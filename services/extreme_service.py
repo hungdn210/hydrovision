@@ -13,6 +13,11 @@ from plotly.subplots import make_subplots
 
 from .data_loader import SeriesRequest
 from .feature_registry import get_valid_features_for_analysis
+from .figure_theme import (
+    SOFT,
+    dark_layout, axis_style,
+    legend_h, MARGIN_SUBPLOT, style_subplot_titles,
+)
 
 
 def _fallback_extreme_analysis(result: Dict[str, Any], note: str | None = None) -> str:
@@ -92,8 +97,7 @@ def _generate_extreme_analysis(result: Dict[str, Any]) -> str:
     if not api_key:
         return _fallback_extreme_analysis(result)
     try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
+        from .analysis_service import _gemini_generate
         station = result.get('station', '').replace('_', ' ')
         feature = result.get('feature', '').replace('_', ' ')
         n_years = result.get('n_years', 0)
@@ -141,8 +145,10 @@ Gumbel return levels:
 
 95% confidence interval lower bounds: {result.get('ci_lower') or 'N/A'}
 95% confidence interval upper bounds: {result.get('ci_upper') or 'N/A'}"""
-        resp = client.models.generate_content(model='gemini-2.0-flash', contents=prompt)
-        return markdown.markdown(resp.text.strip())
+        text = _gemini_generate(api_key, prompt)
+        if not text:
+            return _fallback_extreme_analysis(result)
+        return markdown.markdown(text.strip())
     except Exception:
         return _fallback_extreme_analysis(result)
 
@@ -155,7 +161,7 @@ class ExtremeService:
       1. Extract annual maxima from the full historical series.
       2. Fit GEV (Generalized Extreme Value) and/or Gumbel distributions via MLE.
       3. Compute return levels for standard return periods (2–200 yr).
-      4. Bootstrap 95 % CI for GEV return levels (150 resamples).
+      4. Bootstrap 95 % CI for GEV return levels (1000 resamples).
       5. Return table + Plotly figure (return-period curve + annual maxima bars).
     """
 
@@ -277,7 +283,7 @@ class ExtremeService:
         if gev_params and n_years >= 10:
             rng = np.random.default_rng(42)
             boot_levels: List[List[float]] = []
-            for _ in range(150):
+            for _ in range(1000):
                 sample = rng.choice(values, size=n_years, replace=True)
                 try:
                     c_b, l_b, s_b = scipy.stats.genextreme.fit(sample)
@@ -316,6 +322,15 @@ class ExtremeService:
             'ci_lower': [round(v, 3) for v in ci_lower] if ci_lower else None,
             'ci_upper': [round(v, 3) for v in ci_upper] if ci_upper else None,
             'figure': plotly.io.to_json(figure),
+            'method_note': (
+                'Annual maxima fitted to GEV and Gumbel distributions by MLE (Coles 2001). '
+                'GEV shape parameter clamped to [-0.6, 0.6] to guard against numerically '
+                'unstable fits on short records. '
+                'Weibull plotting position i/(n+1) used for empirical return periods (Cunnane 1978). '
+                f'95% CI via non-parametric bootstrap with 1000 resamples. '
+                + ('L-moment fitting recommended for records < 30 years; '
+                   f'MLE used here (n={n_years} yr).' if n_years < 30 else '')
+            ),
         }
 
         if include_analysis:
@@ -346,16 +361,12 @@ class ExtremeService:
         distribution: str,
     ) -> go.Figure:
 
-        DARK_BG = '#07111f'
-        GRID = 'rgba(148,163,184,0.12)'
-        TEXT = '#e5eefc'
-        SOFT = '#9db0d1'
-        BLUE = '#38bdf8'
+        BLUE   = '#38bdf8'
         ORANGE = '#fb923c'
-        GREEN = '#34d399'
+        GREEN  = '#34d399'
         feature_label = feature.replace('_', ' ')
 
-        show_gev = distribution in ('gev', 'both') and gev_params is not None
+        show_gev    = distribution in ('gev', 'both')    and gev_params    is not None
         show_gumbel = distribution in ('gumbel', 'both') and gumbel_params is not None
 
         fig = make_subplots(
@@ -389,7 +400,7 @@ class ExtremeService:
                 x=T_range.tolist(), y=gev_curve,
                 mode='lines', name='GEV fit',
                 line=dict(color=BLUE, width=2.5),
-                hovertemplate='T=%{x:.1f} yr<br>%{y:.2f} ' + unit + '<extra>GEV</extra>',
+                hovertemplate='T=%{x:.1f} yr — %{y:.2f} ' + unit + '<extra>GEV</extra>',
             ), row=1, col=1)
 
         # Gumbel fitted curve
@@ -398,7 +409,7 @@ class ExtremeService:
                 x=T_range.tolist(), y=gumbel_curve,
                 mode='lines', name='Gumbel fit',
                 line=dict(color=ORANGE, width=2, dash='dash'),
-                hovertemplate='T=%{x:.1f} yr<br>%{y:.2f} ' + unit + '<extra>Gumbel</extra>',
+                hovertemplate='T=%{x:.1f} yr — %{y:.2f} ' + unit + '<extra>Gumbel</extra>',
             ), row=1, col=1)
 
         # Empirical points
@@ -406,7 +417,7 @@ class ExtremeService:
             x=empirical_T.tolist(), y=sorted_vals.tolist(),
             mode='markers', name='Empirical (Weibull)',
             marker=dict(color=GREEN, size=7, symbol='circle-open', line=dict(width=2)),
-            hovertemplate='T=%{x:.1f} yr<br>%{y:.2f} ' + unit + '<extra>Empirical</extra>',
+            hovertemplate='T=%{x:.1f} yr — %{y:.2f} ' + unit + '<extra>Empirical</extra>',
         ), row=1, col=1)
 
         # Reference vertical lines at T = 10, 50, 100 yr
@@ -426,14 +437,14 @@ class ExtremeService:
                 font=dict(size=9, color='rgba(157,176,209,0.65)'),
             )
 
-        # GEV tail-type annotation
+        # GEV tail-type annotation (bottom-right of return-period panel)
         if gev_params:
             xi = gev_params['shape']
             dist_type = 'Fréchet' if xi > 0.05 else ('Weibull' if xi < -0.05 else 'Gumbel-approx')
             fig.add_annotation(
                 x=1.0, y=0.0,
                 xref='paper', yref='paper',
-                text=f'ξ={xi:.3f} ({dist_type})  |  n={len(sorted_vals)} yr',
+                text=f'ξ = {xi:.3f} ({dist_type})  ·  n = {len(sorted_vals)} yr',
                 showarrow=False, xanchor='right', yanchor='bottom',
                 font=dict(size=9, color=SOFT),
             )
@@ -443,10 +454,10 @@ class ExtremeService:
             x=annual_max.index.tolist(), y=annual_max.values.tolist(),
             name='Annual max',
             marker_color=BLUE, opacity=0.65,
-            hovertemplate='%{x}<br>%{y:.2f} ' + unit + '<extra>Annual max</extra>',
+            hovertemplate='%{x} — %{y:.2f} ' + unit + '<extra>Annual max</extra>',
         ), row=2, col=1)
 
-        # Mean reference line
+        # Mean reference line on annual maxima panel
         mean_val = float(annual_max.mean())
         fig.add_shape(
             type='line',
@@ -459,39 +470,31 @@ class ExtremeService:
         # Sensible y-axis cap: 20× the largest observed annual maximum
         y_cap = float(sorted_vals.max()) * 20
 
-        fig.update_layout(
-            paper_bgcolor=DARK_BG,
-            plot_bgcolor=DARK_BG,
-            font=dict(family='Inter, sans-serif', color=TEXT, size=12),
-            legend=dict(
-                orientation='h', yanchor='bottom', y=1.02,
-                xanchor='left', x=0,
-                font=dict(size=11), bgcolor='rgba(0,0,0,0)',
-            ),
-            margin=dict(l=85, r=30, t=80, b=50),
+        fig.update_layout(**dark_layout(
             height=620,
+            margin=MARGIN_SUBPLOT,
+            show_legend=True,
             hovermode='x unified',
-        )
-        axis_style = dict(
-            gridcolor=GRID, zerolinecolor=GRID,
-            linecolor=GRID, tickfont=dict(size=10, color=SOFT),
-        )
-        fig.update_xaxes(**axis_style)
-        fig.update_yaxes(**axis_style)
+        ))
+        fig.update_layout(legend=legend_h())
+
+        _ax = axis_style()
+        fig.update_xaxes(**_ax)
+        fig.update_yaxes(**_ax)
         fig.update_xaxes(
             type='log', title_text='Return Period (years)',
-            range=[0, np.log10(500)],  # 1 to 500 years
+            range=[0, np.log10(500)],
             row=1, col=1,
         )
         fig.update_yaxes(
             title_text=unit or feature_label,
             range=[0, y_cap],
+            title_standoff=10,
             row=1, col=1,
         )
         fig.update_xaxes(title_text='Year', row=2, col=1)
         fig.update_yaxes(title_text=f'Max ({unit})' if unit else 'Max', title_standoff=10, row=2, col=1)
-        fig.update_yaxes(title_standoff=10, row=1, col=1)
-        for ann in fig['layout']['annotations'][:2]:
-            ann['font'] = dict(size=12, color=SOFT)
+
+        style_subplot_titles(fig)
 
         return fig

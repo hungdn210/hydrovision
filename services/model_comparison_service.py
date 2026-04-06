@@ -12,6 +12,11 @@ import plotly.io
 
 from .analysis_service import _gemini_generate
 from .data_loader import SeriesRequest
+from .figure_theme import (
+    GRID_LIGHT, dark_layout, axis_style,
+    legend_v, MARGIN_STD,
+    forecast_divider_shape, forecast_divider_annotation,
+)
 
 
 MODELS = [
@@ -264,9 +269,6 @@ class ModelComparisonService:
         non_negative = float(actual_df['Value'].dropna().min()) >= 0
 
 
-        DARK_BG = '#07111f'
-        TEXT = '#e5eefc'
-
         fig = go.Figure()
 
         # Actual historical line
@@ -331,43 +333,19 @@ class ModelComparisonService:
             })
 
         # Forecast start line
-        fig.update_layout(
-            paper_bgcolor=DARK_BG,
-            plot_bgcolor='rgba(0,0,0,0)',
-            font=dict(family='Inter, sans-serif', color=TEXT, size=12),
-            title=dict(
-                text=f'Multi-Model Forecast Comparison — {feature_label} · {station_name}',
-                font=dict(size=14, color=TEXT),
-                x=0.5, xanchor='center',
-            ),
-            xaxis=dict(
-                title='Date', gridcolor='rgba(148,163,184,0.08)',
-                showgrid=True, zeroline=False,
-            ),
-            yaxis=dict(
-                title=f'{feature_label} ({unit})' if unit else feature_label,
-                gridcolor='rgba(148,163,184,0.08)',
-                showgrid=True, zeroline=False,
-            ),
-            legend=dict(
-                orientation='v', yanchor='top', y=0.99,
-                xanchor='left', x=0.01,
-                bgcolor='rgba(7,17,31,0.82)',
-                bordercolor='rgba(148,163,184,0.15)',
-                borderwidth=1, font=dict(size=10),
-            ),
-            shapes=[dict(
-                type='line', x0=last_date, x1=last_date,
-                y0=0, y1=1, yref='paper',
-                line=dict(color='rgba(148,163,184,0.4)', dash='dot', width=1.5),
-            )],
-            annotations=[dict(
-                x=last_date, y=1.04, yref='paper',
-                text='↑ Forecast', showarrow=False, xanchor='center',
-                font=dict(color='rgba(148,163,184,0.6)', size=10),
-            )],
-            margin=dict(l=60, r=20, t=60, b=50),
-        )
+        _ax = axis_style(grid=GRID_LIGHT)
+        fig.update_layout(**dark_layout(
+            title=f'Multi-Model Forecast Comparison — {feature_label} · {station_name}',
+            height=520,
+            margin=MARGIN_STD,
+            show_legend=True,
+            hovermode='closest',
+            xaxis=dict(**_ax, title='Date', showgrid=True, zeroline=False),
+            yaxis=dict(**_ax, title=f'{feature_label} ({unit})' if unit else feature_label, showgrid=True, zeroline=False),
+            legend=legend_v(),
+            shapes=[forecast_divider_shape(last_date)],
+            annotations=[forecast_divider_annotation(last_date)],
+        ))
 
         # Guard: if every model has no data, raise an informative error
         all_no_data = all(m.get('source_note') == 'no_data' for m in metrics)
@@ -402,39 +380,18 @@ class ModelComparisonService:
                     marker=dict(size=4, color=color, symbol=symbol),
                     hovertemplate=f'{model_name} %{{x|%Y-%m-%d}}: %{{y:.3f}} {unit}<extra></extra>',
                 ))
-        fig_zoom.update_layout(
-            paper_bgcolor=DARK_BG,
-            plot_bgcolor='rgba(0,0,0,0)',
-            font=dict(family='Inter, sans-serif', color=TEXT, size=12),
-            title=dict(
-                text=f'Last 90 Days + Forecast — {feature_label} · {station_name}',
-                font=dict(size=14, color=TEXT),
-                x=0.5, xanchor='center',
-            ),
-            xaxis=dict(title='Date', gridcolor='rgba(148,163,184,0.08)', showgrid=True, zeroline=False),
-            yaxis=dict(
-                title=f'{feature_label} ({unit})' if unit else feature_label,
-                gridcolor='rgba(148,163,184,0.08)', showgrid=True, zeroline=False,
-            ),
-            legend=dict(
-                orientation='v', yanchor='top', y=0.99,
-                xanchor='left', x=0.01,
-                bgcolor='rgba(7,17,31,0.82)',
-                bordercolor='rgba(148,163,184,0.15)',
-                borderwidth=1, font=dict(size=10),
-            ),
-            shapes=[dict(
-                type='line', x0=last_date, x1=last_date,
-                y0=0, y1=1, yref='paper',
-                line=dict(color='rgba(148,163,184,0.4)', dash='dot', width=1.5),
-            )],
-            annotations=[dict(
-                x=last_date, y=1.04, yref='paper',
-                text='↑ Forecast', showarrow=False, xanchor='center',
-                font=dict(color='rgba(148,163,184,0.6)', size=10),
-            )],
-            margin=dict(l=60, r=20, t=60, b=50),
-        )
+        fig_zoom.update_layout(**dark_layout(
+            title=f'Last 90 Days + Forecast — {feature_label} · {station_name}',
+            height=520,
+            margin=MARGIN_STD,
+            show_legend=True,
+            hovermode='closest',
+            xaxis=dict(**_ax, title='Date', showgrid=True, zeroline=False),
+            yaxis=dict(**_ax, title=f'{feature_label} ({unit})' if unit else feature_label, showgrid=True, zeroline=False),
+            legend=legend_v(),
+            shapes=[forecast_divider_shape(last_date)],
+            annotations=[forecast_divider_annotation(last_date)],
+        ))
 
         result = {
             'title': f'Model Comparison · {station_name}',

@@ -59,6 +59,19 @@ def _save_ai_cache(cache: Dict[str, str]) -> None:
 _AI_RESPONSE_CACHE = _load_ai_cache()
 
 
+def _normalise_md(text: str) -> str:
+    """Ensure a blank line precedes every markdown list item.
+
+    Python's markdown library requires a blank line between a paragraph (or
+    heading) and a ``- ``/``* ``/``1. `` list.  Gemini often omits that blank
+    line, which causes all bullet items to be folded into the preceding
+    paragraph as plain text.  This one-liner fix is idempotent: if the blank
+    line is already present the substitution matches ``\\n\\n- `` and the
+    negative-lookbehind prevents adding a third newline.
+    """
+    return re.sub(r'(?<!\n)\n([-*]|\d+\.) ', r'\n\n\1 ', text)
+
+
 def _gemini_generate(api_key: str, prompt: str) -> str:
     """Call Gemini with automatic model fallback on 429 RESOURCE_EXHAUSTED."""
     from google import genai
@@ -70,7 +83,7 @@ def _gemini_generate(api_key: str, prompt: str) -> str:
     for model in _GEMINI_MODELS:
         try:
             response = client.models.generate_content(model=model, contents=prompt)
-            text = response.text.strip()
+            text = _normalise_md(response.text.strip())
             _AI_RESPONSE_CACHE[cache_key] = text
             _save_ai_cache(_AI_RESPONSE_CACHE)
             return text

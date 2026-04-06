@@ -13,6 +13,10 @@ from statsmodels.tsa.seasonal import STL
 
 from .analysis_service import _gemini_generate
 from .data_loader import SeriesRequest
+from .figure_theme import (
+    GRID_LIGHT, dark_layout, axis_style,
+    MARGIN_SUBPLOT, style_subplot_titles,
+)
 
 
 def _fallback_decomp_analysis(result: Dict[str, Any]) -> str:
@@ -155,10 +159,6 @@ class DecompositionService:
         strength_seasonal = max(0.0, 1.0 - var_resid / var_seasonal_resid) if var_seasonal_resid > 0 else 0.0
 
         # ── Build 4-panel figure ──────────────────────────────────────────────
-        DARK_BG = '#07111f'
-        TEXT = '#e5eefc'
-        GRID = 'rgba(148,163,184,0.08)'
-
         fig = make_subplots(
             rows=4, cols=1,
             shared_xaxes=True,
@@ -219,36 +219,21 @@ class DecompositionService:
         ), row=4, col=1)
 
         # Layout
-        fig.update_layout(
-            paper_bgcolor=DARK_BG,
-            plot_bgcolor='rgba(0,0,0,0)',
-            font=dict(family='Inter, sans-serif', color=TEXT, size=11),
-            title=dict(
-                text=f'STL Decomposition — {feature_label} · {station_name}',
-                font=dict(size=14, color=TEXT),
-                x=0.5, xanchor='center',
-            ),
-            showlegend=False,
-            margin=dict(l=60, r=20, t=80, b=50),
+        fig.update_layout(**dark_layout(
+            title=f'STL Decomposition — {feature_label} · {station_name}',
+            height=580,
+            margin=MARGIN_SUBPLOT,
+            show_legend=False,
             barmode='relative',
-        )
+        ))
 
+        ax = axis_style(grid=GRID_LIGHT)
         for i in range(1, 5):
-            fig.update_xaxes(
-                gridcolor=GRID, zeroline=False,
-                tickfont=dict(color=TEXT, size=10),
-                row=i, col=1,
-            )
-            fig.update_yaxes(
-                gridcolor=GRID, zeroline=False,
-                tickfont=dict(color=TEXT, size=10),
-                row=i, col=1,
-            )
+            fig.update_xaxes(**ax, zeroline=False, row=i, col=1)
+            fig.update_yaxes(**ax, zeroline=False, row=i, col=1)
 
         # Style subplot titles
-        for ann in fig.layout.annotations:
-            ann.font.color = TEXT
-            ann.font.size = 11
+        style_subplot_titles(fig)
 
         # ── Seasonal profile (average month values) ───────────────────────────
         month_labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',

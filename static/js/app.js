@@ -636,8 +636,9 @@
 
         // Model Comparison
         els.clearMcBtn?.addEventListener('click', () => setEmptyState(els.mcCards, 'No comparisons yet.'));
-        els.mcDatasetSelect?.addEventListener('change', () => updateSelectOptions(els.mcDatasetSelect.value, els.mcStationSelect, els.mcFeatureSelect));
+        els.mcDatasetSelect?.addEventListener('change', () => updateModelCompareOptions());
         els.mcStationSelect?.addEventListener('change', () => updateFeatureSelectForStation(els.mcDatasetSelect.value, els.mcStationSelect.value, els.mcFeatureSelect));
+        els.mcFeatureSelect?.addEventListener('change', () => updateModelCompareOptions());
         els.mcHorizonSlider?.addEventListener('input', () => {
             if (els.mcHorizonDisplay) els.mcHorizonDisplay.textContent = els.mcHorizonSlider.value + ' days';
         });
@@ -2575,17 +2576,12 @@
             metricsEl.className = 'pred-metrics-strip';
             const rmseVal = m.rmse != null ? m.rmse : '—';
             const mapeVal = m.mape != null ? `${m.mape}%` : '—';
-            const isTrained = result.source_type === 'trained_model';
-            const sourceClass = isTrained ? 'pms-source-trained' : 'pms-source-fallback';
-            const sourceLabel = isTrained ? '🧠 Trained model' : '⚠️ Statistical fallback';
             metricsEl.innerHTML =
                 `<span class="pms-item"><span class="pms-label">Horizon</span><span class="pms-value">${escapeHtml(horizonLabel)}</span></span>` +
                 `<span class="pms-divider"></span>` +
                 `<span class="pms-item"><span class="pms-label">RMSE</span><span class="pms-value">${escapeHtml(String(rmseVal))}</span></span>` +
                 `<span class="pms-divider"></span>` +
-                `<span class="pms-item"><span class="pms-label">MAPE</span><span class="pms-value">${escapeHtml(String(mapeVal))}</span></span>` +
-                `<span class="pms-divider"></span>` +
-                `<span class="pms-item"><span class="pms-label">Source</span><span class="pms-value ${sourceClass}">${sourceLabel}</span></span>`;
+                `<span class="pms-item"><span class="pms-label">MAPE</span><span class="pms-value">${escapeHtml(String(mapeVal))}</span></span>`;
             body.insertBefore(metricsEl, basePlot);
         }
 
@@ -2827,7 +2823,21 @@
                 // Clear stale Plotly internals (canvas/WebGL) copied by cloneNode
                 plot.innerHTML = '';
                 // Use setTimeout so the modal is fully painted before Plotly (especially mapbox) initialises
-                setTimeout(() => renderPlot(plot, figureJson), 80);
+                setTimeout(() => {
+                    renderPlot(plot, figureJson);
+                    // After renderPlot's rAF settles, relayout to use the full modal height
+                    // so multi-panel figures (e.g. scenario subplots) are not clipped.
+                    setTimeout(() => {
+                        const modalHeight = Math.floor(window.innerHeight * 0.72);
+                        const figure = figureJson ? JSON.parse(figureJson) : null;
+                        const originalHeight = Number(figure?.layout?.height || 0);
+                        if (plot.data && originalHeight > 0 && modalHeight > originalHeight) {
+                            plot.style.height = `${modalHeight}px`;
+                            plot.style.minHeight = `${modalHeight}px`;
+                            Plotly.relayout(plot, { height: modalHeight }).catch(() => {});
+                        }
+                    }, 200);
+                }, 80);
             }
         });
     }
@@ -3391,6 +3401,8 @@
     }
 
     function prettyStation(name) {
+        const meta = state.stationsByName.get(name);
+        if (meta?.name && meta.name !== name) return meta.name.replace(/_/g, ' ');
         return name.replaceAll('_', ' ');
     }
 
@@ -3731,13 +3743,14 @@
             colorscale: 'RdBu',
             zmin: -1, zmax: 1,
             showscale: true,
+            colorbar: { x: 1.01, thickness: 14, tickfont: { size: 9 } },
             hoverongaps: false,
             hovertemplate: '%{y} × %{x}: <b>%{z:.3f}</b><extra></extra>',
         }], {
             paper_bgcolor: 'transparent',
             plot_bgcolor: 'transparent',
             font: { color: 'var(--text)', size: 10 },
-            margin: { t: 20, b: 120, l: 120, r: 20 },
+            margin: { t: 20, b: 120, l: 120, r: 90 },
             xaxis: { tickangle: -45, tickfont: { size: 9 } },
             yaxis: { tickfont: { size: 9 } },
             height: Math.max(320, Math.min(600, data.n_stations * 12 + 140)),
@@ -4018,19 +4031,32 @@
         const section = document.createElement('div');
         section.className = 'network-section network-section-graph';
 
-        const heading = document.createElement('h4');
-        heading.className = 'network-section-title';
-        heading.textContent = 'Mekong River Network';
-        section.appendChild(heading);
-
-        const noteEl = document.createElement('p');
-        noteEl.className = 'network-note';
-        noteEl.textContent = result.note;
-        section.appendChild(noteEl);
+        const header = document.createElement('div');
+        header.className = 'network-graph-header';
+        header.innerHTML = `
+            <div class="network-graph-titlewrap">
+                <h4 class="network-section-title">Spatial Network Topology</h4>
+                <p class="network-note">${escapeHtml(result.note || '')}</p>
+            </div>
+            <div class="network-graph-legend" aria-label="Graph legend">
+                <span class="network-legend-chip"><span class="network-legend-swatch network-legend-swatch-main"></span>Main stem path</span>
+                <span class="network-legend-chip"><span class="network-legend-swatch network-legend-swatch-trib-line"></span>Tributary links</span>
+                <span class="network-legend-chip"><span class="network-legend-swatch network-legend-swatch-node-main"></span>Main-stem stations</span>
+                <span class="network-legend-chip"><span class="network-legend-swatch network-legend-swatch-node-trib"></span>Tributary stations</span>
+                <span class="network-legend-chip"><span class="network-legend-arrow">→</span>Downstream direction</span>
+            </div>`;
+        section.appendChild(header);
 
         const plotDiv = document.createElement('div');
         plotDiv.className = 'network-plot-container';
         section.appendChild(plotDiv);
+
+        const guide = document.createElement('div');
+        guide.className = 'network-graph-footer';
+        guide.innerHTML = `
+            <div class="network-graph-guide">${escapeHtml(result.graph_guide || '')}</div>
+            <div class="network-graph-caveat">${escapeHtml(result.travel_time_note || '')}</div>`;
+        section.appendChild(guide);
 
         if (result.analysis) {
             appendAnalysisSection(section, result.analysis, { title: 'Analysis Report' });
@@ -4354,16 +4380,18 @@
         if (result.analysis) {
             const analysisEl = document.createElement('div');
             analysisEl.className = 'scenario-analysis-section';
-            // Convert markdown **bold** to HTML <strong>bold</strong>
-            const formattedAnalysis = escapeHtml(result.analysis)
-                .replace(/\n/g, '<br>')
-                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            // Backend returns pre-rendered HTML (from markdown.markdown() or fallback HTML builder).
+            // Inject directly — do NOT escapeHtml() first or the tags become visible raw text.
+            const looksLikeHtml = /<\/?(p|ul|li|strong|em|h[1-6])\b/i.test(result.analysis);
+            const content = looksLikeHtml
+                ? result.analysis
+                : escapeHtml(result.analysis).replace(/\n/g, '<br>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
             analysisEl.innerHTML = `
                 <div class="analysis-header">
                     <h4>Interpretation</h4>
                 </div>
                 <div class="analysis-content">
-                    ${formattedAnalysis}
+                    ${content}
                 </div>`;
             body.appendChild(analysisEl);
         }
@@ -4380,13 +4408,6 @@
             .map(s => `<option value="${escapeHtml(s.station)}">${escapeHtml(s.name.replace(/_/g, ' '))}</option>`)
             .join('');
 
-        // Imputation feature select — all known features
-        const features = state.bootstrap?.features || [];
-        if (els.qualityImpFeatureSelect) {
-            els.qualityImpFeatureSelect.innerHTML = '<option value="">All features</option>' +
-                features.map(f => `<option value="${escapeHtml(f)}">${escapeHtml(f.replace(/_/g, ' '))}</option>`).join('');
-        }
-
         // Dataset picker for imputation view
         if (els.qualityDatasetPicker) {
             ['mekong', 'lamah'].forEach(ds => {
@@ -4397,13 +4418,25 @@
                 btn.addEventListener('click', () => {
                     els.qualityDatasetPicker.querySelectorAll('.dataset-btn').forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
+                    updateQualityImpFeatureOptions(ds);
                 });
                 els.qualityDatasetPicker.appendChild(btn);
             });
         }
 
+        // Imputation feature select — seeded with Mekong features (active dataset)
+        updateQualityImpFeatureOptions('mekong');
+
         updateQualityFeatureOptions();
         updateQualityControls('completeness');
+    }
+
+    function updateQualityImpFeatureOptions(dataset) {
+        if (!els.qualityImpFeatureSelect) return;
+        const datasetFeatures = state.bootstrap?.dataset_features || {};
+        const features = (datasetFeatures[dataset] || state.bootstrap?.features || []).slice().sort();
+        els.qualityImpFeatureSelect.innerHTML = '<option value="">All features</option>' +
+            features.map(f => `<option value="${escapeHtml(f)}">${escapeHtml(f.replace(/_/g, ' '))}</option>`).join('');
     }
 
     function updateQualityFeatureOptions() {
@@ -4615,7 +4648,7 @@
         if (!els.qualityWorkspace) return;
         const section = qualitySection(
             `Anomaly Candidates · ${r.feature.replace(/_/g,' ')} · ${r.station.replace(/_/g,' ')}`,
-            `Z-score threshold: ${r.z_thresh}  ·  Mean: ${r.mean}  ·  Std: ${r.std}  ·  ${r.unflagged} unflagged of ${r.total} candidates.`
+            `Z-score threshold: ${r.z_thresh}  ·  Median: ${r.mean}  ·  MAD: ${r.std}  ·  ${r.unflagged} unflagged of ${r.total} candidates.`
         );
 
         if (!r.candidates.length) {
@@ -4634,27 +4667,72 @@
             { label: 'Flagged', value: r.total - r.unflagged },
         ]));
 
+        const PAGE_SIZE = 50;
+        let currentPage = 0;
+
+        function buildRows(candidates) {
+            return candidates.map(c => {
+                const direction = c.above_mean ? '▲ above median' : '▼ below median';
+                const impBadge = c.is_imputed ? '<span class="quality-imp-badge">Imputed</span>' : '';
+                return `<tr data-station="${escapeHtml(r.station)}" data-feature="${escapeHtml(r.feature)}" data-date="${escapeHtml(c.date)}">
+                    <td>${c.date}${impBadge}</td>
+                    <td class="quality-z-val">${c.value} ${escapeHtml(r.unit)}</td>
+                    <td><span class="quality-zscore">${c.z_score}</span></td>
+                    <td class="quality-dir">${direction}</td>
+                    <td class="quality-flag-cell">
+                        <button class="quality-flag-btn ${c.flag === 'real' ? 'active' : ''}" data-flag="real" title="Real event">Real</button>
+                        <button class="quality-flag-btn ${c.flag === 'sensor_error' ? 'active' : ''}" data-flag="sensor_error" title="Sensor error">Error</button>
+                        <button class="quality-flag-btn ${c.flag === 'uncertain' ? 'active' : ''}" data-flag="uncertain" title="Uncertain">?</button>
+                        ${c.flag !== 'none' ? `<button class="quality-flag-btn quality-flag-clear" data-flag="none" title="Clear flag">✕</button>` : ''}
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+
         const tableWrap = document.createElement('div');
         tableWrap.className = 'quality-table-wrap';
-        const tbody = r.candidates.map(c => {
-            const direction = c.above_mean ? '▲ above' : '▼ below';
-            const impBadge = c.is_imputed ? '<span class="quality-imp-badge">Imputed</span>' : '';
-            return `<tr data-station="${escapeHtml(r.station)}" data-feature="${escapeHtml(r.feature)}" data-date="${escapeHtml(c.date)}">
-                <td>${c.date}${impBadge}</td>
-                <td class="quality-z-val">${c.value} ${escapeHtml(r.unit)}</td>
-                <td><span class="quality-zscore">${c.z_score}</span></td>
-                <td class="quality-dir">${direction}</td>
-                <td class="quality-flag-cell">
-                    <button class="quality-flag-btn ${c.flag === 'real' ? 'active' : ''}" data-flag="real" title="Real event">Real</button>
-                    <button class="quality-flag-btn ${c.flag === 'sensor_error' ? 'active' : ''}" data-flag="sensor_error" title="Sensor error">Error</button>
-                    <button class="quality-flag-btn ${c.flag === 'uncertain' ? 'active' : ''}" data-flag="uncertain" title="Uncertain">?</button>
-                    ${c.flag !== 'none' ? `<button class="quality-flag-btn quality-flag-clear" data-flag="none" title="Clear flag">✕</button>` : ''}
-                </td>
-            </tr>`;
-        }).join('');
+
+        const pageSlice = r.candidates.slice(0, PAGE_SIZE);
         tableWrap.innerHTML = `<table class="quality-table quality-anomaly-table">
             <thead><tr><th>Date</th><th>Value</th><th>|Z|</th><th>Direction</th><th>Flag</th></tr></thead>
-            <tbody>${tbody}</tbody></table>`;
+            <tbody>${buildRows(pageSlice)}</tbody></table>`;
+
+        // Pagination controls
+        if (r.candidates.length > PAGE_SIZE) {
+            const pageInfo = document.createElement('div');
+            pageInfo.className = 'quality-page-info';
+            const updatePageInfo = () => {
+                const start = currentPage * PAGE_SIZE + 1;
+                const end = Math.min((currentPage + 1) * PAGE_SIZE, r.candidates.length);
+                pageInfo.textContent = `Showing ${start}–${end} of ${r.candidates.length} candidates`;
+            };
+            updatePageInfo();
+
+            const pageBtns = document.createElement('div');
+            pageBtns.className = 'quality-page-btns';
+            const prevBtn = document.createElement('button');
+            prevBtn.className = 'quality-page-btn';
+            prevBtn.textContent = '← Prev';
+            const nextBtn = document.createElement('button');
+            nextBtn.className = 'quality-page-btn';
+            nextBtn.textContent = 'Next →';
+
+            const renderPage = () => {
+                const slice = r.candidates.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
+                tableWrap.querySelector('tbody').innerHTML = buildRows(slice);
+                prevBtn.disabled = currentPage === 0;
+                nextBtn.disabled = (currentPage + 1) * PAGE_SIZE >= r.candidates.length;
+                updatePageInfo();
+            };
+
+            prevBtn.addEventListener('click', () => { currentPage--; renderPage(); });
+            nextBtn.addEventListener('click', () => { currentPage++; renderPage(); });
+            prevBtn.disabled = true;
+            pageBtns.appendChild(prevBtn);
+            pageBtns.appendChild(nextBtn);
+            tableWrap.appendChild(pageInfo);
+            tableWrap.appendChild(pageBtns);
+        }
 
         // Delegate flag button clicks
         tableWrap.addEventListener('click', async (e) => {
@@ -5104,13 +5182,13 @@
         showMessage(els.animateMessage, 'Building animated map… this may take a moment.', '');
         els.runAnimateBtn.disabled = true;
         try {
-            const params = new URLSearchParams({ dataset, feature });
+            const speed = Number(document.getElementById('animateSpeedSlider')?.value ?? 2);
+            const params = new URLSearchParams({ dataset, feature, speed });
             const res = await fetch(`/api/animate-map?${params}`);
             const data = await res.json();
             if (!data.ok) throw new Error(data.error);
-            const speedIdx = Number(document.getElementById('animateSpeedSlider')?.value ?? 2) - 1;
             const frameDurations = [1000, 500, 250, 125, 62];
-            appendAnimateCard(data.result, frameDurations[speedIdx]);
+            appendAnimateCard(data.result, frameDurations[speed - 1]);
             activateDockTab('animate');
             showMessage(els.animateMessage, `Animation ready · ${data.result.stats.n_stations} stations · ${data.result.stats.n_years} years`, 'success');
         } catch (err) {
@@ -5122,8 +5200,10 @@
 
     function appendAnimateCard(result, frameDuration = 500) {
         clearEmptyStateIfNeeded(els.animateCards);
+        els.animateCards?.querySelectorAll('.workspace-card').forEach(card => card.remove());
         const cardId = `animate-${++state.cardCounters.animate}`;
         const card = buildBaseCard(cardId, result.title, result.subtitle);
+        card.querySelector('.card-action-btn[title="Expand to fullscreen"]')?.remove();
         const plotContainer = card.querySelector('.plot-container');
         const originalHeight = Number(result?.figure?.layout?.height || 720);
         const lockAnimateHeight = () => {
@@ -5191,7 +5271,7 @@
         const btnRow = document.createElement('div');
         btnRow.className = 'anim-play-row';
         btnRow.appendChild(btn);
-        card.querySelector('.card-body')?.appendChild(btnRow) || card.appendChild(btnRow);
+        card.querySelector('.workspace-card-body')?.appendChild(btnRow) || card.appendChild(btnRow);
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -5200,8 +5280,45 @@
 
     function initModelCompareControls() {
         if (!els.mcDatasetSelect) return;
-        updateSelectOptions(els.mcDatasetSelect.value, els.mcStationSelect, els.mcFeatureSelect);
+        updateModelCompareOptions();
         setEmptyState(els.mcCards, 'No comparisons yet. Select a station and feature, then click Compare models.');
+    }
+
+    async function updateModelCompareOptions() {
+        if (!els.mcDatasetSelect || !els.mcStationSelect || !els.mcFeatureSelect) return;
+
+        const dataset = els.mcDatasetSelect.value || 'mekong';
+        updateSelectOptions(dataset, els.mcStationSelect, els.mcFeatureSelect);
+
+        const feature = els.mcFeatureSelect.value;
+        if (!feature) return;
+
+        try {
+            const params = new URLSearchParams({ dataset, feature });
+            const res = await fetch(`/api/model-compare-stations?${params}`);
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error || 'Failed to load supported stations.');
+
+            const supported = new Set(data.stations || []);
+            const stations = (state.bootstrap?.stations || [])
+                .filter(s => s.dataset === dataset && supported.has(s.station));
+
+            els.mcStationSelect.innerHTML = stations
+                .map(s => `<option value="${escapeHtml(s.station)}">${escapeHtml((s.name || s.station).replace(/_/g, ' '))}</option>`)
+                .join('');
+
+            if (els.mcStationSelect.options.length === 0) {
+                els.mcStationSelect.innerHTML = '<option value="" disabled selected>No supported stations for these models</option>';
+                return;
+            }
+
+            updateFeatureSelectForStation(dataset, els.mcStationSelect.value, els.mcFeatureSelect);
+            if (els.mcFeatureSelect.querySelector(`option[value="${CSS.escape(feature)}"]`)) {
+                els.mcFeatureSelect.value = feature;
+            }
+        } catch (_err) {
+            // Fall back to the generic station list if capability lookup fails.
+        }
     }
 
     async function runModelComparison() {
@@ -5248,19 +5365,15 @@
             const table = document.createElement('table');
             table.className = 'metrics-table';
             table.innerHTML = `
-                <thead><tr><th>Model</th><th>RMSE</th><th>MAPE</th><th>Source</th></tr></thead>
+                <thead><tr><th>Model</th><th>RMSE</th><th>MAPE</th></tr></thead>
                 <tbody>${result.stats.models.map((m) => {
                     const isBest = m.Model === result.stats.best_model_by_rmse;
                     const isNoData = m.source_note === 'no_data';
                     const rowClass = isBest ? ' class="best-row"' : isNoData ? ' class="no-data-row"' : '';
-                    const sourceCell = isNoData
-                        ? '<td class="mc-no-data-cell">No artifact</td>'
-                        : `<td class="mc-trained-cell">🧠 Trained</td>`;
                     return `<tr${rowClass}>
                         <td>${escapeHtml(m.Model)}${isBest ? ' ✓' : ''}</td>
                         <td>${escapeHtml(m.RMSE)}</td>
                         <td>${escapeHtml(m.MAPE)}</td>
-                        ${sourceCell}
                     </tr>`;
                 }).join('')}</tbody>`;
             body.appendChild(table);

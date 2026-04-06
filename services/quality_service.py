@@ -489,7 +489,27 @@ class QualityService:
 
     # ── 4. Anomaly candidates ────────────────────────────────────────────────
 
-    def anomaly_candidates(self, station: str, feature: str, z_thresh: float = 3.0) -> Dict[str, Any]:
+    @staticmethod
+    def _modified_zscore(values: np.ndarray) -> np.ndarray:
+        """
+        Iglewicz & Hoaglin (1993) modified z-score using Median Absolute Deviation.
+
+        M_i = 0.6745 * (x_i - median(x)) / MAD
+        where MAD = median(|x_i - median(x)|).
+
+        Preferred over the standard z-score for hydrological data, which is
+        right-skewed and non-normal.  The standard z-score is distorted by the
+        very outliers it is trying to detect; MAD-based detection is robust.
+        Recommended threshold: |M_i| > 3.5  (Iglewicz & Hoaglin 1993).
+        """
+        med = np.median(values)
+        mad = np.median(np.abs(values - med))
+        if mad == 0:
+            # Fallback: use mean absolute deviation if MAD is zero
+            mad = float(np.mean(np.abs(values - med))) or 1e-10
+        return 0.6745 * (values - med) / mad
+
+    def anomaly_candidates(self, station: str, feature: str, z_thresh: float = 3.5) -> Dict[str, Any]:
         repo = self._find_repo(station)
         if repo is None:
             raise ValueError(f"Station '{station}' not found.")
@@ -500,22 +520,24 @@ class QualityService:
         unit = repo.feature_units.get(feature, '')
         imp_mask = self._load_imputed_mask(repo, station, feature)
 
-        mean = float(ts.mean())
-        std  = float(ts.std())
-        if std == 0:
-            return {'station': station, 'feature': feature, 'candidates': [], 'total': 0}
+        values_arr = ts.values.astype(float)
+        median_val = float(np.median(values_arr))
+        mad_val    = float(np.median(np.abs(values_arr - median_val)))
+        if mad_val == 0:
+            mad_val = float(np.mean(np.abs(values_arr - median_val))) or 1e-10
 
-        z_scores = ((ts - mean) / std).abs()
-        anomaly_idx = z_scores[z_scores >= z_thresh].index
+        # Modified z-scores (Iglewicz & Hoaglin 1993) — robust to skewness
+        mod_z_arr = self._modified_zscore(values_arr)
+        mod_z_series = pd.Series(np.abs(mod_z_arr), index=ts.index)
+        anomaly_idx = mod_z_series[mod_z_series >= z_thresh].index
 
         candidates = []
         existing_flags = self._load_flags().get(station, {}).get(feature, {})
 
         for dt in anomaly_idx:
-            val = float(ts.loc[dt])
-            z   = float(z_scores.loc[dt])
-            # Context: 3 points before and after
-            pos = ts.index.get_loc(dt)
+            val  = float(ts.loc[dt])
+            mz   = float(mod_z_series.loc[dt])
+            pos  = ts.index.get_loc(dt)
             ctx_before = ts.iloc[max(0, pos - 3): pos].tolist()
             ctx_after  = ts.iloc[pos + 1: pos + 4].tolist()
             is_imputed = bool(imp_mask.loc[dt]) if (imp_mask is not None and dt in imp_mask.index) else False
@@ -523,23 +545,32 @@ class QualityService:
             candidates.append({
                 'date': date_str,
                 'value': round(val, 4),
-                'z_score': round(z, 2),
-                'above_mean': val > mean,
+                'z_score': round(mz, 2),        # field name kept for API compat
+                'above_mean': val > median_val,
                 'is_imputed': is_imputed,
                 'context_before': [round(v, 4) for v in ctx_before],
                 'context_after':  [round(v, 4) for v in ctx_after],
                 'flag': existing_flags.get(date_str, 'none'),
             })
 
-        # Sort by z-score descending
+        # Sort by modified z-score descending
         candidates.sort(key=lambda c: c['z_score'], reverse=True)
 
         return {
             'station': station, 'feature': feature, 'unit': unit,
-            'z_thresh': z_thresh, 'mean': round(mean, 4), 'std': round(std, 4),
+            'z_thresh': z_thresh,
+            'mean': round(median_val, 4),   # field kept for API compat; now stores median
+            'std':  round(mad_val, 4),       # field kept for API compat; now stores MAD
+            'detection_method': 'modified_zscore_MAD',
+            'detection_note': (
+                'Outlier detection uses the modified z-score (Iglewicz & Hoaglin 1993) '
+                'based on median and MAD, which is robust to skewness and to the '
+                'influence of outliers on the detection threshold. '
+                f'Threshold: |M| ≥ {z_thresh}.'
+            ),
             'total': len(candidates),
             'unflagged': sum(1 for c in candidates if c['flag'] == 'none'),
-            'candidates': candidates[:100],   # cap payload at 100
+            'candidates': candidates[:100],
         }
 
     # ── 5. Flag persistence ─────────────────────────────────────────────────

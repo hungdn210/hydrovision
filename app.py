@@ -232,6 +232,38 @@ def predict_stations():
     return jsonify(result)
 
 
+@app.route('/api/model-compare-stations')
+def model_compare_stations():
+    dataset = request.args.get('dataset', 'mekong').strip()
+    feature = request.args.get('feature', 'Discharge').strip()
+    compare_models = ['FlowNet', 'LSTM', 'PatchTST', 'DLinear']
+    capability_feature = feature
+
+    if dataset == 'mekong':
+        capability_feature = {
+            'Discharge': 'Water_Discharge',
+            'Water_Level': 'Water_Level',
+            'Rainfall': 'Rainfall',
+            'Total_Suspended_Solids': 'Total_Suspended_Solids',
+        }.get(feature, feature)
+
+    if dataset not in {'mekong', 'lamah'}:
+        return jsonify({'ok': False, 'error': f"Unknown dataset '{dataset}'"}), 400
+
+    supported = set()
+    for model in compare_models:
+        hist = capability_service.supported_stations(dataset, capability_feature, model, 'historical')
+        fut = capability_service.supported_stations(dataset, capability_feature, model, 'future')
+        supported |= (hist & fut)
+
+    return jsonify({
+        'ok': True,
+        'dataset': dataset,
+        'feature': feature,
+        'stations': sorted(supported),
+    })
+
+
 @app.route('/api/indices')
 def indices():
     station = request.args.get('station', '').strip()
@@ -269,9 +301,6 @@ def export_csv():
                 end_date=s.get('end_date') or fd['end_date'],
             )
             df = repo.get_feature_series(req)
-            df.insert(0, 'Station', station)
-            df.insert(1, 'Feature', feature)
-            df['Unit'] = repo.feature_units.get(feature, '')
             frames.append(df)
         if not frames:
             raise ValueError('No data found for the given series.')
@@ -329,16 +358,6 @@ def network():
     include_analysis = request.args.get('include_analysis', 'false').lower() == 'true'
     try:
         result = network_service.compute_full_network(dataset, include_analysis=include_analysis)
-        return jsonify({'ok': True, 'result': result})
-    except Exception as exc:
-        return jsonify({'ok': False, 'error': str(exc)}), 400
-
-
-@app.route('/api/network/travel-times')
-def network_travel_times():
-    dataset = request.args.get('dataset', 'mekong').strip()
-    try:
-        result = network_service.compute_travel_times(dataset)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400
@@ -529,10 +548,11 @@ def risk():
     feature = request.args.get('feature', '').strip()
     lookback = int(request.args.get('lookback', 30))
     include_analysis = request.args.get('include_analysis', 'false').lower() == 'true'
+    seasonal = request.args.get('seasonal', 'true').lower() != 'false'
     if not feature:
         return jsonify({'ok': False, 'error': 'feature parameter required'}), 400
     try:
-        result = risk_service.compute_risk_map(dataset, feature, lookback, include_analysis=include_analysis)
+        result = risk_service.compute_risk_map(dataset, feature, lookback, include_analysis=include_analysis, seasonal=seasonal)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400
@@ -580,7 +600,8 @@ def animate_map():
     if not feature:
         return jsonify({'ok': False, 'error': 'feature parameter required'}), 400
     try:
-        result = animation_service.build_animation(dataset, feature)
+        speed = max(1.0, min(5.0, float(request.args.get('speed', 2))))
+        result = animation_service.build_animation(dataset, feature, speed=speed)
         return jsonify({'ok': True, 'result': result})
     except Exception as exc:
         return jsonify({'ok': False, 'error': str(exc)}), 400

@@ -746,25 +746,41 @@ class PredictionService:
             )
 
         overall = 'well-specified' if (not sig_acf_lags and not sig_pacf_lags) else 'improvable'
-        base = (
-            f'**Residual Diagnostics — {feature.replace("_", " ")}**\n\n'
-            f'- **Diagnostics Source**: Residuals are computed from the **{diagnostics_source}**.\n'
-            f'- **Bias**: The model shows a {bias_desc}.\n'
-            f'- **Spread**: Residual standard deviation is {res_std:.3f} {unit} '
-            f'(95% CI band = ±{conf_bound:.3f}).\n'
-            f'- **Autocorrelation (ACF)**: {acf_desc}\n'
-            f'- **Partial Autocorrelation (PACF)**: {pacf_desc}\n'
-            f'- **Overall**: The model fit appears **{overall}**. '
-            + (
-                'Residuals approximate white noise, supporting forecast reliability.'
-                if overall == 'well-specified'
-                else 'Residual structure suggests the model may benefit from higher-order components or differencing.'
-            )
+        overall_note = (
+            'Residuals approximate white noise, supporting forecast reliability.'
+            if overall == 'well-specified'
+            else 'Residual structure suggests the model may benefit from higher-order components or differencing.'
+        )
+
+        # ── Local fallback HTML (always computed) ─────────────────────────────
+        # Relative spread: how large is residual std vs CI bound
+        spread_note = (
+            f'The 95% confidence band of ±{conf_bound:.3f} {unit} is relatively tight, '
+            f'suggesting point forecasts carry low uncertainty.'
+            if res_std < conf_bound * 0.6
+            else f'The 95% confidence band of ±{conf_bound:.3f} {unit} is moderately wide — '
+            f'point forecasts should be interpreted with caution.'
+        )
+        acf_severity = (
+            '' if not sig_acf_lags
+            else f' AR terms at lag{"s" if len(sig_acf_lags) > 1 else ""} '
+            f'{", ".join(str(l) for l in sig_acf_lags[:3])} may improve model fit.'
+        )
+        fallback_html = (
+            f'<p><strong>Residual Diagnostics — {feature.replace("_", " ")}</strong></p>'
+            f'<ul>'
+            f'<li><strong>Diagnostics Source:</strong> Residuals computed from the <strong>{diagnostics_source}</strong>.</li>'
+            f'<li><strong>Bias:</strong> The model shows a {bias_desc}.</li>'
+            f'<li><strong>Residual Spread:</strong> Standard deviation is {res_std:.3f} {unit}. {spread_note}</li>'
+            f'<li><strong>Autocorrelation (ACF):</strong> {acf_desc}{acf_severity}</li>'
+            f'<li><strong>Partial Autocorrelation (PACF):</strong> {pacf_desc}</li>'
+            f'<li><strong>Overall:</strong> Model fit is <strong>{overall}</strong>. {overall_note}</li>'
+            f'</ul>'
         )
 
         api_key = os.environ.get('GEMINI_API_KEY')
         if not api_key or api_key == 'your_google_gemini_api_key_here' or not api_key.strip():
-            return markdown.markdown(base)
+            return fallback_html
 
         try:
             prompt = (
@@ -789,7 +805,7 @@ class PredictionService:
             )
             return markdown.markdown(_gemini_generate(api_key, prompt))
         except Exception:
-            return markdown.markdown(base)
+            return fallback_html
 
     def _historical_summary(
         self, frame: pd.DataFrame, hist_fit_df: pd.DataFrame,
@@ -803,15 +819,57 @@ class PredictionService:
         rmse_str = f'{rmse:.3f} {unit}' if not np.isnan(rmse) else 'n/a'
         mape_str = f'{mape:.1f}%' if (not np.isnan(mape) and mape <= 500) else 'n/a'
 
-        base = (
-            f'Historical fit for {feature} at {station} using H={actual_h} over {n_windows} windows '
-            f'({date_start} → {date_end}). RMSE: {rmse_str}, MAPE: {mape_str}. '
-            f'Historical mean: {hist_mean:.3f} {unit}.'
+        # ── Accuracy grading ──────────────────────────────────────────────────
+        if not np.isnan(mape) and mape <= 500:
+            if mape < 10:
+                acc_grade, acc_label = 'strong', 'Strong'
+            elif mape < 20:
+                acc_grade, acc_label = 'moderate', 'Moderate'
+            else:
+                acc_grade, acc_label = 'poor', 'Poor'
+        else:
+            acc_grade, acc_label = 'indeterminate', 'Indeterminate'
+
+        rmse_pct_of_mean = (
+            f' ({rmse / hist_mean * 100:.1f}% of historical mean)'
+            if hist_mean > 0 and not np.isnan(rmse)
+            else ''
+        )
+        horizon_note = (
+            f'At H={actual_h}, each prediction is made {actual_h} step(s) ahead — '
+            + ('a short horizon typical of near-term operational forecasting.'
+               if actual_h <= 7
+               else 'a longer horizon where error accumulation is expected.')
+        )
+        coverage_note = (
+            f'{n_windows} rolling evaluation windows span {date_start} to {date_end}, '
+            + ('providing broad temporal coverage for a reliable accuracy estimate.'
+               if n_windows > 200
+               else 'covering a moderate evaluation window.')
+        )
+        recommendation = {
+            'strong': 'Model fit is sufficient for operational use with reasonable confidence.',
+            'moderate': 'Model fit is acceptable — supplement forecasts with local expert judgement before operational use.',
+            'poor': 'Model fit is weak — treat forecasts as indicative only and validate against current observations.',
+            'indeterminate': 'Accuracy could not be computed reliably — interpret results with caution.',
+        }[acc_grade]
+
+        fallback_html = (
+            f'<p><strong>Historical Fit Assessment — {feature.replace("_", " ")} · {station.replace("_", " ")}</strong></p>'
+            f'<ul>'
+            f'<li><strong>Overall Accuracy:</strong> RMSE = {rmse_str}{rmse_pct_of_mean}, '
+            f'MAPE = {mape_str} — accuracy grade is <strong>{acc_label}</strong>.</li>'
+            f'<li><strong>Horizon Effect:</strong> {horizon_note}</li>'
+            f'<li><strong>Coverage Period:</strong> {coverage_note}</li>'
+            f'<li><strong>Historical Reference:</strong> Historical mean is {hist_mean:.3f} {unit}, '
+            f'providing the baseline against which model error is measured.</li>'
+            f'<li><strong>Operational Recommendation:</strong> {recommendation}</li>'
+            f'</ul>'
         )
 
         api_key = os.environ.get('GEMINI_API_KEY')
         if not api_key or api_key == 'your_google_gemini_api_key_here' or not api_key.strip():
-            return base
+            return fallback_html
 
         try:
             prompt = (
@@ -831,7 +889,7 @@ class PredictionService:
             html_content = markdown.markdown(_gemini_generate(api_key, prompt))
             return html_content
         except Exception:
-            return base
+            return fallback_html
 
     def _prediction_summary(
         self,
@@ -862,17 +920,71 @@ class PredictionService:
         mape_str = f'{mape:.1f}%' if not np.isnan(mape) else 'n/a'
         rmse_str = f'{rmse:.3f} {unit}'
 
-        base_summary = (
-            f'The forecast for {feature} at {station} spans the next {horizon} {period_label}(s). '
-            f'The model projects a {direction} trajectory from {last_actual:.2f} {unit} '
-            f'to {last_forecast:.2f} {unit} ({pct_change:+.1f}%). '
-            f'Model fit: RMSE {rmse_str}, MAPE {mape_str}. '
-            f'Forecast range: {forecast_min:.2f}–{forecast_max:.2f} {unit}.'
+        # ── Historical context classification ─────────────────────────────────
+        hist_deviation = ((last_forecast - hist_mean) / hist_mean * 100) if hist_mean != 0 else 0.0
+        if last_forecast > hist_mean + 1.5 * hist_std:
+            hist_context = f'well above the historical mean ({hist_deviation:+.1f}% above)'
+        elif last_forecast > hist_mean + 0.5 * hist_std:
+            hist_context = f'above the historical mean ({hist_deviation:+.1f}% above)'
+        elif last_forecast > hist_mean - 0.5 * hist_std:
+            hist_context = f'near the historical mean ({hist_deviation:+.1f}%)'
+        elif last_forecast > hist_mean - 1.5 * hist_std:
+            hist_context = f'below the historical mean ({hist_deviation:+.1f}% below)'
+        else:
+            hist_context = f'well below the historical mean ({abs(hist_deviation):.1f}% below)'
+
+        # ── Volatility note ───────────────────────────────────────────────────
+        forecast_range = forecast_max - forecast_min
+        hist_range = hist_max - hist_min
+        range_pct_of_hist = (forecast_range / hist_range * 100) if hist_range > 0 else 0.0
+        volatility_note = (
+            f'The forecast spans {forecast_min:.2f}–{forecast_max:.2f} {unit} '
+            f'(range: {forecast_range:.2f} {unit}, {range_pct_of_hist:.0f}% of the historical range), '
+            + ('indicating high intra-period variability.' if range_pct_of_hist > 60
+               else 'indicating moderate intra-period variability.' if range_pct_of_hist > 25
+               else 'indicating relatively stable conditions ahead.')
+        )
+
+        # ── Confidence note ───────────────────────────────────────────────────
+        if not np.isnan(mape) and mape <= 500:
+            if mape < 10:
+                conf_label = 'high'
+            elif mape < 20:
+                conf_label = 'moderate'
+            else:
+                conf_label = 'low'
+        else:
+            conf_label = 'indeterminate'
+        conf_note = (
+            f'RMSE = {rmse_str}, MAPE = {mape_str} — forecast confidence is <strong>{conf_label}</strong>. '
+            f'Each forecast point carries ±{residual_std:.3f} {unit} (1σ residual spread from backtesting).'
+        )
+
+        fallback_html = (
+            f'<p><strong>Executive Summary</strong></p>'
+            f'<p>The {horizon}-{period_label} forecast for <strong>{feature.replace("_", " ")}</strong> '
+            f'at <strong>{station.replace("_", " ")}</strong> projects a <strong>{direction}</strong> '
+            f'trajectory of {pct_change:+.1f}% — from {last_actual:.2f} to {last_forecast:.2f} {unit}. '
+            f'The end-of-horizon value is {hist_context}.</p>'
+            f'<p><strong>Forecast Insights</strong></p>'
+            f'<ul>'
+            f'<li><strong>Trajectory &amp; Magnitude:</strong> Values move from {last_actual:.2f} → '
+            f'{last_forecast:.2f} {unit} ({pct_change:+.1f}%) over {horizon} {period_label}(s). '
+            f'First forecast step: {first_forecast:.2f} {unit}.</li>'
+            f'<li><strong>Historical Comparison:</strong> The end-of-horizon value ({last_forecast:.2f} {unit}) '
+            f'is {hist_context}. Historical record: '
+            f'mean {hist_mean:.2f}, σ {hist_std:.2f}, range {hist_min:.2f}–{hist_max:.2f} {unit}.</li>'
+            f'<li><strong>Volatility &amp; Range:</strong> {volatility_note}</li>'
+            f'<li><strong>Model Confidence:</strong> {conf_note}</li>'
+            f'<li><strong>Data Quality Note:</strong> This forecast is generated from a statistical or '
+            f'ML model trained on historical observations. It does not account for sudden basin interventions, '
+            f'extreme events outside the training range, or real-time observational updates.</li>'
+            f'</ul>'
         )
 
         api_key = os.environ.get('GEMINI_API_KEY')
         if not api_key or api_key == 'your_google_gemini_api_key_here' or not api_key.strip():
-            return base_summary
+            return fallback_html
 
         try:
             prompt = (
@@ -919,4 +1031,4 @@ class PredictionService:
             html_content = markdown.markdown(_gemini_generate(api_key, prompt))
             return html_content
         except Exception:
-            return base_summary
+            return fallback_html

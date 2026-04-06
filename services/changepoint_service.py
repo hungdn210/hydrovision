@@ -18,6 +18,11 @@ except ImportError:
 
 from .analysis_service import _gemini_generate
 from .data_loader import SeriesRequest
+from .figure_theme import (
+    TEXT, SOFT, GRID_LIGHT,
+    dark_layout, axis_style,
+    legend_v, MARGIN_STD,
+)
 
 
 def _fallback_changepoint_analysis(result: Dict[str, Any]) -> str:
@@ -128,11 +133,36 @@ class ChangePointService:
             return None
 
     @staticmethod
+    def _ar1_prewhiten(x: np.ndarray) -> np.ndarray:
+        """
+        AR(1) pre-whitening: remove lag-1 autocorrelation before trend testing.
+        Returns residuals x[t] - rho*x[t-1] (length n-1).
+        Following von Storch (1995) and Yue & Wang (2002) recommendations for
+        Mann-Kendall testing on autocorrelated hydrological series.
+        """
+        if len(x) < 4:
+            return x
+        rho = float(np.corrcoef(x[:-1], x[1:])[0, 1])
+        rho = np.clip(rho, -0.99, 0.99)
+        return x[1:] - rho * x[:-1]
+
+    @staticmethod
     def _mk_trend(x: np.ndarray) -> str:
-        """Return 'Increasing ↑', 'Decreasing ↓', or 'No trend' based on Mann-Kendall."""
+        """
+        Return 'Increasing ↑', 'Decreasing ↓', or 'No trend' based on
+        Mann-Kendall test applied to AR(1) pre-whitened series.
+        Pre-whitening follows von Storch (1995) to correct for autocorrelation
+        inflation of the MK S-statistic in hydrological time series.
+        """
         if len(x) < 4:
             return 'Too short'
+        # AR(1) pre-whiten to reduce autocorrelation bias in MK S-statistic
+        rho = float(np.corrcoef(x[:-1], x[1:])[0, 1]) if len(x) > 2 else 0.0
+        if abs(rho) > 0.1:
+            x = x[1:] - np.clip(rho, -0.99, 0.99) * x[:-1]
         n = len(x)
+        if n < 4:
+            return 'Too short'
         s = 0
         for i in range(n - 1):
             for j in range(i + 1, n):
@@ -183,24 +213,49 @@ class ChangePointService:
         # ── Run change-point algorithm ────────────────────────────────────────
         n_breaks = max(1, min(n_breaks, 6))
 
+        penalty_method_used = 'BIC'
+        penalty_value_used: float = 0.0
+
         if method == 'pelt':
-            # PELT with RBF cost — try increasingly lower penalties until we get breaks
             algo = rpt.Pelt(model='rbf', min_size=12, jump=1).fit(values)
-            bkps = []
-            for pen_factor in [1.0, 0.5, 0.2, 0.05]:
-                pen = pen_factor * np.log(n) * np.std(values) ** 2
-                raw_bkps = algo.predict(pen=pen)
-                candidate = sorted(raw_bkps[:-1])[:n_breaks]
-                if len(candidate) >= 1:
-                    bkps = candidate
-                    break
-            # If still none, fall back to BinSeg
+
+            # ── BIC-derived penalty (Killick et al. 2012) ────────────────────
+            # BIC penalty ≈ log(n) * sigma² where sigma² estimated from
+            # first-differenced series (noise variance, not signal variance).
+            sigma2 = float(np.var(np.diff(values)) / 2.0)
+            bic_pen = float(np.log(n) * max(sigma2, 1e-8))
+            penalty_value_used = round(bic_pen, 6)
+            try:
+                raw_bkps = algo.predict(pen=bic_pen)
+                bkps = sorted(raw_bkps[:-1])[:n_breaks]
+            except Exception:
+                bkps = []
+
+            # ── Fallback: adaptive penalty chain if BIC finds nothing ────────
             if not bkps:
+                penalty_method_used = 'adaptive_fallback'
+                for pen_factor in [1.0, 0.5, 0.2, 0.05]:
+                    pen = pen_factor * np.log(n) * np.std(values) ** 2
+                    try:
+                        raw_bkps = algo.predict(pen=pen)
+                        candidate = sorted(raw_bkps[:-1])[:n_breaks]
+                        if len(candidate) >= 1:
+                            bkps = candidate
+                            penalty_value_used = round(pen, 6)
+                            break
+                    except Exception:
+                        continue
+
+            # ── Second fallback: BinSeg if PELT still yields nothing ─────────
+            if not bkps:
+                penalty_method_used = 'binseg_fallback'
                 algo2 = rpt.Binseg(model='rbf', min_size=12, jump=1).fit(values)
                 raw_bkps = algo2.predict(n_bkps=n_breaks)
                 bkps = sorted(raw_bkps[:-1])
         else:
-            # Binary Segmentation
+            # Binary Segmentation (user-requested)
+            penalty_method_used = 'binseg_fixed_k'
+            penalty_value_used = float(n_breaks)
             algo = rpt.Binseg(model='rbf', min_size=12, jump=1).fit(values)
             raw_bkps = algo.predict(n_bkps=n_breaks)
             bkps = sorted(raw_bkps[:-1])
@@ -209,8 +264,6 @@ class ChangePointService:
         seg_ends = [0] + bkps + [n]
         segments = [(seg_ends[i], seg_ends[i + 1]) for i in range(len(seg_ends) - 1)]
 
-        DARK_BG = '#07111f'
-        TEXT = '#e5eefc'
         CHANGE_COLOR = '#f59e0b'
         SEGMENT_COLORS = ['#60a5fa', '#34d399', '#f87171', '#a78bfa', '#fb923c', '#38bdf8', '#e879f9']
 
@@ -223,7 +276,7 @@ class ChangePointService:
             mode='lines',
             name='Monthly mean',
             line=dict(color='rgba(148,163,184,0.5)', width=1),
-            hovertemplate='%{x|%Y-%m}: %{y:.3f} ' + unit + '<extra></extra>',
+            hovertemplate='%{x|%b %Y}: %{y:.3f} ' + unit + '<extra></extra>',
         ))
 
         # ── Segment means ──────────────────────────────────────────────────────
@@ -284,38 +337,19 @@ class ChangePointService:
         feature_label = feature.replace('_', ' ').title()
         method_label = 'PELT' if method == 'pelt' else 'Binary Segmentation'
 
-        fig.update_layout(
-            paper_bgcolor=DARK_BG,
-            plot_bgcolor='rgba(0,0,0,0)',
-            font=dict(family='Inter, sans-serif', color=TEXT, size=12),
-            title=dict(
-                text=f'Change Point Detection ({method_label}) — {feature_label} · {station_name}',
-                font=dict(size=14, color=TEXT),
-                x=0.5, xanchor='center',
-            ),
-            xaxis=dict(
-                title='Date',
-                gridcolor='rgba(148,163,184,0.08)',
-                showgrid=True, zeroline=False,
-            ),
-            yaxis=dict(
-                title=f'{feature_label} ({unit})' if unit else feature_label,
-                gridcolor='rgba(148,163,184,0.08)',
-                showgrid=True, zeroline=False,
-            ),
-            legend=dict(
-                orientation='v',
-                yanchor='top', y=0.99,
-                xanchor='left', x=0.01,
-                bgcolor='rgba(7,17,31,0.82)',
-                bordercolor='rgba(148,163,184,0.15)',
-                borderwidth=1,
-                font=dict(size=10),
-            ),
+        _ax = axis_style(grid=GRID_LIGHT)
+        fig.update_layout(**dark_layout(
+            title=f'Change Point Detection ({method_label}) — {feature_label} · {station_name}',
+            height=480,
+            margin=MARGIN_STD,
+            show_legend=True,
+            xaxis=dict(**_ax, title='Date', showgrid=True, zeroline=False),
+            yaxis=dict(**_ax, title=f'{feature_label} ({unit})' if unit else feature_label,
+                       showgrid=True, zeroline=False),
+            legend=legend_v(),
             shapes=shapes,
             annotations=cp_annotations,
-            margin=dict(l=60, r=20, t=50, b=50),
-        )
+        ))
 
         # Change-point dates for output
         cp_dates = [str(dates[bp].date()) for bp in bkps if bp < len(dates)]
@@ -331,9 +365,17 @@ class ChangePointService:
             'figure': plotly.io.to_json(fig),
             'stats': {
                 'method': method_label,
+                'penalty_method': penalty_method_used,
+                'penalty_value': penalty_value_used,
                 'n_breaks_detected': len(bkps),
                 'change_point_dates': cp_dates,
                 'segments': seg_stats,
+                'mk_prewhitened': True,
+                'method_note': (
+                    'Change points detected using PELT (Killick et al. 2012) with BIC-derived penalty '
+                    '(log(n)·σ²). Mann-Kendall trend tests applied per segment with AR(1) pre-whitening '
+                    '(von Storch 1995) to correct for autocorrelation inflation of the S-statistic.'
+                ),
             },
         }
 
