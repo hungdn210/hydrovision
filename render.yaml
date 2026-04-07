@@ -2,16 +2,14 @@ services:
   - type: web
     name: hydrovision
     runtime: python
-    plan: free
+    plan: starter
     buildCommand: pip install -r requirements.txt
     startCommand: bash start.sh
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.11"
       - key: HYDROVISION_DATA_DIR
-        value: /tmp/hydrovision-data
-      - key: R2_SYNC_PREFIXES
-        value: Mekong
+        value: /opt/render/project/src/data
       - key: R2_BUCKET
         sync: false
       - key: R2_ENDPOINT
