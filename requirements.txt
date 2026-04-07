@@ -10,3 +10,5 @@ pyproj
 ruptures
 PyWavelets
 scipy
+boto3
+gunicorn
