@@ -72,18 +72,36 @@ LAMAH_DATASET_DIR = LAMAH_DIR / 'filled_dataset'
 LAMAH_SCHEMA_PATH = LAMAH_DIR / 'data_schema.py'
 LAMAH_GEOJSON_PATH = LAMAH_DIR / 'lamah_countries.geojson'
 
-print('Loading Mekong dataset...')
-mekong_repo = DataRepository(MEKONG_DATASET_DIR, MEKONG_SCHEMA_PATH, MEKONG_GEOJSON_PATH, dataset='mekong')
-print(f'  Mekong: {len(mekong_repo.station_index)} stations loaded.')
 
-print('Loading LamaH dataset (857 stations — this may take ~30s)...')
-lamah_repo = DataRepository(
-    LAMAH_DATASET_DIR, LAMAH_SCHEMA_PATH, None,
-    dataset='lamah',
-)
-print(f'  LamaH: {len(lamah_repo.station_index)} stations loaded.')
+def _dataset_ready(dataset_dir: Path, schema_path: Path) -> bool:
+    return dataset_dir.is_dir() and schema_path.exists()
 
-repository = MultiDataRepository([mekong_repo, lamah_repo])
+
+repos = []
+
+if _dataset_ready(MEKONG_DATASET_DIR, MEKONG_SCHEMA_PATH):
+    print('Loading Mekong dataset...')
+    mekong_repo = DataRepository(MEKONG_DATASET_DIR, MEKONG_SCHEMA_PATH, MEKONG_GEOJSON_PATH, dataset='mekong')
+    print(f'  Mekong: {len(mekong_repo.station_index)} stations loaded.')
+    repos.append(mekong_repo)
+else:
+    print('Skipping Mekong dataset: files not available.')
+
+if _dataset_ready(LAMAH_DATASET_DIR, LAMAH_SCHEMA_PATH):
+    print('Loading LamaH dataset (857 stations — this may take ~30s)...')
+    lamah_repo = DataRepository(
+        LAMAH_DATASET_DIR, LAMAH_SCHEMA_PATH, None,
+        dataset='lamah',
+    )
+    print(f'  LamaH: {len(lamah_repo.station_index)} stations loaded.')
+    repos.append(lamah_repo)
+else:
+    print('Skipping LamaH dataset: files not available.')
+
+if not repos:
+    raise FileNotFoundError('No datasets are available to load.')
+
+repository = MultiDataRepository(repos)
 chart_service = ChartService(repository)
 analysis_service = AnalysisService(repository, chart_service)
 prediction_service = PredictionService(repository, data_dir=DATA_DIR)
