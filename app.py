@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -30,14 +31,43 @@ from services.capability_service import CapabilityService
 
 BASE_DIR = Path(__file__).resolve().parent
 
+
+def _resolve_data_root() -> Path:
+    candidates = []
+
+    env_data_dir = os.getenv('HYDROVISION_DATA_DIR', '').strip()
+    if env_data_dir:
+        candidates.append(Path(env_data_dir).expanduser())
+
+    candidates.extend([
+        BASE_DIR / 'data',
+        BASE_DIR.parent / 'data',
+    ])
+
+    for candidate in candidates:
+        mekong_schema = candidate / 'Mekong' / 'data_schema.py'
+        lamah_schema = candidate / 'LamaH' / 'data_schema.py'
+        if mekong_schema.exists() and lamah_schema.exists():
+            return candidate
+
+    searched = ', '.join(str(path) for path in candidates)
+    raise FileNotFoundError(
+        'Hydrovision data directory not found. '
+        f'Looked in: {searched}. '
+        'Set HYDROVISION_DATA_DIR to the folder containing Mekong/ and LamaH/.'
+    )
+
+
+DATA_DIR = _resolve_data_root()
+
 # Mekong dataset paths
-MEKONG_DIR = BASE_DIR / 'data' / 'Mekong'
+MEKONG_DIR = DATA_DIR / 'Mekong'
 MEKONG_DATASET_DIR = MEKONG_DIR / 'filled_dataset'
 MEKONG_SCHEMA_PATH = MEKONG_DIR / 'data_schema.py'
 MEKONG_GEOJSON_PATH = MEKONG_DIR / 'mekong_basin.geojson'
 
 # LamaH dataset paths
-LAMAH_DIR = BASE_DIR / 'data' / 'LamaH'
+LAMAH_DIR = DATA_DIR / 'LamaH'
 LAMAH_DATASET_DIR = LAMAH_DIR / 'filled_dataset'
 LAMAH_SCHEMA_PATH = LAMAH_DIR / 'data_schema.py'
 LAMAH_GEOJSON_PATH = LAMAH_DIR / 'lamah_countries.geojson'
@@ -56,23 +86,23 @@ print(f'  LamaH: {len(lamah_repo.station_index)} stations loaded.')
 repository = MultiDataRepository([mekong_repo, lamah_repo])
 chart_service = ChartService(repository)
 analysis_service = AnalysisService(repository, chart_service)
-prediction_service = PredictionService(repository, data_dir=BASE_DIR / 'data')
+prediction_service = PredictionService(repository, data_dir=DATA_DIR)
 index_service = IndexService(repository)
 comparison_service = ComparisonService(repository)
 network_service = NetworkService(repository)
-scenario_service = ScenarioService(repository, data_dir=BASE_DIR / 'data')
-quality_service = QualityService(repository, data_dir=BASE_DIR / 'data')
+scenario_service = ScenarioService(repository, data_dir=DATA_DIR)
+quality_service = QualityService(repository, data_dir=DATA_DIR)
 extreme_service = ExtremeService(repository)
 risk_service = RiskService(repository)
 climate_service = ClimateService(repository)
 changepoint_service = ChangePointService(repository)
 animation_service = AnimationService(repository)
-model_comparison_service = ModelComparisonService(repository, data_dir=BASE_DIR / 'data')
+model_comparison_service = ModelComparisonService(repository, data_dir=DATA_DIR)
 decomposition_service = DecompositionService(repository)
 wavelet_service = WaveletService(repository)
 
 print('Scanning prediction assets…')
-capability_service = CapabilityService(data_dir=BASE_DIR / 'data')
+capability_service = CapabilityService(data_dir=DATA_DIR)
 capability_service.scan()
 print('  Capability index built.')
 
@@ -97,7 +127,7 @@ def bootstrap():
 
 @app.route('/api/datasets')
 def datasets():
-    data_dir = BASE_DIR / 'data'
+    data_dir = DATA_DIR
     names = sorted(
         d.name for d in data_dir.iterdir()
         if d.is_dir() and not d.name.startswith('_') and not d.name.startswith('.')
