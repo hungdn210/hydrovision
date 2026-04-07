@@ -118,6 +118,7 @@ def index():
 def bootstrap():
     payload = repository.bootstrap_payload()
     payload['prediction_capabilities'] = capability_service.bootstrap_capabilities()
+    payload['prediction_station_features'] = capability_service.station_prediction_features()
     
     from services.feature_registry import bootstrap_feature_registry
     payload['feature_registry'] = bootstrap_feature_registry(payload['features'])

@@ -38,6 +38,13 @@ from typing import Dict, Optional, Set
 _MEKONG_FEATURE_DIRS = {'Water_Discharge', 'Water_Level', 'Rainfall', 'Total_Suspended_Solids'}
 # Sentinel used to represent LamaH's single (unnamed) feature layer
 _LAMAH_FEATURE_KEY = '_default_feature'
+# Map from Mekong folder names → frontend feature names
+_MEKONG_FOLDER_TO_FEATURE = {
+    'Water_Discharge': 'Discharge',
+    'Water_Level': 'Water_Level',
+    'Rainfall': 'Rainfall',
+    'Total_Suspended_Solids': 'Total_Suspended_Solids',
+}
 
 
 class CapabilityService:
@@ -146,6 +153,52 @@ class CapabilityService:
                         for feat, model_map in feat_map.items()
                         if any(s for s in model_map.values())
                     }
+        return out
+
+    def station_prediction_features(self) -> dict:
+        """
+        Returns per-station, per-mode set of features that have at least one trained
+        prediction CSV.  Feature names use the frontend convention (e.g. 'Discharge',
+        not 'Water_Discharge').
+
+        Shape::
+
+            {
+              "mekong": {
+                "Kratie": {"historical": ["Discharge", "Water_Level"], "future": [...]},
+                ...
+              },
+              "lamah": {
+                "237": {"historical": ["Discharge"], "future": ["Discharge"]},
+                ...
+              }
+            }
+        """
+        out: dict = {'mekong': {}, 'lamah': {}}
+
+        # Mekong — features live in named sub-folders
+        for mode in ('historical', 'future'):
+            for folder_name, model_map in self.index.get('mekong', {}).get(mode, {}).items():
+                feature_name = _MEKONG_FOLDER_TO_FEATURE.get(folder_name, folder_name)
+                for stations in model_map.values():
+                    for station in stations:
+                        entry = out['mekong'].setdefault(station, {'historical': set(), 'future': set()})
+                        entry[mode].add(feature_name)
+
+        # Convert sets → sorted lists
+        for station, modes in out['mekong'].items():
+            out['mekong'][station] = {m: sorted(s) for m, s in modes.items()}
+
+        # LamaH — single implicit feature (Discharge)
+        for mode in ('historical', 'future'):
+            for stations in self.index.get('lamah', {}).get(mode, {}).get(_LAMAH_FEATURE_KEY, {}).values():
+                for station in stations:
+                    entry = out['lamah'].setdefault(station, {'historical': set(), 'future': set()})
+                    entry[mode].add('Discharge')
+
+        for station, modes in out['lamah'].items():
+            out['lamah'][station] = {m: sorted(s) for m, s in modes.items()}
+
         return out
 
     def models_for_station(self, dataset: str, station: str, feature: str) -> dict:

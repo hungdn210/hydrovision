@@ -332,6 +332,10 @@ class PredictionService:
         upper=None,
     ) -> go.Figure:
         unit = self.repository.feature_units.get(feature, '')
+        last_hist_ts = frame['Timestamp'].iloc[-1]
+        last_hist_val = float(frame['Value'].iloc[-1])
+        bridge_x = [last_hist_ts] + list(forecast_index)
+        bridge_forecast = [last_hist_val] + list(forecast_values.values)
         figure = go.Figure()
         figure.add_trace(go.Scatter(
             x=frame['Timestamp'], y=frame['Value'],
@@ -341,16 +345,17 @@ class PredictionService:
             hovertemplate='<b>%{x|%Y-%m-%d}</b><br>Actual: %{y:.3f} ' + unit + '<extra></extra>',
         ))
         figure.add_trace(go.Scatter(
-            x=forecast_index, y=forecast_values,
-            mode='lines+markers', name=f'Forecast (H={actual_h})',
-            line={'width': 2.2, 'color': '#f59e0b', 'dash': 'dash'},
-            marker={'size': 7, 'color': '#f59e0b', 'line': {'width': 1.5, 'color': 'white'}},
+            x=bridge_x, y=bridge_forecast,
+            mode='lines', name=f'Forecast (H={actual_h})',
+            line={'width': 2.6, 'color': '#f59e0b', 'dash': 'dash'},
             hovertemplate='<b>%{x|%Y-%m-%d}</b><br>Forecast: %{y:.3f} ' + unit + '<extra></extra>',
         ))
         # CI band (trace index 2) — toggled by the CI toggle in the UI
         if lower is not None and upper is not None:
-            x_band = list(forecast_index) + list(forecast_index)[::-1]
-            y_band = list(upper.values) + list(lower.values)[::-1]
+            bridge_upper = [last_hist_val] + list(upper.values)
+            bridge_lower = [last_hist_val] + list(lower.values)
+            x_band = bridge_x + bridge_x[::-1]
+            y_band = bridge_upper + bridge_lower[::-1]
             figure.add_trace(go.Scatter(
                 x=x_band, y=y_band,
                 fill='toself', fillcolor='rgba(245,158,11,0.13)',

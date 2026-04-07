@@ -725,12 +725,9 @@
         els.predictHorizonInput.addEventListener('input', validateHorizonInput);
         els.predictHorizonInput.addEventListener('change', validateHorizonInput);
 
-        // CI band toggle — show/hide trace index 2 on all prediction forecast plots
+        // CI band toggle — show/hide all prediction CI traces by name
         els.predictCIToggle?.addEventListener('change', () => {
-            const showCI = els.predictCIToggle.checked;
-            els.predictionCards.querySelectorAll('.plot-container[data-has-ci="true"]').forEach(div => {
-                if (div.data && div.data.length > 2) Plotly.restyle(div, { visible: showCI }, [2]);
-            });
+            applyPredictionCIToggleState(els.predictionCards);
         });
 
         // Theme toggle
@@ -1171,11 +1168,26 @@
     function updatePredictionFeatureOptions() {
         const station = els.predictStationSelect.value;
         const meta = state.stationsByName.get(station);
+        const dataset = meta?.dataset;
+        const mode = state.predictMode || 'future';
+        const stationFeatureMap = state.bootstrap?.prediction_station_features;
+
+        // Filter to only features that have actual prediction CSVs for this station/mode
+        let availableFeatures = meta?.features || [];
+        if (stationFeatureMap && dataset && station) {
+            const featuresWithData = stationFeatureMap[dataset]?.[station]?.[mode] || [];
+            if (featuresWithData.length > 0) {
+                availableFeatures = availableFeatures.filter(f => featuresWithData.includes(f));
+            }
+        }
+
+        const prev = els.predictFeatureSelect.value;
         els.predictFeatureSelect.innerHTML = '';
-        (meta?.features || []).forEach((feature) => {
+        availableFeatures.forEach((feature) => {
             const option = document.createElement('option');
             option.value = feature;
             option.textContent = prettyFeature(feature);
+            if (feature === prev) option.selected = true;
             els.predictFeatureSelect.appendChild(option);
         });
         updatePredictionHint();
@@ -2447,6 +2459,29 @@
         }
     }
 
+    function updatePredictionCIForPlot(plot, showCI) {
+        if (!plot?.data) return false;
+        const ciTraceIndexes = plot.data
+            .map((trace, index) => (trace?.name === '95% CI' ? index : -1))
+            .filter(index => index >= 0);
+        if (!ciTraceIndexes.length) return true;
+        Plotly.restyle(plot, { visible: showCI }, ciTraceIndexes);
+        return true;
+    }
+
+    function applyPredictionCIToggleState(scope = els.predictionCards, attempt = 0) {
+        const showCI = els.predictCIToggle?.checked ?? true;
+        const plots = scope?.querySelectorAll?.('.plot-container[data-has-ci="true"]') || [];
+        let pending = 0;
+        plots.forEach((plot) => {
+            const ready = updatePredictionCIForPlot(plot, showCI);
+            if (!ready) pending += 1;
+        });
+        if (pending > 0 && attempt < 8) {
+            setTimeout(() => applyPredictionCIToggleState(scope, attempt + 1), 120);
+        }
+    }
+
     function appendVisualizationCard(result) {
         clearEmptyStateIfNeeded(els.visualizationCards);
         const cardId = `visual-${++state.cardCounters.visualize}`;
@@ -2645,15 +2680,27 @@
         // Prepend to DOM first so Plotly can measure container width correctly
         els.predictionCards.prepend(card);
 
+        // Bake the current CI toggle state into the figure JSON before rendering so that
+        // every render pass (including refreshPlotGrid re-renders) uses the correct state.
+        const applyCI = (figureJson) => {
+            if (!figureJson) return figureJson;
+            const showCI = els.predictCIToggle?.checked ?? true;
+            if (showCI) return figureJson;
+            const fig = JSON.parse(figureJson);
+            fig.data.forEach(trace => { if (trace.name === '95% CI') trace.visible = false; });
+            return JSON.stringify(fig);
+        };
+
         // Render zoom into basePlot (first .plot-container → used by openFullscreen)
-        renderPlot(basePlot, result.figure_zoom || result.figure);
+        renderPlot(basePlot, applyCI(result.figure_zoom || result.figure));
         // Render full history into the separate fullPlot div
-        renderPlot(fullPlot, result.figure);
+        renderPlot(fullPlot, applyCI(result.figure));
         // Render diagnostics
         if (result.figure_diagnostics) {
             const diagPlot = body.querySelectorAll('.plot-container')[2];
             if (diagPlot) renderPlot(diagPlot, result.figure_diagnostics);
         }
+        applyPredictionCIToggleState(card);
         refreshPlotGrid(els.predictionCards);
     }
 
