@@ -1,0 +1,16 @@
+[Unit]
+Description=Hydrovision Flask application
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/hydrovision/app
+EnvironmentFile=/opt/hydrovision/hydrovision.env
+ExecStart=/opt/hydrovision/venv/bin/gunicorn app:app --bind 127.0.0.1:8000 --workers 2 --timeout 240
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
