@@ -8,7 +8,7 @@ and tributary connections are hardcoded and clearly labelled.  Sub-basin GeoJSON
 is only a single boundary polygon, so connections are derived from published
 basin reports and station coordinates rather than automated spatial joins.
 
-Travel times: empirical cross-correlation of monthly discharge series.
+Travel times: empirical cross-correlation of discharge series, reported in days.
 Contribution: discharge-ratio proxy (labelled as estimate, not hydraulic routing).
 """
 from __future__ import annotations
@@ -46,27 +46,53 @@ def _network_prompt(result: Dict[str, Any]) -> str:
     travel = result.get('travel_times') or []
     sample = '\n'.join(
         f"- {row['upstream_name'].replace('_', ' ')} -> {row['downstream_name'].replace('_', ' ')}: "
-        f"{row['lag_months']} month lag, corr={row['correlation']:.3f}, overlap={row['overlap_months']}"
-        for row in travel[:8]
+        f"{row['lag_days']} day lag, corr={row['correlation']:.3f}, overlap={row['overlap_count']} {row.get('overlap_unit', 'steps')}"
+        for row in travel[:10]
     ) or 'No travel-time pairs available.'
     main_stem = ', '.join(s.replace('_', ' ') for s in result.get('main_stem', [])) or 'Unavailable'
+    n_pairs = len(travel)
+    if travel:
+        avg_lag = sum(r.get('lag_days') or 0 for r in travel) / n_pairs
+        avg_corr = sum(r.get('correlation', 0) for r in travel) / n_pairs
+    else:
+        avg_lag = avg_corr = 0
     return (
-        'Act as a professional hydrologist writing a technical interpretation for a river-network dashboard.\n\n'
-        'RESPONSE FORMAT (STRICT):\n'
-        'Use markdown with exactly these sections:\n'
-        '## Network Summary\n2-3 sentences.\n'
-        '## Connectivity Structure\nExactly 4 bullet points.\n'
-        '## Travel-Time Interpretation\nExactly 4 bullet points.\n'
-        '## Operational Relevance\nExactly 3 bullet points.\n\n'
+        'Act as a professional hydrologist writing a detailed technical interpretation for a river-network topology dashboard.\n\n'
+        'RESPONSE FORMAT (STRICT — use markdown, no text outside these headings):\n\n'
+        '## Network Summary\n'
+        'Write 4–5 sentences. Describe the scale of the network, how it represents the basin, the relationship between node count and edge count, '
+        'and whether the empirical travel-time evidence is strong or limited. Conclude with one sentence on the operational value of this topology view.\n\n'
+        '## Connectivity Structure\n'
+        'Exactly 5 bullet points covering: total nodes and edges; main-stem coverage and its role as the backbone; '
+        'tributary complexity (branching factor); density of the directed graph relative to a fully connected network; '
+        'and one note on what structural gaps (missing tributaries, ungauged reaches) imply for analysis completeness.\n\n'
+        '## Travel-Time Interpretation\n'
+        'Exactly 5 bullet points: cite the number of computed travel-time pairs; '
+        'name the strongest correlated pair and interpret its hydrological significance; '
+        'cite the longest inferred lag pair and explain what that travel time implies; '
+        'comment on the average lag and average correlation quality; '
+        'note one caveat about using cross-correlation lags as a proxy for hydraulic travel times.\n\n'
+        '## Methodology & Limitations\n'
+        'Exactly 4 bullet points: how the network topology was derived (hardcoded from published basin reports); '
+        'how empirical travel times are estimated (AR(1) pre-whitened cross-correlation); '
+        'what assumptions underlie the contribution proxy (discharge ratio, not hydraulic routing); '
+        'and what the key uncertainty sources are (gauge placement, unmeasured tributaries, flow regulation).\n\n'
+        '## Operational Relevance\n'
+        'Exactly 3 bullet points: (1) how network analysts should use the topology for monitoring; '
+        '(2) how travel-time estimates can guide forecast lead-times or flood early warning; '
+        '(3) one important caveat to communicate when presenting network results to non-specialist stakeholders.\n\n'
         'RULES:\n'
-        '- Cite the actual network statistics and travel-time evidence.\n'
+        '- Cite specific counts, lag values, and correlations from the data.\n'
         '- Replace underscores with spaces.\n'
-        '- Keep the tone professional, technical, and concise.\n'
+        '- Keep tone professional and technical throughout.\n'
         '- Do not describe this as a hydraulic routing model.\n\n'
         f"Dataset: {result.get('dataset', 'mekong')}\n"
         f"Node count: {result.get('node_count')}\n"
         f"Edge count: {result.get('edge_count')}\n"
         f"Main stem stations: {main_stem}\n"
+        f"Travel-time pairs computed: {n_pairs}\n"
+        f"Average lag across all pairs: {avg_lag:.1f} days\n"
+        f"Average correlation across all pairs: {avg_corr:.3f}\n"
         f"Topology note: {result.get('note', '')}\n"
         f"Travel-time sample:\n{sample}\n"
     )
@@ -74,36 +100,117 @@ def _network_prompt(result: Dict[str, Any]) -> str:
 
 def _fallback_network_analysis(result: Dict[str, Any], note: str | None = None) -> str:
     travel = result.get('travel_times') or []
+    dataset = result.get('dataset', 'mekong').replace('_', ' ')
+    node_count = result.get('node_count', 0)
+    edge_count = result.get('edge_count', 0)
+    main_stem = result.get('main_stem', [])
+    n_pairs = len(travel)
+
     parts = ['## Network Summary']
-    intro = [
-        f"Live AI analysis unavailable. Network interpretation for the **{result.get('dataset', 'mekong').replace('_', ' ')}** river topology."
-    ]
-    parts.append(' '.join(intro))
-    parts.append('## Key Findings')
+    intro = (
+        f"The **{dataset}** river network comprises **{node_count} gauging stations** connected by "
+        f"**{edge_count} directed edges**, representing the documented upstream-downstream routing structure of the basin. "
+        f"The topology includes {len(main_stem)} main-stem stations spanning from the upper basin to the delta, "
+        f"with additional tributary branches feeding into the main stem at multiple confluence points. "
+        f"Travel-time estimates are derived from empirical cross-correlation of discharge series between adjacent station pairs, "
+        f"providing an observational basis for understanding basin-scale flow propagation timing."
+    )
+    if note:
+        intro += ' ' + note
+    parts.append(intro)
+
+    parts.append('## Connectivity Structure')
     parts.append(
-        f"- **Topology extent:** the network view contains {result.get('node_count')} stations and "
-        f"{result.get('edge_count')} directed connections."
+        f"- **Network scale:** {node_count} nodes and {edge_count} directed edges represent the gauged portion of the basin; "
+        f"ungauged tributaries and headwater reaches are not represented in this view."
     )
     parts.append(
-        f"- **Main stem coverage:** {len(result.get('main_stem', []))} documented main-stem stations are represented from upstream to delta."
+        f"- **Main-stem backbone:** {len(main_stem)} stations trace the primary longitudinal flow pathway from upper basin to delta, "
+        f"forming the core monitoring spine of the network."
     )
+    if edge_count > 0 and node_count > 1:
+        density = round(edge_count / (node_count * (node_count - 1)) * 100, 1)
+        parts.append(
+            f"- **Network density:** with {edge_count} edges in a {node_count}-node directed graph, "
+            f"the connectivity density is approximately {density}%, consistent with a sparse hierarchical river topology rather than a fully connected network."
+        )
+    else:
+        parts.append("- **Network density:** insufficient node/edge data for density computation.")
+    parts.append(
+        "- **Tributary branching:** multiple tributary sub-systems feed the main stem, reflecting the compound catchment structure "
+        "typical of large international river basins with distributed headwater regions."
+    )
+    parts.append(
+        "- **Structural gaps:** some stations may lack connectivity assignments where gauge records are too short for cross-correlation "
+        "or where tributaries are outside the documented topology; these should be treated as data voids rather than hydraulic disconnections."
+    )
+
+    parts.append('## Travel-Time Interpretation')
     if travel:
         strongest = max(travel, key=lambda row: row.get('correlation', 0.0))
-        longest = max(travel, key=lambda row: row.get('lag_months', 0))
+        longest = max(travel, key=lambda row: row.get('lag_days') or 0)
+        avg_lag = sum(r.get('lag_days') or 0 for r in travel) / n_pairs
+        avg_corr = sum(r.get('correlation', 0) for r in travel) / n_pairs
         parts.append(
-            f"- **Strongest travel-time pair:** {strongest['upstream_name'].replace('_', ' ')} to "
-            f"{strongest['downstream_name'].replace('_', ' ')} with correlation {strongest['correlation']:.3f}."
+            f"- **Travel-time coverage:** {n_pairs} station pair(s) have sufficient overlapping discharge records "
+            f"for empirical cross-correlation lag estimation."
+        )
+        parts.append(
+            f"- **Strongest cross-correlation:** {strongest['upstream_name'].replace('_', ' ')} to "
+            f"{strongest['downstream_name'].replace('_', ' ')} achieves a correlation of {strongest['correlation']:.3f}, "
+            f"indicating a statistically coherent discharge signal with a lag of {strongest.get('lag_days')} day(s)."
         )
         parts.append(
             f"- **Longest inferred lag:** {longest['upstream_name'].replace('_', ' ')} to "
-            f"{longest['downstream_name'].replace('_', ' ')} at {longest['lag_months']} month(s)."
+            f"{longest['downstream_name'].replace('_', ' ')} shows a propagation time of {longest.get('lag_days')} day(s), "
+            f"reflecting the extended travel path through the lower basin or delta distributaries."
+        )
+        parts.append(
+            f"- **Average characteristics:** across all computed pairs, the mean travel lag is {avg_lag:.1f} day(s) "
+            f"with a mean correlation of {avg_corr:.3f}, suggesting {'generally coherent' if avg_corr > 0.5 else 'moderately coherent'} discharge propagation signals across the network."
+        )
+        parts.append(
+            "- **Cross-correlation caveat:** empirical lags are computed from AR(1) pre-whitened series to reduce autocorrelation bias. "
+            "They represent statistical timing relationships, not hydraulic residence times; actual flood wave propagation will vary with flow magnitude, channel morphology, and regulation."
         )
     else:
-        parts.append('- **Travel-time evidence:** insufficient overlapping monthly discharge data for cross-correlation.')
+        parts.append("- **Travel-time evidence:** insufficient overlapping discharge data for cross-correlation lag estimation.")
+        parts.append("- **Recommendation:** extend the common overlap period or reduce the lookback requirement to enable lag estimation for more station pairs.")
+        parts.append("- **Alternative:** where cross-correlation fails, published MRC or basin-authority travel-time estimates can serve as proxies for operational timing.")
+        parts.append("- **Impact on analysis:** absence of empirical lags limits the ability to validate upstream flood signal propagation timing in this view.")
+        parts.append("- **Caveat:** even where correlations are available, they reflect statistical relationships under historical average conditions and may not hold during extreme events.")
+
+    parts.append('## Methodology & Limitations')
+    parts.append(
+        "- **Topology source:** the directed graph is hardcoded from published MRC basin reports and station coordinates verified against peer-reviewed hydrological literature. "
+        "Uncertain tributary assignments are marked in the source and should be treated as approximate."
+    )
+    parts.append(
+        "- **Travel-time method:** empirical lags are estimated using AR(1) pre-whitened cross-correlation of daily discharge series. "
+        "Pre-whitening removes serial autocorrelation to prevent spurious lag detection; the lag at maximum positive correlation is reported."
+    )
+    parts.append(
+        "- **Contribution proxy:** upstream discharge contributions are estimated as the ratio of mean upstream station discharge to mean target station discharge. "
+        "This is a hydrological proxy, not a hydraulic routing result — it does not account for channel losses, evaporation, or parallel unmeasured tributaries."
+    )
+    parts.append(
+        "- **Key uncertainties:** gauge placement relative to actual confluences, regulation effects from dams and diversions, and the absence of ungauged sub-basin contributions "
+        "are the principal sources of uncertainty in both the topology and the travel-time estimates."
+    )
+
     parts.append('## Operational Relevance')
-    parts.append('- **Monitoring use:** the topology view is best used to explain upstream-downstream connectivity and station placement.')
-    parts.append('- **Forecasting use:** empirical lags can guide broad timing expectations, but they are not hydraulic routing times.')
-    parts.append('- **Interpretation note:** tributary assignments remain approximate and should be communicated as basin-network context rather than exact channel geometry.')
+    parts.append(
+        "- **Monitoring application:** the topology view is most useful for explaining upstream-downstream connectivity, identifying monitoring gaps, "
+        "and assessing which stations provide redundant versus unique basin coverage."
+    )
+    parts.append(
+        "- **Flood early-warning use:** empirical lag estimates can inform lead-time expectations for flood wave propagation between gauging stations, "
+        "provided the operational team understands these are statistical guides rather than deterministic hydraulic predictions."
+    )
+    parts.append(
+        "- **Communication note:** when presenting network results to non-specialist stakeholders, emphasise that tributary assignments and travel times represent documented basin knowledge "
+        "and statistical evidence, not a real-time hydraulic model output."
+    )
     return markdown.markdown('\n'.join(parts))
 
 
@@ -123,55 +230,141 @@ def _contrib_prompt(result: Dict[str, Any]) -> str:
     target = result.get('target_name', 'Unknown')
     target_q = result.get('target_mean_q', 'Unknown')
     rows = result.get('rows', [])
-    top_contrib = '\\n'.join(
+    top_contrib = '\n'.join(
         f"- {r['name'].replace('_', ' ')}: {r['contrib_pct']}% ({r['mean_q']} m³/s)"
-        for r in rows[:5]
+        for r in rows[:8]
     ) or 'No upstream contributions available.'
-    
+    top3_pct = sum(r.get('contrib_pct', 0) for r in rows[:3])
+    upstream_count = result.get('upstream_count', 0)
+
     return (
-        f'Act as a professional hydrologist analyzing discharge contributions for the target station {target.replace("_", " ")}.\\n\\n'
-        'RESPONSE FORMAT (STRICT):\\n'
-        'Use markdown with exactly these sections:\\n'
-        '## Contribution Summary\\n2-3 sentences.\\n'
-        '## Dominant Upstream Sources\\nExactly 3 bullet points.\\n'
-        '## Methodological Context\\nExactly 2 bullet points explaining the limitations of a discharge-ratio proxy.\\n\\n'
-        'RULES:\\n'
-        '- Cite the actual percentage and discharge values provided.\\n'
-        '- Replace underscores with spaces.\\n'
-        '- Keep the tone professional and technical.\\n'
-        '- Do not describe this as a hydraulic routing model.\\n\\n'
-        f"Target Station: {target.replace('_', ' ')}\\n"
-        f"Target Mean Discharge: {target_q} m³/s\\n"
-        f"Upstream Station Count: {result.get('upstream_count', 0)}\\n"
-        f"Top Contributors:\\n{top_contrib}\\n"
+        f'Act as a professional hydrologist writing a detailed interpretation of upstream discharge contributions to {target.replace("_", " ")}.\n\n'
+        'RESPONSE FORMAT (STRICT — markdown, no text outside these headings):\n\n'
+        '## Contribution Summary\n'
+        'Write 4–5 sentences. State the target station and its mean discharge, how many upstream stations are tracked, '
+        'name the top 1–2 contributors and their percentages, characterise whether the contribution structure is highly concentrated or distributed, '
+        'and note what this implies for flow generation mechanisms in the basin.\n\n'
+        '## Dominant Upstream Sources\n'
+        'Exactly 5 bullet points. For each of the top contributors: name the station, cite the contribution percentage and mean discharge in m³/s, '
+        'interpret the hydrological significance (e.g., large regulated headwater, major tributary confluence, unregulated mountain catchment), '
+        'and note any caveats about the reliability of that particular estimate.\n\n'
+        '## Hydrological Significance\n'
+        'Exactly 4 bullet points: (1) concentration index — what share of total discharge is explained by the top 3 contributors; '
+        '(2) what a concentrated vs distributed structure implies for flood risk at the target; '
+        '(3) seasonal variability — how monsoon or snowmelt cycles might shift contribution rankings; '
+        '(4) implications for water resource management or hydropower scheduling at the target station.\n\n'
+        '## Methodological Context\n'
+        'Exactly 3 bullet points: (1) explain the discharge-ratio proxy method and its formula; '
+        '(2) list specific processes not captured (channel losses, evapotranspiration, unmeasured tributaries, delta distributaries); '
+        '(3) recommend how an analyst should interpret or supplement this proxy in operational practice.\n\n'
+        '## Operational Relevance\n'
+        'Exactly 3 bullet points: (1) how contribution rankings can guide monitoring prioritisation; '
+        '(2) how this analysis supports flood early-warning decisions at the target station; '
+        '(3) one important limitation to communicate to water managers or non-specialist users.\n\n'
+        'RULES:\n'
+        '- Cite all percentage and discharge values from the provided data.\n'
+        '- Replace underscores with spaces.\n'
+        '- Professional and technical tone throughout.\n'
+        '- Do not describe this as a hydraulic routing model.\n\n'
+        f"Target Station: {target.replace('_', ' ')}\n"
+        f"Target Mean Discharge: {target_q} m³/s\n"
+        f"Upstream Station Count: {upstream_count}\n"
+        f"Top-3 combined contribution: ~{top3_pct:.0f}%\n"
+        f"All Contributors (ranked):\n{top_contrib}\n"
     )
 
 
 def _fallback_contrib_analysis(result: Dict[str, Any], note: str | None = None) -> str:
-    parts = ['## Contribution Summary']
-    intro = [
-        f"Analysis of upstream discharge contributions to **{result.get('target_name', 'the target station').replace('_', ' ')}**."
-    ]
-    if note:
-        intro.append(note)
-    parts.append(' '.join(intro))
-    parts.append('## Dominant Upstream Sources')
-    
+    target = result.get('target_name', 'the target station').replace('_', ' ')
+    target_q = result.get('target_mean_q', 'N/A')
     rows = result.get('rows', [])
+    upstream_count = result.get('upstream_count', len(rows))
+
+    top3_pct = sum(r.get('contrib_pct', 0) for r in rows[:3])
+    concentrated = top3_pct >= 70
+
+    parts = ['## Contribution Summary']
+    intro = (
+        f"Upstream discharge contribution analysis for **{target}** tracks {upstream_count} upstream station(s) "
+        f"using a discharge-ratio proxy referenced to the target mean discharge of {target_q} m³/s. "
+    )
     if rows:
         top = rows[0]
-        parts.append(f"- **Primary contributor:** {top['name'].replace('_', ' ')} accounts for approximately {top['contrib_pct']}% of the target discharge.")
-        if len(rows) > 1:
-            second = rows[1]
-            parts.append(f"- **Secondary contributor:** {second['name'].replace('_', ' ')} provides roughly {second['contrib_pct']}% of the flow.")
-        parts.append(f"- **Total tracked upstream:** {len(rows)} upstream stations are included in the proxy estimate.")
+        intro += (
+            f"The dominant upstream source is **{top['name'].replace('_', ' ')}**, contributing approximately {top['contrib_pct']}% "
+            f"of the target flow with a mean discharge of {top['mean_q']} m³/s. "
+        )
+        if len(rows) >= 3:
+            intro += (
+                f"The top 3 contributors together account for approximately {top3_pct:.0f}% of tracked upstream flow, "
+                f"indicating a {'highly concentrated' if concentrated else 'relatively distributed'} contribution structure."
+            )
+    if note:
+        intro += ' ' + note
+    parts.append(intro)
+
+    parts.append('## Dominant Upstream Sources')
+    if rows:
+        for r in rows[:5]:
+            parts.append(
+                f"- **{r['name'].replace('_', ' ')}:** {r['contrib_pct']}% contribution, mean discharge {r['mean_q']} m³/s — "
+                f"{'primary driver of target station flow regime' if r == rows[0] else 'significant upstream source contributing to base and event flows'}."
+            )
+        if not rows:
+            parts.append("- **No upstream sources found** within the documented topology for this station.")
     else:
-        parts.append("- **No upstream sources found** in the documented topology.")
-        
+        parts.append("- **No upstream sources found** within the documented network topology for this station.")
+
+    parts.append('## Hydrological Significance')
+    if rows:
+        parts.append(
+            f"- **Concentration index:** the top 3 contributors account for approximately {top3_pct:.0f}% of tracked upstream discharge, "
+            f"{'suggesting that a small number of sub-catchments dominate the target flow regime' if concentrated else 'indicating a distributed flow generation pattern across multiple sub-catchments'}."
+        )
+    else:
+        parts.append("- **Concentration index:** no upstream contribution data available for analysis.")
+    parts.append(
+        "- **Flood risk implication:** a highly concentrated contribution structure means that extreme events in the dominant upstream catchment(s) "
+        "will disproportionately drive flood peaks at the target station; distributed structures are generally associated with more attenuated flood responses."
+    )
+    parts.append(
+        "- **Seasonal variability:** monsoon intensification, snowmelt pulses, or ENSO-driven anomalies may shift the relative contribution rankings "
+        "seasonally — the discharge-ratio proxy reflects long-run mean conditions and does not capture within-year variability."
+    )
+    parts.append(
+        "- **Water resource management:** understanding dominant upstream contributors supports reservoir scheduling, hydropower dispatch optimisation, "
+        "and early-warning system design by identifying which upstream stations carry the most predictive information for the target."
+    )
+
     parts.append('## Methodological Context')
-    parts.append('- **Proxy metric:** Contribution percentages are derived from the ratio of mean upstream discharge to mean target discharge.')
-    parts.append('- **Limitations:** This approach is an approximation and does not account for channel losses, evaporation, parallel unmeasured tributaries, or complex delta distributaries.')
-    return markdown.markdown('\\n'.join(parts))
+    parts.append(
+        "- **Discharge-ratio proxy:** contribution percentages are computed as the ratio of each upstream station's long-run mean discharge "
+        "to the target station's long-run mean discharge. This is a first-order hydrological estimate, not a hydraulic routing result."
+    )
+    parts.append(
+        "- **Processes not captured:** channel transmission losses, evapotranspiration from floodplains, groundwater exchange, "
+        "diversion abstractions, and contributions from unmeasured tributaries are all absent from this proxy; "
+        "the actual hydrological partitioning in the field may differ substantially."
+    )
+    parts.append(
+        "- **Operational use:** treat contribution estimates as indicative rankings rather than precise allocation percentages. "
+        "Supplement with catchment area ratios, hydrograph shape comparison, or distributed hydrological model output for higher-confidence attribution."
+    )
+
+    parts.append('## Operational Relevance')
+    parts.append(
+        "- **Monitoring prioritisation:** stations with high contribution percentages should be treated as high-value upstream sentinels; "
+        "ensuring their data quality and transmission reliability is critical for downstream forecasting accuracy."
+    )
+    parts.append(
+        "- **Early-warning use:** when upstream sentinel stations enter Flood Risk or Flood Watch status (see risk map), "
+        "the contribution ranking provides an estimate of how strongly that signal will propagate to the target station."
+    )
+    parts.append(
+        "- **Communication caveat:** when sharing contribution figures with water managers, clearly label the values as discharge-ratio proxies "
+        "and not hydraulic routing outputs; over-interpreting the precision of these percentages can lead to misplaced operational confidence."
+    )
+    return markdown.markdown('\n'.join(parts))
 
 
 # ── Mekong river topology ─────────────────────────────────────────────────────
@@ -278,7 +471,9 @@ MEKONG_MAIN_STEM: List[str] = [
 class NetworkService:
     """River network topology, travel time, and Plotly visualization."""
 
-    MAX_LAG_MONTHS = 6     # max cross-corr lag (monthly series)
+    MAX_LAG_DAYS = 180
+    MAX_LAG_MONTHS = 6
+    MIN_OVERLAP_DAYS = 365
     MIN_OVERLAP_MONTHS = 24
 
     def __init__(self, repository: MultiDataRepository) -> None:
@@ -321,25 +516,25 @@ class NetworkService:
                 queue.extend(adj.get(s, {}).get('upstream', []))
         return visited
 
-    def _monthly_discharge(
+    def _discharge_series(
         self, repo: DataRepository, station: str
-    ) -> Optional[pd.Series]:
+    ) -> Tuple[Optional[pd.Series], Optional[str]]:
         fd = repo.station_index[station]['feature_details'].get('Discharge')
         if fd is None:
-            return None
+            return None, None
         try:
             req = SeriesRequest(
                 station=station, feature='Discharge',
                 start_date=fd['start_date'], end_date=fd['end_date'],
             )
             df = repo.get_feature_series(req)
-            return (
-                df.set_index('Timestamp')['Value']
-                .resample('MS').mean()
-                .dropna()
-            )
+            ts = df.set_index('Timestamp')['Value'].sort_index()
+            freq = repo.feature_frequency.get('Discharge', 'daily')
+            if freq == 'monthly':
+                return ts.resample('MS').mean().dropna(), 'monthly'
+            return ts.resample('D').mean().dropna(), 'daily'
         except Exception:
-            return None
+            return None, None
 
     # ── travel time via cross-correlation ────────────────────────────────────
 
@@ -349,16 +544,18 @@ class NetworkService:
     def compute_travel_times(self, dataset: str = 'mekong') -> List[Dict[str, Any]]:
         """
         For each consecutive main-stem pair with sufficient discharge overlap,
-        compute the monthly lag that maximises cross-correlation.
+        compute the lag that maximises cross-correlation at the native discharge
+        resolution. Daily discharge yields daily lags; monthly discharge falls
+        back to monthly lags converted to approximate days for reporting.
 
         Method:
           AR(1) pre-whitening is applied to both series before CCF to remove
           autocorrelation distortion of the lag estimate (Yue & Wang 2002).
           If the peak CCF falls below MIN_CCF_CORRELATION (0.30), the lag is
-          flagged as unreliable and lag_months is set to None.
+          flagged as unreliable and lag_days is set to None.
 
         Returns labelled rows suitable for table display.
-        Note: travel times are empirical proxies from monthly CCF, not
+        Note: travel times are empirical proxies from discharge CCF, not
         hydraulic routing estimates.
         """
         repo = self._repo_for(dataset)
@@ -368,14 +565,21 @@ class NetworkService:
         for i in range(len(valid_stem) - 1):
             up_id = valid_stem[i]
             dn_id = valid_stem[i + 1]
-            s_up = self._monthly_discharge(repo, up_id)
-            s_dn = self._monthly_discharge(repo, dn_id)
-            if s_up is None or s_dn is None:
+            s_up, freq_up = self._discharge_series(repo, up_id)
+            s_dn, freq_dn = self._discharge_series(repo, dn_id)
+            if s_up is None or s_dn is None or freq_up is None or freq_dn is None:
+                continue
+            if freq_up != freq_dn:
                 continue
 
             aligned = pd.concat([s_up, s_dn], axis=1, join='inner').dropna()
             aligned.columns = ['up', 'dn']
-            if len(aligned) < self.MIN_OVERLAP_MONTHS:
+            is_daily = freq_up == 'daily'
+            min_overlap = self.MIN_OVERLAP_DAYS if is_daily else self.MIN_OVERLAP_MONTHS
+            max_lag = self.MAX_LAG_DAYS if is_daily else self.MAX_LAG_MONTHS
+            overlap_unit = 'days' if is_daily else 'months'
+            lag_to_days = 1 if is_daily else 30
+            if len(aligned) < min_overlap:
                 continue
 
             # ── AR(1) pre-whitening ────────────────────────────────────────────
@@ -400,7 +604,7 @@ class NetworkService:
             n = len(u)
 
             best_lag, best_corr = 0, -1.0
-            for lag in range(0, self.MAX_LAG_MONTHS + 1):
+            for lag in range(0, max_lag + 1):
                 if lag >= n:
                     break
                 corr = float(np.dot(u[:n - lag], d[lag:]) / (n - lag))
@@ -417,12 +621,14 @@ class NetworkService:
                 'downstream_id': dn_id,
                 'upstream_name':   up_meta.get('name', up_id) or up_id,
                 'downstream_name': dn_meta.get('name', dn_id) or dn_id,
-                'lag_months':      best_lag if reliable else None,
+                'lag_days':        best_lag * lag_to_days if reliable else None,
                 'correlation':     round(best_corr, 3),
-                'overlap_months':  len(aligned),
+                'overlap_count':   len(aligned),
+                'overlap_unit':    overlap_unit,
+                'time_resolution': freq_up,
                 'lag_reliable':    reliable,
                 'lag_note': (
-                    'AR(1) pre-whitened CCF estimate'
+                    f'AR(1) pre-whitened CCF estimate ({overlap_unit} resolution)'
                     if reliable else
                     f'Unreliable — peak CCF ({best_corr:.3f}) below threshold ({self.MIN_CCF_CORRELATION}); lag not reported'
                 ),
@@ -616,10 +822,10 @@ class NetworkService:
             ]
             if row:
                 lines.append(f"Peak correlation: <b>{row['correlation']:.3f}</b>")
-                lag_value = f"{row['lag_months']} month(s)" if row.get('lag_months') is not None else 'Not reported'
+                lag_value = f"{row['lag_days']} day(s)" if row.get('lag_days') is not None else 'Not reported'
                 lines.append(f"Inferred lag: {lag_value}")
                 lines.append(f"Evidence: {row['lag_note']}")
-                lines.append(f"Overlap: {row['overlap_months']} monthly steps")
+                lines.append(f"Overlap: {row['overlap_count']} {row.get('overlap_unit', 'steps')}")
             else:
                 lines.append("Empirical travel-time evidence unavailable for this link.")
             return '<br>'.join(lines)
@@ -986,15 +1192,15 @@ class NetworkService:
             'figure':       self.compute_network_figure(dataset, travel_times=travel_times),
             'travel_times': travel_times,
             'note': (
-                'Main-stem links are weighted by empirical monthly travel-time evidence; tributaries provide documented network context.'
+                'Main-stem links are weighted by empirical discharge travel-time evidence; tributaries provide documented network context.'
             ),
             'graph_guide': (
                 'Fill shows mean discharge. Larger main-stem markers indicate more connected junctions. '
                 'Brighter, thicker path segments indicate stronger empirical support. Arrows indicate downstream direction.'
             ),
             'travel_time_note': (
-                'Travel times are estimated from the peak lag of AR(1) pre-whitened monthly '
-                'cross-correlation series. This is an empirical proxy — not a hydraulic routing result. '
+                'Travel times are estimated from the peak lag of AR(1) pre-whitened discharge '
+                'cross-correlation series at native time resolution, reported in days. This is an empirical proxy — not a hydraulic routing result. '
                 f'Lags with CCF peak < {self.MIN_CCF_CORRELATION} are flagged as unreliable and reported as null.'
             ),
             'contribution_note': (

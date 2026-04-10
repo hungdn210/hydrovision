@@ -1034,29 +1034,196 @@ class ChartService:
 
         merged['RollingCorr'] = merged['X'].rolling(window=window, min_periods=min_pts).corr(merged['Y'])
 
-        fig = go.Figure()
-        fig.add_hrect(y0=0.7, y1=1.05, fillcolor='rgba(37,99,235,0.06)', line_width=0)
-        fig.add_hrect(y0=-1.05, y1=-0.7, fillcolor='rgba(239,68,68,0.06)', line_width=0)
-        fig.add_hline(y=0, line_dash='dash', line_color='rgba(100,100,100,0.35)', line_width=1)
-        fig.add_hline(y=0.7, line_dash='dot', line_color='rgba(37,99,235,0.35)', line_width=1,
-                      annotation_text='r = 0.7', annotation_font_size=9, annotation_font_color='#2563eb')
-        fig.add_hline(y=-0.7, line_dash='dot', line_color='rgba(239,68,68,0.35)', line_width=1,
-                      annotation_text='r = −0.7', annotation_font_size=9, annotation_font_color='#ef4444')
+        rolling_valid = merged.dropna(subset=['RollingCorr']).copy()
+        latest_corr = float(rolling_valid['RollingCorr'].iloc[-1]) if not rolling_valid.empty else None
+        mean_corr = float(rolling_valid['RollingCorr'].mean()) if not rolling_valid.empty else None
+        strongest_idx = rolling_valid['RollingCorr'].abs().idxmax() if not rolling_valid.empty else None
+        strongest_row = rolling_valid.loc[strongest_idx] if strongest_idx is not None else None
+        strong_share = float((rolling_valid['RollingCorr'].abs() >= 0.7).mean() * 100) if not rolling_valid.empty else 0.0
+
+        merged['XNorm'] = self._normalize(merged['X'])
+        merged['YNorm'] = self._normalize(merged['Y'])
+
+        fig = make_subplots(
+            rows=2,
+            cols=1,
+            shared_xaxes=True,
+            row_heights=[0.72, 0.28],
+            vertical_spacing=0.08,
+            subplot_titles=(
+                f'{window_label.title()} correlation regime',
+                'Normalized source signals',
+            ),
+        )
+
+        for y0, y1, fill, label in [
+            (0.7, 1.05, 'rgba(56,189,248,0.08)', 'Strong positive'),
+            (0.3, 0.7, 'rgba(34,197,94,0.06)', 'Moderate positive'),
+            (-0.3, 0.3, 'rgba(148,163,184,0.05)', 'Weak / unstable'),
+            (-0.7, -0.3, 'rgba(251,146,60,0.06)', 'Moderate inverse'),
+            (-1.05, -0.7, 'rgba(239,68,68,0.08)', 'Strong inverse'),
+        ]:
+            fig.add_hrect(y0=y0, y1=y1, fillcolor=fill, line_width=0, row=1, col=1)
+            fig.add_annotation(
+                xref='paper',
+                yref='y1',
+                x=1.005,
+                y=(y0 + y1) / 2,
+                text=label,
+                showarrow=False,
+                font={'size': 10, 'color': '#94a3b8'},
+                xanchor='left',
+            )
+
+        for y, dash, color, text in [
+            (0.0, 'dash', 'rgba(148,163,184,0.45)', 'Neutral'),
+            (0.7, 'dot', 'rgba(56,189,248,0.45)', 'r = 0.7'),
+            (-0.7, 'dot', 'rgba(239,68,68,0.45)', 'r = -0.7'),
+        ]:
+            fig.add_hline(
+                y=y,
+                line_dash=dash,
+                line_color=color,
+                line_width=1,
+                row=1,
+                col=1,
+                annotation_text=text,
+                annotation_font_size=9,
+                annotation_font_color=color.replace('0.45', '1.0'),
+            )
+
         fig.add_trace(
             go.Scatter(
                 x=merged['Timestamp'],
                 y=merged['RollingCorr'],
                 mode='lines',
                 name=f'{window_label} rolling r',
-                line={'width': 2.2, 'color': '#818cf8'},
+                line={'width': 3, 'color': '#8b5cf6'},
                 fill='tozeroy',
-                fillcolor='rgba(129,140,248,0.08)',
-                hovertemplate='<b>%{x|%Y-%m-%d}</b><br>r = %{y:.3f}<extra></extra>',
-            )
+                fillcolor='rgba(139,92,246,0.12)',
+                hovertemplate='<b>%{x|%Y-%m-%d}</b><br>Rolling r: %{y:.3f}<extra></extra>',
+            ),
+            row=1,
+            col=1,
         )
-        self._base_layout(fig, f"Rolling Correlation · {feature_x.replace('_', ' ')} vs {feature_y.replace('_', ' ')} · {station.replace('_', ' ')}")
-        fig.update_xaxes(title='Date')
-        fig.update_yaxes(title=f'Pearson r ({window_label} window)', range=[-1.05, 1.05])
+
+        if not rolling_valid.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=[rolling_valid['Timestamp'].iloc[-1]],
+                    y=[rolling_valid['RollingCorr'].iloc[-1]],
+                    mode='markers',
+                    name='Latest',
+                    marker={'size': 10, 'color': '#f8fafc', 'line': {'color': '#8b5cf6', 'width': 2}},
+                    hovertemplate='<b>Latest</b><br>%{x|%Y-%m-%d}<br>Rolling r: %{y:.3f}<extra></extra>',
+                ),
+                row=1,
+                col=1,
+            )
+            if strongest_row is not None:
+                fig.add_trace(
+                    go.Scatter(
+                        x=[strongest_row['Timestamp']],
+                        y=[strongest_row['RollingCorr']],
+                        mode='markers',
+                        name='Max |r|',
+                        marker={
+                            'size': 11,
+                            'symbol': 'diamond',
+                            'color': '#f59e0b',
+                            'line': {'color': '#111827', 'width': 1.5},
+                        },
+                        hovertemplate='<b>Strongest regime</b><br>%{x|%Y-%m-%d}<br>Rolling r: %{y:.3f}<extra></extra>',
+                    ),
+                    row=1,
+                    col=1,
+                )
+
+        fig.add_trace(
+            go.Scatter(
+                x=merged['Timestamp'],
+                y=merged['XNorm'],
+                mode='lines',
+                name=feature_x.replace('_', ' '),
+                line={'width': 1.9, 'color': '#38bdf8'},
+                opacity=0.95,
+                hovertemplate=f'<b>{feature_x.replace("_", " ")}</b><br>%{{x|%Y-%m-%d}}<br>Normalized: %{{y:.3f}}<extra></extra>',
+            ),
+            row=2,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=merged['Timestamp'],
+                y=merged['YNorm'],
+                mode='lines',
+                name=feature_y.replace('_', ' '),
+                line={'width': 1.9, 'color': '#f59e0b'},
+                opacity=0.9,
+                hovertemplate=f'<b>{feature_y.replace("_", " ")}</b><br>%{{x|%Y-%m-%d}}<br>Normalized: %{{y:.3f}}<extra></extra>',
+            ),
+            row=2,
+            col=1,
+        )
+
+        self._base_layout(
+            fig,
+            f"Rolling Correlation · {feature_x.replace('_', ' ')} vs {feature_y.replace('_', ' ')} · {station.replace('_', ' ')}",
+        )
+        fig.update_layout(
+            margin={'l': 72, 'r': 122, 't': 118, 'b': 84},
+            legend={
+                'orientation': 'h',
+                'yanchor': 'bottom',
+                'y': 1.06,
+                'xanchor': 'left',
+                'x': 0,
+            },
+            annotations=list(fig.layout.annotations) + [
+                go.layout.Annotation(
+                    xref='paper',
+                    yref='paper',
+                    x=0.995,
+                    y=1.13,
+                    xanchor='right',
+                    yanchor='top',
+                    align='left',
+                    showarrow=False,
+                    bgcolor='rgba(15,23,42,0.82)',
+                    bordercolor='rgba(148,163,184,0.26)',
+                    borderwidth=1,
+                    borderpad=8,
+                    font={'size': 10, 'color': '#e2e8f0'},
+                    text=(
+                        f"<b>Window</b>: {window_label}<br>"
+                        f"<b>Latest r</b>: {latest_corr:.3f}<br>"
+                        f"<b>Mean r</b>: {mean_corr:.3f}<br>"
+                        f"<b>Max |r|</b>: {float(strongest_row['RollingCorr']):.3f}<br>"
+                        f"<b>|r| ≥ 0.7</b>: {strong_share:.0f}%"
+                    ) if strongest_row is not None and latest_corr is not None and mean_corr is not None else (
+                        f"<b>Window</b>: {window_label}<br>"
+                        f"<b>Overlapping records</b>: {len(merged):,}"
+                    ),
+                )
+            ],
+        )
+        fig.update_xaxes(title='Date', row=2, col=1)
+        fig.update_yaxes(
+            title=f'Pearson r ({window_label} window)',
+            range=[-1.05, 1.05],
+            tickmode='array',
+            tickvals=[-1, -0.7, -0.3, 0, 0.3, 0.7, 1],
+            row=1,
+            col=1,
+        )
+        fig.update_yaxes(
+            title='Normalized level',
+            range=[-0.02, 1.02],
+            tickmode='array',
+            tickvals=[0, 0.5, 1],
+            row=2,
+            col=1,
+        )
         return fig
 
     def _exceedance_probability_curve(self, request: SeriesRequest) -> go.Figure:
@@ -1069,53 +1236,158 @@ class ChartService:
         rank = np.arange(1, n + 1)
         exceedance_pct = rank / (n + 1) * 100  # percent
 
+        p10 = float(values.quantile(0.10))
+        p50 = float(values.quantile(0.50))
+        p90 = float(values.quantile(0.90))
+        mean_val = float(values.mean())
+        max_val = float(values.iloc[0])
+        min_val = float(values.iloc[-1])
+
+        return_periods = [2, 5, 10, 25, 50, 100]
+        rp_points = []
+        for rp in return_periods:
+            prob = 100 / rp
+            if exceedance_pct.min() <= prob <= exceedance_pct.max():
+                value_at_prob = float(np.interp(prob, exceedance_pct[::-1], values.values[::-1]))
+                rp_points.append((rp, prob, value_at_prob))
+
         fig = go.Figure()
+        for x0, x1, fill in [
+            (0.05, 1, 'rgba(239,68,68,0.05)'),
+            (1, 10, 'rgba(245,158,11,0.05)'),
+            (10, 50, 'rgba(56,189,248,0.04)'),
+            (50, 100, 'rgba(34,197,94,0.04)'),
+        ]:
+            fig.add_vrect(x0=x0, x1=x1, fillcolor=fill, line_width=0)
+
+        fig.add_hrect(y0=p90, y1=max_val, fillcolor='rgba(139,92,246,0.06)', line_width=0)
+        fig.add_hrect(y0=min_val, y1=p10, fillcolor='rgba(56,189,248,0.05)', line_width=0)
+
         fig.add_trace(
             go.Scatter(
                 x=exceedance_pct,
                 y=values.values,
                 mode='lines',
-                name=f"{request.station.replace('_', ' ')} · {request.feature.replace('_', ' ')}",
-                line={'width': 2.2, 'color': '#a78bfa'},
+                name=request.feature.replace('_', ' '),
+                line={'width': 3, 'color': '#8b5cf6', 'shape': 'spline', 'smoothing': 0.45},
                 fill='tozeroy',
-                fillcolor='rgba(167,139,250,0.12)',
-                customdata=100 / exceedance_pct,
-                hovertemplate='<b>Exceedance: %{x:.2f}%</b><br>Return period: %{customdata:.1f} yrs<br>Value: %{y:.3f} ' + unit + '<extra></extra>',
+                fillcolor='rgba(139,92,246,0.12)',
+                customdata=np.column_stack((100 / exceedance_pct, rank)),
+                hovertemplate=(
+                    '<b>Exceedance: %{x:.2f}%</b><br>'
+                    'Return period: %{customdata[0]:.1f} years<br>'
+                    'Rank: %{customdata[1]:.0f} / ' + str(n) + '<br>'
+                    'Value: %{y:.3f} ' + unit + '<extra></extra>'
+                ),
             )
         )
 
-        mean_val = float(values.mean())
-        fig.add_hline(
-            y=mean_val,
-            line_dash='dash', line_color='#f59e0b', line_width=1.5,
-            annotation_text=f'Mean: {mean_val:.2f} {unit}',
-            annotation_position='top right',
-            annotation_font_color='#f59e0b',
-            annotation_font_size=10,
+        fig.add_trace(
+            go.Scatter(
+                x=exceedance_pct,
+                y=values.values,
+                mode='markers',
+                name='Observed ranks',
+                marker={
+                    'size': 4.5,
+                    'color': values.values,
+                    'colorscale': [[0, '#38bdf8'], [0.55, '#8b5cf6'], [1, '#f59e0b']],
+                    'opacity': 0.72,
+                    'line': {'width': 0},
+                    'showscale': False,
+                },
+                customdata=100 / exceedance_pct,
+                hovertemplate='<b>Observed point</b><br>Exceedance: %{x:.2f}%<br>Return period: %{customdata:.1f} years<br>Value: %{y:.3f} ' + unit + '<extra></extra>',
+            )
         )
 
-        # Return period reference lines
-        for rp in [2, 5, 10, 25, 50, 100]:
-            prob = 100 / rp
-            if prob < exceedance_pct.min() or prob > exceedance_pct.max():
-                continue
+        if rp_points:
+            fig.add_trace(
+                go.Scatter(
+                    x=[item[1] for item in rp_points],
+                    y=[item[2] for item in rp_points],
+                    mode='markers+text',
+                    name='Design return periods',
+                    text=[f'{item[0]}y' for item in rp_points],
+                    textposition='top center',
+                    marker={
+                        'size': 10,
+                        'symbol': 'diamond',
+                        'color': '#f59e0b',
+                        'line': {'color': '#111827', 'width': 1.4},
+                    },
+                    customdata=[item[0] for item in rp_points],
+                    hovertemplate='<b>%{customdata}-year event</b><br>Exceedance: %{x:.2f}%<br>Value: %{y:.3f} ' + unit + '<extra></extra>',
+                )
+            )
+
+        fig.add_hline(
+            y=mean_val,
+            line_dash='dash',
+            line_color='#f59e0b',
+            line_width=1.5,
+        )
+        for y, color in [
+            (p90, 'rgba(139,92,246,0.40)'),
+            (p50, 'rgba(148,163,184,0.38)'),
+            (p10, 'rgba(56,189,248,0.40)'),
+        ]:
+            fig.add_hline(
+                y=y,
+                line_dash='dot',
+                line_color=color,
+                line_width=1,
+            )
+
+        for rp, prob, _value in rp_points:
             fig.add_vline(
                 x=prob,
-                line_dash='dot', line_color='rgba(239,68,68,0.45)', line_width=1,
-                annotation_text=f'{rp}yr',
-                annotation_position='top',
-                annotation_font_size=9,
-                annotation_font_color='#ef4444',
+                line_dash='dot',
+                line_color='rgba(245,158,11,0.32)',
+                line_width=1,
             )
 
         self._base_layout(fig, f"Exceedance Probability · {request.feature.replace('_', ' ')} · {request.station.replace('_', ' ')}")
-        fig.update_layout(hovermode='closest')
+        fig.update_layout(
+            hovermode='closest',
+            margin={'l': 72, 'r': 42, 't': 78, 'b': 88},
+            legend={
+                'orientation': 'h',
+                'yanchor': 'bottom',
+                'y': 1.02,
+                'xanchor': 'left',
+                'x': 0,
+            },
+            annotations=list(fig.layout.annotations) + [
+                go.layout.Annotation(
+                    xref='paper',
+                    yref='paper',
+                    x=0.01,
+                    y=0.99,
+                    xanchor='left',
+                    yanchor='top',
+                    align='left',
+                    showarrow=False,
+                    bgcolor='rgba(15,23,42,0.68)',
+                    bordercolor='rgba(148,163,184,0.18)',
+                    borderwidth=1,
+                    borderpad=6,
+                    font={'size': 9, 'color': '#e2e8f0'},
+                    text=(
+                        f"<b>n</b> {n:,} &nbsp;|&nbsp; "
+                        f"<b>Max</b> {max_val:.2f} {unit} &nbsp;|&nbsp; "
+                        f"<b>P50</b> {p50:.2f} {unit} &nbsp;|&nbsp; "
+                        f"<b>Min</b> {min_val:.2f} {unit}"
+                    ),
+                )
+            ],
+        )
         fig.update_xaxes(
             title='Exceedance Probability (%)',
             type='log',
             tickvals=[0.05, 0.1, 0.5, 1, 2, 5, 10, 20, 50, 90],
             ticktext=['0.05', '0.1', '0.5', '1', '2', '5', '10', '20', '50', '90'],
-            tickangle=90,
+            tickangle=0,
             tickfont={'size': 10, 'color': '#64748b'},
             automargin=True,
             range=[np.log10(max(exceedance_pct.min(), 0.001)), np.log10(min(exceedance_pct.max(), 100))],
@@ -1327,9 +1599,6 @@ class ChartService:
             breakpoints = self._cusum_breakpoints(values, n_bkps, min_size)
             method_label = 'Binary Segmentation · CUSUM'
 
-        fig = go.Figure()
-
-        # Segment backgrounds + mean lines
         all_bounds = [0] + breakpoints + [n]
         seg_bg_colors = [
             'rgba(56,189,248,0.07)', 'rgba(74,222,128,0.07)',
@@ -1337,6 +1606,20 @@ class ChartService:
             'rgba(248,113,113,0.07)', 'rgba(45,212,191,0.07)',
             'rgba(251,146,60,0.07)',
         ]
+        segment_means: List[float] = []
+        segment_labels: List[str] = []
+        segment_midpoints: List[pd.Timestamp] = []
+        segment_durations: List[int] = []
+        segment_widths: List[float] = []
+
+        fig = make_subplots(
+            rows=2,
+            cols=1,
+            shared_xaxes=True,
+            row_heights=[0.8, 0.2],
+            vertical_spacing=0.05,
+        )
+
         for i in range(len(all_bounds) - 1):
             si, ei = all_bounds[i], all_bounds[i + 1]
             seg_vals = values[si:ei]
@@ -1345,55 +1628,175 @@ class ChartService:
                 continue
             seg_mean = float(seg_vals.mean())
             d0, d1 = pd.Timestamp(seg_dates[0]), pd.Timestamp(seg_dates[-1])
-            fig.add_vrect(x0=d0, x1=d1,
-                          fillcolor=seg_bg_colors[i % len(seg_bg_colors)],
-                          line_width=0, layer='below')
-            fig.add_trace(go.Scatter(
-                x=[d0, d1], y=[seg_mean, seg_mean],
-                mode='lines',
-                name=f'Regime {i + 1} mean ({seg_mean:.2f} {unit})',
-                line={'width': 2.2, 'color': '#f59e0b', 'dash': 'dash'},
-                hovertemplate=f'Regime {i + 1} mean: {seg_mean:.3f} {unit}<extra></extra>',
-            ))
+            segment_means.append(seg_mean)
+            segment_labels.append(f'R{i + 1}')
+            segment_midpoints.append(d0 + (d1 - d0) / 2)
+            segment_durations.append(len(seg_vals))
+            seg_span = max(
+                pd.Timedelta(days=18) if frequency == 'monthly' else pd.Timedelta(days=45),
+                d1 - d0 if d1 > d0 else pd.Timedelta(days=18 if frequency == 'monthly' else 45),
+            )
+            segment_widths.append(seg_span / pd.Timedelta(milliseconds=1))
 
-        # Main series (on top)
-        fig.add_trace(go.Scatter(
-            x=ts['Timestamp'], y=ts['Value'],
-            mode='lines', name=request.feature.replace('_', ' '),
-            line={'width': 2, 'color': '#38bdf8'},
-            hovertemplate='<b>%{x|%Y-%m}</b><br>Value: %{y:.3f} ' + unit + '<extra></extra>',
-        ))
+            fig.add_vrect(
+                x0=d0,
+                x1=d1,
+                fillcolor=seg_bg_colors[i % len(seg_bg_colors)],
+                line_width=0,
+                layer='below',
+                row=1,
+                col=1,
+            )
+            fig.add_vrect(
+                x0=d0,
+                x1=d1,
+                fillcolor=seg_bg_colors[i % len(seg_bg_colors)],
+                line_width=0,
+                layer='below',
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=[d0, d1],
+                    y=[seg_mean, seg_mean],
+                    mode='lines',
+                    name='Regime mean',
+                    showlegend=(i == 0),
+                    line={'width': 2.4, 'color': '#f59e0b', 'dash': 'dash'},
+                    hovertemplate=(
+                        f'<b>Regime {i + 1}</b><br>'
+                        f'Mean: {seg_mean:.3f} {unit}<br>'
+                        f'Duration: {len(seg_vals)} points<extra></extra>'
+                    ),
+                ),
+                row=1,
+                col=1,
+            )
+
+        fig.add_trace(
+            go.Scatter(
+                x=ts['Timestamp'],
+                y=ts['Value'],
+                mode='lines',
+                name=request.feature.replace('_', ' '),
+                line={'width': 2.6, 'color': '#38bdf8'},
+                hovertemplate='<b>%{x|%Y-%m}</b><br>Value: %{y:.3f} ' + unit + '<extra></extra>',
+            ),
+            row=1,
+            col=1,
+        )
+
+        rolling_window = max(3, min(12, n // 8))
+        smoothed = pd.Series(values).rolling(window=rolling_window, center=True, min_periods=1).mean()
+        fig.add_trace(
+            go.Scatter(
+                x=ts['Timestamp'],
+                y=smoothed,
+                mode='lines',
+                name='Smoothed context',
+                showlegend=False,
+                line={'width': 1.8, 'color': '#cbd5e1'},
+                opacity=0.75,
+                hovertemplate='<b>%{x|%Y-%m}</b><br>Smoothed: %{y:.3f} ' + unit + '<extra></extra>',
+            ),
+            row=1,
+            col=1,
+        )
 
         # Change-point vertical lines
         for bp in breakpoints:
             if 0 < bp < n:
+                bp_date = pd.Timestamp(dates[bp])
                 fig.add_vline(
-                    x=pd.Timestamp(dates[bp]),
+                    x=bp_date,
                     line_dash='dash', line_color='rgba(239,68,68,0.8)', line_width=2,
+                    row=1,
+                    col=1,
                 )
                 fig.add_annotation(
-                    x=pd.Timestamp(dates[bp]), yref='paper', y=1.01,
+                    x=bp_date, yref='paper', y=1.015,
                     text='▼', showarrow=False,
                     font={'size': 12, 'color': '#ef4444'},
                     xanchor='center',
                 )
 
+        fig.add_trace(
+            go.Bar(
+                x=segment_midpoints,
+                y=segment_means,
+                name='Regime mean level',
+                showlegend=False,
+                marker={
+                    'color': segment_means,
+                    'colorscale': [[0, '#38bdf8'], [0.5, '#8b5cf6'], [1, '#f59e0b']],
+                    'line': {'color': 'rgba(15,23,42,0.85)', 'width': 1},
+                },
+                width=segment_widths,
+                customdata=np.column_stack((segment_labels, segment_durations)),
+                hovertemplate=(
+                    '<b>%{customdata[0]}</b><br>'
+                    'Mean: %{y:.3f} ' + unit + '<br>'
+                    'Duration: %{customdata[1]} points<extra></extra>'
+                ),
+            ),
+            row=2,
+            col=1,
+        )
+
         self._base_layout(
             fig,
             f"Change-Point Detection · {request.feature.replace('_', ' ')} · {request.station.replace('_', ' ')}",
         )
-        fig.add_annotation(
-            xref='paper', yref='paper', x=0.01, y=0.99,
-            text=f'Method: {method_label} · {len(breakpoints)} regime shift(s) detected',
-            showarrow=False,
-            font={'size': 10, 'color': '#64748b'},
-            bgcolor='rgba(248,250,252,0.85)',
-            bordercolor='rgba(148,163,184,0.3)',
-            borderwidth=1,
-            xanchor='left', yanchor='top',
+        overall_mean = float(np.mean(values))
+        overall_std = float(np.std(values))
+        largest_shift = (
+            max(abs(segment_means[i] - segment_means[i - 1]) for i in range(1, len(segment_means)))
+            if len(segment_means) > 1 else 0.0
         )
-        fig.update_xaxes(title='Date')
-        fig.update_yaxes(title=f"{request.feature.replace('_', ' ')} ({unit})" if unit else request.feature.replace('_', ' '))
+        fig.update_layout(
+            margin={'l': 72, 'r': 42, 't': 78, 'b': 82},
+            height=500,
+            legend={
+                'orientation': 'h',
+                'yanchor': 'bottom',
+                'y': 1.03,
+                'xanchor': 'left',
+                'x': 0,
+            },
+            annotations=list(fig.layout.annotations) + [
+                go.layout.Annotation(
+                    xref='paper',
+                    yref='paper',
+                    x=0.995,
+                    y=1.12,
+                    xanchor='right',
+                    yanchor='top',
+                    align='left',
+                    showarrow=False,
+                    bgcolor='rgba(15,23,42,0.82)',
+                    bordercolor='rgba(148,163,184,0.26)',
+                    borderwidth=1,
+                    borderpad=6,
+                    font={'size': 9, 'color': '#e2e8f0'},
+                    text=(
+                        f"<b>{method_label}</b><br>"
+                        f"Breakpoints: {len(breakpoints)}<br>"
+                        f"Mean: {overall_mean:.2f} {unit}<br>"
+                        f"Shift: {largest_shift:.2f} {unit}"
+                    ),
+                )
+            ],
+        )
+        fig.update_xaxes(title='Date', row=2, col=1)
+        fig.update_yaxes(
+            title=f"{request.feature.replace('_', ' ')} ({unit})" if unit else request.feature.replace('_', ' '),
+            row=1,
+            col=1,
+        )
+        fig.update_yaxes(
+            title='Regime',
+            row=2,
+            col=1,
+        )
         return fig
 
     def _wavelet_analysis(self, request: SeriesRequest) -> go.Figure:

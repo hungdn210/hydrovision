@@ -47,14 +47,15 @@ def _resolve_data_root() -> Path:
     for candidate in candidates:
         mekong_schema = candidate / 'Mekong' / 'data_schema.py'
         lamah_schema = candidate / 'LamaH' / 'data_schema.py'
-        if mekong_schema.exists() and lamah_schema.exists():
+        # Accept Mekong-only deployments (LamaH is optional)
+        if mekong_schema.exists() or lamah_schema.exists():
             return candidate
 
     searched = ', '.join(str(path) for path in candidates)
     raise FileNotFoundError(
         'Hydrovision data directory not found. '
         f'Looked in: {searched}. '
-        'Set HYDROVISION_DATA_DIR to the folder containing Mekong/ and LamaH/.'
+        'Set HYDROVISION_DATA_DIR to the folder containing Mekong/ and/or LamaH/.'
     )
 
 
@@ -187,6 +188,8 @@ def mekong_geojson():
 
 @app.route('/api/lamah-geojson')
 def lamah_geojson():
+    if not LAMAH_GEOJSON_PATH.exists():
+        return jsonify({'type': 'FeatureCollection', 'features': []}), 200
     return LAMAH_GEOJSON_PATH.read_text(encoding='utf-8'), 200, {'Content-Type': 'application/json'}
 
 

@@ -222,29 +222,49 @@
             </section>
 
             <section class="panel-section hidden" data-sidebar-panel="network">
-                <div class="section-heading">Spatial network analysis</div>
+                <div class="section-heading">Spatial Network Analysis</div>
                 <p class="section-desc">Model the Mekong as a directed river graph. Visualise river topology, compute empirical flood-wave travel times, and estimate discharge contributions across the network.</p>
 
                 <!-- Network Statistics -->
                 <div class="network-stats-panel">
                     <div class="network-stat-card">
-                        <div class="network-stat-icon">🏢</div>
+                        <div class="network-stat-icon-box">
+                            <svg class="network-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="3" width="7" height="7"></rect>
+                                <rect x="14" y="3" width="7" height="7"></rect>
+                                <rect x="14" y="14" width="7" height="7"></rect>
+                                <rect x="3" y="14" width="7" height="7"></rect>
+                            </svg>
+                        </div>
                         <div class="network-stat-info">
                             <span class="network-stat-label">Stations</span>
                             <span class="network-stat-value" id="netChipNodes">—</span>
                         </div>
                     </div>
                     <div class="network-stat-card">
-                        <div class="network-stat-icon">🔗</div>
+                        <div class="network-stat-icon-box">
+                            <svg class="network-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="6" cy="6" r="3"></circle>
+                                <circle cx="18" cy="6" r="3"></circle>
+                                <circle cx="12" cy="18" r="3"></circle>
+                                <line x1="6" y1="9" x2="18" y2="15"></line>
+                                <line x1="18" y1="9" x2="12" y2="15"></line>
+                            </svg>
+                        </div>
                         <div class="network-stat-info">
                             <span class="network-stat-label">Connections</span>
                             <span class="network-stat-value" id="netChipEdges">—</span>
                         </div>
                     </div>
                     <div class="network-stat-card">
-                        <div class="network-stat-icon">🌊</div>
+                        <div class="network-stat-icon-box">
+                            <svg class="network-stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 2v20M2 12h20"></path>
+                                <path d="M12 6l4 2v4l-4 2-4-2v-4l4-2z"></path>
+                            </svg>
+                        </div>
                         <div class="network-stat-info">
-                            <span class="network-stat-label">Main stem</span>
+                            <span class="network-stat-label">Main Stem</span>
                             <span class="network-stat-value" id="netChipStem">—</span>
                         </div>
                     </div>
@@ -262,7 +282,7 @@
 
                 <!-- Conditional Target Station Selector -->
                 <div class="control-group hidden" id="networkContribGroup" style="margin-top:14px;">
-                    <label for="networkContribStation">Target station <span class="help-icon" title="The downstream station to analyze. Shows which upstream stations feed it and how much they contribute to its discharge.">?</span></label>
+                    <label for="networkContribStation">Target Station <span class="help-icon" title="The downstream station to analyze. Shows which upstream stations feed it and how much they contribute to its discharge.">?</span></label>
                     <select id="networkContribStation"></select>
                 </div>
 
@@ -277,11 +297,28 @@
                 <div class="inline-message" id="networkMessage"></div>
 
                 <!-- Methodology Notes -->
-                <div class="network-caveats" style="margin-top:16px;">
-                    <p class="network-caveat-title">⚠️ Methodology notes</p>
-                    <p class="network-caveat-text"><strong>Topology:</strong> Based on MRC basin maps — tributary assignments are approximate.</p>
-                    <p class="network-caveat-text"><strong>Travel times:</strong> Empirical (monthly discharge cross-correlation), not hydraulic routing.</p>
-                    <p class="network-caveat-small"><strong>Contribution:</strong> Discharge-ratio proxy, not a full flow-routing model.</p>
+                <div class="network-caveats">
+                    <div class="caveat-header">
+                        <svg class="caveat-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <path d="M12 8v4M12 16h.01" fill="white"></path>
+                        </svg>
+                        <span class="caveat-title">Methodology Notes</span>
+                    </div>
+                    <div class="caveat-content">
+                        <div class="caveat-item">
+                            <span class="caveat-label">Topology</span>
+                            <span class="caveat-text">Based on MRC basin maps — tributary assignments are approximate.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Travel Times</span>
+                            <span class="caveat-text">Empirical (monthly discharge cross-correlation), not hydraulic routing.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Contribution</span>
+                            <span class="caveat-text">Discharge-ratio proxy, not a full flow-routing model.</span>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -415,13 +452,24 @@
                 <div class="inline-message" id="scenarioMessage"></div>
 
                 <div class="network-caveats" style="margin-top:14px;">
-                    <p class="network-caveat-title">How To Read This</p>
-                    <p class="network-caveat-text">This is a statistical response model, not a hydraulic or rainfall-runoff process model. It estimates delayed target response from historical monthly anomalies and lag structure.</p>
-                    <p class="network-caveat-text">Best use: choose a driver such as Rainfall and a target such as Discharge or Water Level.</p>
-                    <p class="network-caveat-title">Methodology</p>
-                    <p class="network-caveat-text">Baseline uses pre-trained model predictions where available, otherwise exponential smoothing.</p>
-                    <p class="network-caveat-text">Impact estimated using a distributed-lag monthly anomaly model with target persistence and driver lags up to 3 months.</p>
-                    <p class="network-caveat-small">Results are statistically informed scenario responses, not physical routing or hydraulic simulations.</p>
+                    <div class="caveat-header">
+                        <svg class="caveat-icon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4M12 16h.01" fill="white"></path></svg>
+                        <span class="caveat-title">Methodology</span>
+                    </div>
+                    <div class="caveat-content">
+                        <div class="caveat-item">
+                            <span class="caveat-label">Model</span>
+                            <span class="caveat-text">Distributed-lag monthly anomaly model with driver lags up to 3 months. Not hydraulic routing.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Baseline</span>
+                            <span class="caveat-text">Pre-trained model predictions where available; exponential smoothing otherwise.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Best use</span>
+                            <span class="caveat-text">Pair Rainfall as driver with Discharge or Water Level as target.</span>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -457,9 +505,36 @@
                 <div class="inline-message" id="extremeMessage"></div>
 
                 <div class="network-caveats" style="margin-top:14px;">
-                    <p class="network-caveat-title">Methodology</p>
-                    <p class="network-caveat-text">Annual maxima extracted year-by-year. GEV and Gumbel parameters estimated by MLE via SciPy. Bootstrap CI uses 150 resamples.</p>
-                    <p class="network-caveat-small">Return levels are statistical estimates — not hydraulic flood routing.</p>
+                    <div class="caveat-header">
+                        <svg class="caveat-icon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4M12 16h.01" fill="white"></path></svg>
+                        <span class="caveat-title">Methodology</span>
+                    </div>
+                    <div class="caveat-content">
+                        <div class="caveat-item">
+                            <span class="caveat-label">Block maxima</span>
+                            <span class="caveat-text">The annual maximum value is extracted for each calendar year, forming the extreme-value sample. This follows the block maxima approach of classical extreme value theory (EVT).</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Distributions</span>
+                            <span class="caveat-text">GEV (Generalized Extreme Value) is the general family encompassing Gumbel, Fréchet, and Weibull tails via the shape parameter ξ. Gumbel is a special case (ξ = 0) assuming an exponential tail — simpler but less flexible for heavy-tailed hydrology.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Estimation</span>
+                            <span class="caveat-text">Parameters fitted by Maximum Likelihood Estimation (MLE) using SciPy. MLE is asymptotically efficient and is the standard for EVT in hydrology.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Confidence intervals</span>
+                            <span class="caveat-text">Bootstrap CI with 150 resamples of the annual maxima block. Bands widen substantially for rare events (>50 yr) and should be interpreted as indicative uncertainty bounds, not precise probabilistic guarantees.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Return levels</span>
+                            <span class="caveat-text">A T-year return level is the value expected to be exceeded on average once every T years, i.e. annual exceedance probability = 1/T. These are statistical estimates from the fitted distribution — not hydraulic flood routing or inundation modelling.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Limitations</span>
+                            <span class="caveat-text">Results depend on record length. Short records (&lt;30 yr) yield wide CIs for rare events. Stationarity is assumed — if the climate has shifted, historical return levels may underestimate future risk.</span>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -501,9 +576,20 @@
                 <div class="inline-message" id="riskMessage"></div>
 
                 <div class="network-caveats" style="margin-top:14px;">
-                    <p class="network-caveat-title">Methodology</p>
-                    <p class="network-caveat-text">Risk = percentile rank of the recent mean (last N data points) vs. the full historical record.</p>
-                    <p class="network-caveat-small">LamaH-CE (857 stations) may take 10–20 s on the first run.</p>
+                    <div class="caveat-header">
+                        <svg class="caveat-icon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4M12 16h.01" fill="white"></path></svg>
+                        <span class="caveat-title">Methodology</span>
+                    </div>
+                    <div class="caveat-content">
+                        <div class="caveat-item">
+                            <span class="caveat-label">Method</span>
+                            <span class="caveat-text">Percentile rank of recent mean (last N points) vs. full historical record.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Performance</span>
+                            <span class="caveat-text">LamaH-CE (857 stations) may take 10–20 s on first run.</span>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -581,8 +667,8 @@
                         <label class="scenario-slider-label">Projection window <span class="help-icon" title="Years into the future to project climate impacts. Longer windows = higher uncertainty.">?</span></label>
                         <span class="scenario-slider-value" id="climateYearsDisplay">30 yrs</span>
                     </div>
-                    <input class="scenario-slider" id="climateYearsSlider" type="range" min="10" max="80" step="5" value="30" />
-                    <div class="scenario-slider-ticks"><span>10</span><span>30</span><span>80</span></div>
+                    <input class="scenario-slider" id="climateYearsSlider" type="range" min="10" max="50" step="5" value="30" />
+                    <div class="scenario-slider-ticks"><span>10</span><span>30</span><span>50</span></div>
                 </div>
                 <div class="toggle-row" style="margin:8px 0 4px;">
                     <span class="toggle-label">Include Analysis <span class="help-icon" title="Use AI to generate insights about the climate projection trends and implications">?</span></span>
@@ -595,9 +681,48 @@
                     <button class="primary-btn full-width" id="runClimateBtn">Generate projection</button>
                 </div>
                 <div class="inline-message" id="climateMessage"></div>
-                <div class="network-caveats" style="margin-top:14px;">
-                    <p class="network-caveat-title">Scenarios</p>
-                    <p class="network-caveat-text"><b style="color:#34d399">SSP1-2.6</b> +1.5°C · <b style="color:#60a5fa">SSP2-4.5</b> +2.5°C · <b style="color:#f87171">SSP5-8.5</b> +4.5°C warming above pre-industrial.</p>
+                <div class="ssp-card-block">
+                    <div class="ssp-card-header">
+                        <svg class="ssp-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2z"/><path d="M12 6v6l4 2"/></svg>
+                        <span class="ssp-card-title">Warming Scenarios</span>
+                        <span class="ssp-card-subtitle">IPCC SSP pathways · illustrative delta-change</span>
+                    </div>
+                    <div class="ssp-scenario-list">
+                        <div class="ssp-scenario-row ssp-scenario-low">
+                            <div class="ssp-scenario-left">
+                                <span class="ssp-scenario-name">SSP1-2.6</span>
+                                <span class="ssp-scenario-temp">+1.5°C</span>
+                            </div>
+                            <div class="ssp-scenario-body">
+                                <div class="ssp-scenario-label">Aggressive mitigation · Paris best-case</div>
+                                <div class="ssp-scenario-desc">Global emissions peak before 2025 and decline sharply. Represents the most optimistic trajectory consistent with the 1.5°C Paris Agreement target. Discharge sensitivity: <strong>−8%</strong> by end of window.</div>
+                            </div>
+                        </div>
+                        <div class="ssp-scenario-row ssp-scenario-mid">
+                            <div class="ssp-scenario-left">
+                                <span class="ssp-scenario-name">SSP2-4.5</span>
+                                <span class="ssp-scenario-temp">+2.5°C</span>
+                            </div>
+                            <div class="ssp-scenario-body">
+                                <div class="ssp-scenario-label">Middle of the road · current policy trajectory</div>
+                                <div class="ssp-scenario-desc">Emissions follow historical trends with partial mitigation. Broadly represents the current global policy trajectory — some climate action but no transformational change. Discharge sensitivity: <strong>−16%</strong> by end of window.</div>
+                            </div>
+                        </div>
+                        <div class="ssp-scenario-row ssp-scenario-high">
+                            <div class="ssp-scenario-left">
+                                <span class="ssp-scenario-name">SSP5-8.5</span>
+                                <span class="ssp-scenario-temp">+4.5°C</span>
+                            </div>
+                            <div class="ssp-scenario-body">
+                                <div class="ssp-scenario-label">Fossil-fuel intensive · stress-test upper bound</div>
+                                <div class="ssp-scenario-desc">High-emissions, fossil-fuel-intensive development with minimal mitigation. Used as the worst-case stress test for infrastructure design, dam safety, and long-horizon water allocation. Discharge sensitivity: <strong>−30%</strong> by end of window.</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="ssp-card-caveat">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                        Sensitivity brackets are illustrative delta-change proxies applied to the Sen's slope historical trend — not CMIP6 GCM ensemble projections. Uncertainty bands widen with time and warming magnitude. For design-level projections use ISIMIP3 or CORDEX-SEA bias-corrected outputs.
+                    </div>
                 </div>
             </section>
 
@@ -646,6 +771,35 @@
                     <button class="primary-btn full-width" id="runCpBtn">Detect change points</button>
                 </div>
                 <div class="inline-message" id="cpMessage"></div>
+
+                <div class="network-caveats" style="margin-top:14px;">
+                    <div class="caveat-header">
+                        <svg class="caveat-icon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4M12 16h.01" fill="white"></path></svg>
+                        <span class="caveat-title">Methodology</span>
+                    </div>
+                    <div class="caveat-content">
+                        <div class="caveat-item">
+                            <span class="caveat-label">What it detects</span>
+                            <span class="caveat-text">Structural breaks where the mean, variance, or trend of the series shifts abruptly — indicating a regime change such as dam construction, land-use change, or a climate shift.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">PELT</span>
+                            <span class="caveat-text">Pruned Exact Linear Time. Finds the globally optimal segmentation by minimising a penalised cost function. Faster than BinSeg and exact — preferred when record length is large or speed matters.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">BinSeg</span>
+                            <span class="caveat-text">Binary Segmentation. Recursively splits the series at the single strongest break, then repeats on each sub-segment. Approximate but flexible — useful when breakpoints may be closely spaced.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Penalty</span>
+                            <span class="caveat-text">Both algorithms use an L2 (mean-shift) cost with a BIC-style penalty to avoid over-segmentation. The max breakpoints slider caps the upper bound of detected breaks.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Interpretation</span>
+                            <span class="caveat-text">Detected break dates are statistically optimal, not causal. Always cross-reference with known events (dams, droughts, gauge relocations) before drawing hydrological conclusions.</span>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <!-- ── Animated Time-Series Map ────────────────────────────────── -->
@@ -675,9 +829,24 @@
                 </div>
                 <div class="inline-message" id="animateMessage"></div>
                 <div class="network-caveats" style="margin-top:14px;">
-                    <p class="network-caveat-title">How it works</p>
-                    <p class="network-caveat-text">Each station is coloured by its annual value percentile vs its own history. Use the play button and slider on the map to navigate through time.</p>
-                    <p class="network-caveat-small">LamaH-CE may take 20–40 s to build the animation.</p>
+                    <div class="caveat-header">
+                        <svg class="caveat-icon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4M12 16h.01" fill="white"></path></svg>
+                        <span class="caveat-title">How it works</span>
+                    </div>
+                    <div class="caveat-content">
+                        <div class="caveat-item">
+                            <span class="caveat-label">Colour</span>
+                            <span class="caveat-text">Each station coloured by annual percentile vs. its own full history.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Navigation</span>
+                            <span class="caveat-text">Use the play button and timeline slider on the map to scrub through years.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Performance</span>
+                            <span class="caveat-text">LamaH-CE may take 20–40 s to build on first run.</span>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -720,8 +889,20 @@
                 </div>
                 <div class="inline-message" id="mcMessage"></div>
                 <div class="network-caveats" style="margin-top:14px;">
-                    <p class="network-caveat-title">Methodology</p>
-                    <p class="network-caveat-text">RMSE and MAPE are computed from rolling predictions (station_predictions). Forecasts are loaded from station_predictions_future. If a model has no data for a station it is shown as n/a.</p>
+                    <div class="caveat-header">
+                        <svg class="caveat-icon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4M12 16h.01" fill="white"></path></svg>
+                        <span class="caveat-title">Methodology</span>
+                    </div>
+                    <div class="caveat-content">
+                        <div class="caveat-item">
+                            <span class="caveat-label">Metrics</span>
+                            <span class="caveat-text">RMSE and MAPE computed from rolling hindcast predictions per station.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Forecasts</span>
+                            <span class="caveat-text">Future projections from pre-computed model outputs. Missing entries shown as n/a.</span>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -756,8 +937,32 @@
                 </div>
                 <div class="inline-message" id="decompMessage"></div>
                 <div class="network-caveats" style="margin-top:14px;">
-                    <p class="network-caveat-title">Methodology</p>
-                    <p class="network-caveat-text">Monthly resampled data. STL with period=12 and robust fitting. Trend and seasonal strength indices follow Wang et al. (2006).</p>
+                    <div class="caveat-header">
+                        <svg class="caveat-icon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4M12 16h.01" fill="white"></path></svg>
+                        <span class="caveat-title">Methodology</span>
+                    </div>
+                    <div class="caveat-content">
+                        <div class="caveat-item">
+                            <span class="caveat-label">Pre-processing</span>
+                            <span class="caveat-text">Raw data is resampled to monthly means before decomposition. This stabilises the seasonal period to exactly 12 steps and reduces sub-monthly noise.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">STL algorithm</span>
+                            <span class="caveat-text">Seasonal-Trend decomposition via LOESS (Cleveland et al. 1990). Iteratively fits a smooth trend and a repeating seasonal component using locally-weighted regression, leaving the residual as the unexplained remainder.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Robust fitting</span>
+                            <span class="caveat-text">Robust mode down-weights outliers during LOESS fitting, preventing flood spikes or data gaps from distorting the estimated trend and seasonal pattern.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Strength indices</span>
+                            <span class="caveat-text">Trend strength F<sub>T</sub> and seasonal strength F<sub>S</sub> are computed as 1 − Var(residual)/Var(trend+residual) and 1 − Var(residual)/Var(seasonal+residual) respectively, following Wang et al. (2006). Values near 1 indicate a dominant component; near 0 indicates noise dominates.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Interpretation</span>
+                            <span class="caveat-text">The trend component captures multi-year changes (e.g. long-term drying, river regulation effects). The seasonal component captures the annual flood–drought cycle. Large residuals may indicate extreme events, data errors, or non-periodic forcing.</span>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -792,8 +997,36 @@
                 </div>
                 <div class="inline-message" id="waveletMessage"></div>
                 <div class="network-caveats" style="margin-top:14px;">
-                    <p class="network-caveat-title">Methodology</p>
-                    <p class="network-caveat-text">CWT (PyWavelets, Morlet wavelet). Cone of influence masks edge-affected regions. Global spectrum averages power over time.</p>
+                    <div class="caveat-header">
+                        <svg class="caveat-icon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4M12 16h.01" fill="white"></path></svg>
+                        <span class="caveat-title">Methodology</span>
+                    </div>
+                    <div class="caveat-content">
+                        <div class="caveat-item">
+                            <span class="caveat-label">Transform</span>
+                            <span class="caveat-text">Continuous Wavelet Transform (CWT) computed via PyWavelets using the complex Morlet wavelet (ψ). Unlike Fourier analysis, the CWT resolves both frequency content and its location in time simultaneously.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Morlet wavelet</span>
+                            <span class="caveat-text">A Gaussian-windowed complex sinusoid. Well-suited for hydrology because it balances time and frequency resolution, making it sensitive to both sharp events (floods) and slow oscillations (ENSO, decadal cycles).</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Scalogram</span>
+                            <span class="caveat-text">The 2-D heatmap shows CWT power (|W|²) across time (x-axis) and period (y-axis). Bright regions indicate that a given periodicity was energetically dominant during that time window.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Cone of influence</span>
+                            <span class="caveat-text">Edge effects arise because the wavelet extends beyond the record boundaries at large scales. The cone of influence (COI) marks the region where edge effects become significant; results outside the COI should be interpreted with caution.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Global spectrum</span>
+                            <span class="caveat-text">The global wavelet power spectrum averages CWT magnitude over the full time dimension, producing a single power-vs-period curve analogous to a smoothed Fourier periodogram. Peaks indicate persistent dominant cycles across the record.</span>
+                        </div>
+                        <div class="caveat-item">
+                            <span class="caveat-label">Hydrological signals</span>
+                            <span class="caveat-text">Expected peaks: ~12 months (annual monsoon cycle), ~24–36 months (ENSO forcing), ~6–8 years (ENSO modulation by PDO), ~10–20 years (decadal climate variability). Intermittent peaks indicate non-stationary periodicities.</span>
+                        </div>
+                    </div>
                 </div>
             </section>
 

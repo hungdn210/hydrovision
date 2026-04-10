@@ -28,32 +28,87 @@ from .figure_theme import (
 def _fallback_changepoint_analysis(result: Dict[str, Any]) -> str:
     s = result.get('stats', {}) or {}
     title = str(result.get('title', '')).replace('_', ' ')
-    method = s.get('method')
+    method = s.get('method', 'unknown')
     n_breaks = s.get('n_breaks_detected', 0)
     cp_dates = s.get('change_point_dates') or []
     segments = s.get('segments') or []
-
-    if segments:
-        first_seg = segments[0]
-        last_seg = segments[-1]
-        transition_text = (
-            f'The first detected regime spans {first_seg.get("start")} to {first_seg.get("end")} with mean {first_seg.get("mean")} and trend {first_seg.get("trend")}, '
-            f'while the latest regime spans {last_seg.get("start")} to {last_seg.get("end")} with mean {last_seg.get("mean")} and trend {last_seg.get("trend")}.'
-        )
-    else:
-        transition_text = 'Segment-level statistics are limited, so the result should be interpreted mainly from the detected break dates.'
-
     cp_text = ', '.join(cp_dates) if cp_dates else 'none detected'
+
+    # Build segment summary
+    seg_bullets = []
+    for i, seg in enumerate(segments):
+        seg_bullets.append(
+            f'<li><strong>Segment {i+1} ({seg.get("start")} – {seg.get("end")}):</strong> '
+            f'Mean = {seg.get("mean")}, Std = {seg.get("std", "?")}, Trend = {seg.get("trend", "?")}. '
+            + (
+                'The mean and trend in this segment represent the baseline hydrological regime before the next detected break.'
+                if i < len(segments) - 1
+                else 'This is the most recent regime — its mean and trend are the most operationally relevant for current planning.'
+            )
+            + '</li>'
+        )
+    seg_html = ''.join(seg_bullets) if seg_bullets else '<li>No segment statistics available.</li>'
+
+    first_seg = segments[0] if segments else {}
+    last_seg = segments[-1] if segments else {}
+    transition_text = ''
+    if first_seg and last_seg and first_seg is not last_seg:
+        try:
+            mean_change = float(last_seg.get('mean', 0)) - float(first_seg.get('mean', 0))
+            direction = 'increase' if mean_change > 0 else 'decrease'
+            transition_text = (
+                f'Between the first regime (mean {first_seg.get("mean")}) and the latest regime (mean {last_seg.get("mean")}), '
+                f'the series underwent a net {direction} of approximately {abs(mean_change):.2f} units. '
+                'This shift may reflect progressive basin change, discrete regulatory events, or a step-change in climate forcing.'
+            )
+        except (TypeError, ValueError):
+            transition_text = (
+                f'The earliest regime (mean {first_seg.get("mean")}) and latest regime (mean {last_seg.get("mean")}) '
+                'differ in their central tendency, indicating a net regime shift across the record.'
+            )
+
     return (
         '<p><strong>Executive Summary</strong></p>'
-        f'<p>The change-point analysis for <strong>{title}</strong> used the <strong>{method}</strong> method and detected {n_breaks} structural break(s) at {cp_text}. '
-        'These break dates indicate candidate shifts in the underlying hydrological regime rather than proof of a specific physical cause.</p>'
-        '<p><strong>Detailed Insights</strong></p>'
+        f'<p>The structural break analysis for <strong>{title}</strong> applied the <strong>{method}</strong> algorithm '
+        f'and detected <strong>{n_breaks} change point(s)</strong> at {cp_text}, dividing the record into {len(segments)} distinct regime(s). '
+        + (transition_text if transition_text else '')
+        + ' These break dates are statistically optimal partitions — they identify <em>when</em> the series shifted, '
+        'but do not identify <em>why</em>; physical attribution requires cross-referencing with basin management records, '
+        'dam construction timelines, and climate indices.</p>'
+
+        '<p><strong>Break Structure</strong></p>'
+        f'<p>The {method} algorithm minimises a penalised cost function (L2 norm with BIC-style penalty) to find the optimal segmentation. '
+        f'{n_breaks} breakpoint(s) were located at {cp_text}. '
+        'Each break marks a statistically significant shift in the mean level of the series that cannot be explained by the regular seasonal cycle or random noise. '
+        'The penalty term guards against over-segmentation — the detected breaks represent the strongest, most robust regime shifts within the maximum breakpoint constraint set by the user.</p>'
+
+        '<p><strong>Segment-by-Segment Analysis</strong></p>'
+        f'<ul>{seg_html}</ul>'
+
+        '<p><strong>Regime Transition Interpretation</strong></p>'
+        f'<p>{transition_text if transition_text else "Segment means and trends provide the basis for comparing regimes."} '
+        'Possible hydrological explanations for the detected break dates include: '
+        '(1) <strong>Dam impoundment or release changes</strong> — upstream regulation often causes abrupt step-changes in downstream discharge; '
+        '(2) <strong>Climate shifts</strong> — changes in monsoon intensity, ENSO regime transitions, or PDO phase shifts can produce multi-year mean shifts; '
+        '(3) <strong>Land-use change</strong> — deforestation or agricultural expansion in the catchment alters runoff coefficients and baseflow recession; '
+        '(4) <strong>Gauge relocation or instrument change</strong> — non-climatic breaks in the observational record. '
+        'Always consult local hydrological station metadata before attributing breaks to physical causes.</p>'
+
+        '<p><strong>Stationarity Assessment</strong></p>'
+        '<p>The presence of structural breaks means that the full historical record is <strong>non-stationary</strong>: '
+        'the mean or variance of the series changes over time. '
+        'This has important implications for any downstream analysis that assumes stationarity (e.g. flood frequency curves, seasonal forecasting baselines, trend tests). '
+        'Where breaks are detected, it is generally advisable to perform trend and frequency analyses on the most recent stationary segment '
+        'rather than the full record, as the older regimes may no longer represent the current system state.</p>'
+
+        '<p><strong>Operational Relevance</strong></p>'
         '<ul>'
-        f'<li><strong>Break Structure:</strong> {n_breaks} change point(s) were detected, separating the series into {len(segments)} segment(s).</li>'
-        f'<li><strong>Segment Behaviour:</strong> {transition_text}</li>'
-        f'<li><strong>Hydrological Interpretation:</strong> Break dates at {cp_text} may reflect shifts in climate forcing, regulation, land-use change, or observation regime, but they should be cross-checked with basin history.</li>'
-        '<li><strong>Operational Interpretation:</strong> Treat the detected breaks as evidence that a single stationary model may be inappropriate across the full record, and consider segment-wise analysis for trend, forecasting, or design studies.</li>'
+        '<li><strong>Design standards:</strong> Flood frequency curves and return-period estimates derived from the full record may be biased if a regime shift has occurred. '
+        'Re-fitting extreme value models to the post-break segment typically produces more representative design values for infrastructure planning.</li>'
+        '<li><strong>Forecasting baselines:</strong> Seasonal forecast climatologies and anomaly benchmarks should be computed from the current regime segment, '
+        'not the full historical record, to avoid contaminating the baseline with pre-shift data.</li>'
+        '<li><strong>Monitoring trigger:</strong> Repeat this analysis periodically as new data accumulates. '
+        'An emerging break at the end of the current record could be an early indicator of ongoing regime change requiring management intervention.</li>'
         '</ul>'
     )
 
@@ -64,28 +119,40 @@ def _generate_changepoint_analysis(result: Dict[str, Any]) -> str:
         return _fallback_changepoint_analysis(result)
     try:
         s = result.get('stats', {})
-        prompt = f"""Act as a professional hydrologist interpreting a structural-break analysis.
+        prompt = f"""Act as a professional hydrologist writing a detailed technical interpretation of a structural break / change-point detection analysis.
 Write the response in markdown and structure it exactly as follows:
 
 **Executive Summary**
-2-3 sentences summarising how many breaks were found, when they occur, and why they matter for interpreting the historical record.
+4-5 sentences. State how many breaks were found, when they occur, how large the regime shifts are between segments, which physical causes are most plausible, and the key implications for the stationarity of the historical record.
 
-**Detailed Insights**
-- **Break Structure:** interpret the number and dates of the detected change points.
-- **Segment Behaviour:** compare the reported segment means, variability, and trends.
-- **Hydrological Interpretation:** explain plausible hydrological meanings of the regime shifts.
-- **Operational Interpretation:** state how this result should affect downstream analysis and decision-making.
+**Break Structure**
+A paragraph (4-5 sentences) interpreting the number and location of breaks in detail. Explain the penalised cost minimisation approach and why the algorithm chose these break dates over alternatives. Discuss the penalty parameter's role in preventing over-segmentation. Comment on whether the breaks are closely clustered or well-separated in time.
+
+**Segment-by-Segment Analysis**
+For each detected segment, provide a bullet point citing the time span, mean, standard deviation, and trend direction. Interpret what each segment mean and trend implies about the hydrological regime during that period. For the final segment, note that this represents current conditions most relevant to operational planning.
+
+**Regime Transition Interpretation**
+A paragraph (4-5 sentences) interpreting the magnitude and direction of change between regimes. Enumerate plausible physical causes for the observed break dates: dam construction or regulation changes, ENSO or PDO regime transitions, land-use change, or instrumental/observational artefacts. Emphasise that attribution requires cross-referencing with basin management records.
+
+**Stationarity Assessment**
+A paragraph (3-4 sentences) assessing the implications of the detected breaks for stationarity. Explain why non-stationarity invalidates full-record frequency analysis and trend tests. Recommend which segment should be used for design and baseline computations.
+
+**Operational Relevance**
+Exactly 3 bullet points:
+- **Design standards:** how detected regime shifts affect flood frequency curves and infrastructure design values.
+- **Forecasting baselines:** how the most recent regime segment should be used to set seasonal forecast climatologies.
+- **Ongoing monitoring:** recommend periodic re-analysis as new data accumulates to detect emerging breaks early.
 
 Rules:
-- Use professional hydrological language.
+- Use professional hydrological language throughout.
 - Always cite specific numbers from the provided results.
 - Replace underscores with spaces.
-- Do not include any introduction or sign-off outside the two sections.
+- Do not include any introduction or sign-off outside the defined sections.
 
 Analysis title: {str(result.get('title', '')).replace('_', ' ')}
 Method: {s.get('method')}
 Change points detected: {s.get('n_breaks_detected')} at dates: {s.get('change_point_dates')}
-Segments: {s.get('segments')}
+Segments (start, end, mean, std, trend): {s.get('segments')}
 """
         return markdown.markdown(_gemini_generate(api_key, prompt))
     except Exception:

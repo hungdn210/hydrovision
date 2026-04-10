@@ -35,52 +35,107 @@ def _component_prompt(component: str, data: Dict[str, Any], feature: str) -> str
     feature_label = feature.replace('_', ' ')
     if component == 'correlation':
         return (
-            'Act as a professional hydrologist interpreting a basin correlation matrix.\n\n'
-            'RESPONSE FORMAT (STRICT):\n'
-            'Use markdown with exactly these sections:\n'
-            '## Matrix Overview\n2-3 sentences.\n'
-            '## Strongest Relationships\nExactly 4 bullet points.\n'
-            '## Spatial Interpretation\nExactly 4 bullet points.\n'
-            '## Operational Implications\nExactly 3 bullet points.\n\n'
+            'Act as a professional hydrologist writing a detailed interpretation of a basin Spearman correlation matrix.\n\n'
+            'RESPONSE FORMAT (STRICT — markdown, no text outside these headings):\n\n'
+            '## Matrix Overview\n'
+            'Write 4–5 sentences. State the number of stations in the matrix, the primary correlation method (Spearman rank), '
+            'why Spearman was chosen for hydrological discharge (right-skewed data), the general level of coherence across the matrix, '
+            'and whether the basin behaves as a spatially unified system or as fragmented sub-regions.\n\n'
+            '## Strongest Relationships\n'
+            'Exactly 5 bullet points. For each of the top correlated station pairs: cite the correlation value, '
+            'interpret the hydrological basis (shared catchment forcing, proximity, regulated reservoir influence), '
+            'and note whether the relationship reflects physical routing or common climate forcing.\n\n'
+            '## Weakest / Divergent Relationships\n'
+            'Exactly 4 bullet points. Identify station pairs with notably low or negative correlations, '
+            'explain possible causes (independent sub-basins, opposing regulation, data heterogeneity), '
+            'and note what these divergences imply for basin-wide monitoring representativeness.\n\n'
+            '## Spatial Interpretation\n'
+            'Exactly 4 bullet points: (1) which station has the highest mean cross-station correlation and what that implies; '
+            '(2) whether highly correlated stations form geographically contiguous clusters; '
+            '(3) what the correlation structure implies about spatial transferability of discharge data; '
+            '(4) one specific caveat about interpreting high correlation as causation.\n\n'
+            '## Operational Implications\n'
+            'Exactly 3 bullet points: (1) which stations could serve as basin-wide proxies for monitoring; '
+            '(2) how weakly correlated sub-regions should be treated in risk communication; '
+            '(3) how correlation structure should inform hydrological model regionalisation or data-sharing decisions.\n\n'
             'RULES:\n'
-            '- Cite specific correlation values.\n'
+            '- Cite specific correlation values throughout.\n'
             '- Replace underscores with spaces.\n'
-            '- Focus on cross-station coherence and what it implies hydrologically.\n'
-            '- No intro before the first heading and no conclusion after the last bullet.\n\n'
+            '- No intro before the first heading; no conclusion after the last bullet.\n\n'
             f'Feature: {feature_label}\n\n'
             f'{_format_correlation_for_prompt(data)}\n'
         )
     if component == 'leaderboard':
+        rows = (data or {}).get('rows', [])
+        above = (data or {}).get('above_normal', 0)
+        below = (data or {}).get('below_normal', 0)
+        total = (data or {}).get('total_stations', 0)
         return (
-            'Act as a professional hydrologist interpreting a basin anomaly leaderboard.\n\n'
-            'RESPONSE FORMAT (STRICT):\n'
-            'Use markdown with exactly these sections:\n'
-            '## Year Context\n2-3 sentences.\n'
-            '## Highest Anomaly Stations\nExactly 4 bullet points.\n'
-            '## Basin Balance\nExactly 4 bullet points.\n'
-            '## Operational Implications\nExactly 3 bullet points.\n\n'
+            'Act as a professional hydrologist writing a detailed interpretation of a basin anomaly leaderboard.\n\n'
+            'RESPONSE FORMAT (STRICT — markdown, no text outside these headings):\n\n'
+            '## Year Context\n'
+            'Write 4–5 sentences. State the analysis year, the total number of ranked stations, '
+            'the above-normal versus below-normal split and what that balance implies for the overall basin water budget, '
+            'name the single station with the largest absolute anomaly and its percentage departure, '
+            'and place the year in climatological context (e.g., likely ENSO phase or monsoon character if detectable).\n\n'
+            '## Highest Anomaly Stations\n'
+            'Exactly 5 bullet points — ranked by absolute anomaly. For each: station name, anomaly percentage, '
+            'annual mean versus climatological mean with units, anomaly level classification (critical/warning/watch/normal), '
+            'direction (above/below), and a brief hydrological interpretation of what may have driven the departure.\n\n'
+            '## Basin Balance & Spatial Pattern\n'
+            'Exactly 4 bullet points: (1) sign balance — above-normal vs below-normal count and what a mixed vs unidirectional basin implies; '
+            '(2) whether the highest-anomaly stations cluster in a particular sub-region or are spatially dispersed; '
+            '(3) whether the magnitudes suggest a uniform basin-wide shift or localised forcing; '
+            '(4) comparison with a typical anomaly year — are these departures historically large or modest?\n\n'
+            '## Methodology Note\n'
+            'Exactly 3 bullet points: (1) how climatology is computed (calendar-month mean average to remove seasonal bias); '
+            '(2) the anomaly threshold classification system (±20%, ±40%, ±70%); '
+            '(3) what limitations apply when comparing stations with different record lengths.\n\n'
+            '## Operational Implications\n'
+            'Exactly 3 bullet points: (1) which tier stations warrant immediate follow-up; '
+            '(2) how to communicate a mixed above/below-normal basin to water managers; '
+            '(3) how the leaderboard should be used as a triage tool, not a definitive severity assessment.\n\n'
             'RULES:\n'
-            '- Cite anomaly percentages and annual mean versus climatology.\n'
+            '- Cite anomaly percentages and discharge means throughout.\n'
             '- Replace underscores with spaces.\n'
             '- Distinguish above-normal and below-normal conditions clearly.\n'
-            '- No intro before the first heading and no conclusion after the last bullet.\n\n'
-            f'Feature: {feature_label}\n\n'
-            f'{_format_leaderboard_for_prompt((data or {}).get("rows", []))}\n'
-            f'\nMetadata: year={data.get("year")}, above_normal={data.get("above_normal")}, below_normal={data.get("below_normal")}, total_stations={data.get("total_stations")}\n'
+            '- No intro before the first heading; no conclusion after the last bullet.\n\n'
+            f'Feature: {feature_label}\n'
+            f'Year: {(data or {}).get("year")}\n'
+            f'Above normal: {above}, Below normal: {below}, Total: {total}\n\n'
+            f'{_format_leaderboard_for_prompt(rows)}\n'
         )
     return (
-        'Act as a professional hydrologist interpreting basin summary statistics.\n\n'
-        'RESPONSE FORMAT (STRICT):\n'
-        'Use markdown with exactly these sections:\n'
-        '## Basin Snapshot\n2-3 sentences.\n'
-        '## Distribution Structure\nExactly 4 bullet points.\n'
-        '## Station Extremes\nExactly 4 bullet points.\n'
-        '## Operational Implications\nExactly 3 bullet points.\n\n'
+        'Act as a professional hydrologist writing a detailed interpretation of basin-wide summary statistics.\n\n'
+        'RESPONSE FORMAT (STRICT — markdown, no text outside these headings):\n\n'
+        '## Basin Snapshot\n'
+        'Write 4–5 sentences. State the dataset, feature, and number of active stations; '
+        'characterise the basin mean and whether it is high, low, or typical for this type of catchment; '
+        'describe the spatial spread (CV, range) and what it implies about within-basin heterogeneity; '
+        'mention the data quality context (imputation rate); and state one key operational message from the statistics.\n\n'
+        '## Distribution Structure\n'
+        'Exactly 5 bullet points: (1) mean and median with units, noting any skew; '
+        '(2) standard deviation and spatial CV, interpreting whether the basin is homogeneous or heterogeneous; '
+        '(3) full range (min to max) and what the extremes imply about basin diversity; '
+        '(4) percentile spread (P10–P90) and what the interquartile width implies for monitoring design; '
+        '(5) data quality — average imputation rate and total observations.\n\n'
+        '## Station Extremes\n'
+        'Exactly 4 bullet points: (1) name and discharge of the highest station, interpret its basin role; '
+        '(2) name and discharge of the lowest station, interpret its role; '
+        '(3) trend mix (rising/stable/falling counts) and what the dominant trend implies for long-term water availability; '
+        '(4) what the ratio of highest to lowest station mean implies about spatial variability in the basin.\n\n'
+        '## Interpretive Context\n'
+        'Exactly 3 bullet points: (1) how basin mean versus median difference reveals distributional skew; '
+        '(2) whether a high spatial CV indicates the summary mean is a reliable representative statistic; '
+        '(3) what the trend mix suggests about climate or land-use change signals across the basin.\n\n'
+        '## Operational Implications\n'
+        'Exactly 3 bullet points: (1) how the distribution spread should inform whether a single basin average is meaningful; '
+        '(2) how percentile bands can serve as baseline thresholds for flagging anomalous stations; '
+        '(3) how imputation rates should factor into confidence when using these statistics for planning decisions.\n\n'
         'RULES:\n'
-        '- Cite the reported summary statistics.\n'
+        '- Cite all reported statistics with units.\n'
         '- Replace underscores with spaces.\n'
-        '- Comment on spread, percentiles, extremes, and trends.\n'
-        '- No intro before the first heading and no conclusion after the last bullet.\n\n'
+        '- No intro before the first heading; no conclusion after the last bullet.\n\n'
         f'Feature: {feature_label}\n\n'
         f'{_format_summary_for_prompt(data)}\n'
     )
@@ -155,92 +210,264 @@ def _format_summary_for_prompt(summary: Dict[str, Any]) -> str:
 def _fallback_component_analysis(component: str, data: Dict[str, Any], feature: str, note: str | None = None) -> str:
     parts: List[str] = []
     feature_label = feature.replace('_', ' ')
+
+    # ── Correlation ──────────────────────────────────────────────────────────
     if component == 'correlation':
         corr = data or {}
-        parts.append('## Matrix Overview')
-        overview = [f'Correlation analysis for **{feature_label}** across the selected basin.']
-        if note:
-            overview.append(note)
-        overview.append(f"The matrix includes {corr.get('n_stations', 0)} station(s) from the {corr.get('dataset', '')} dataset.")
-        parts.append(' '.join(overview))
-        parts.append('## Strongest Relationships')
         stations = corr.get('stations', [])
         matrix = corr.get('matrix', [])
-        pairs: List[tuple[float, str, str]] = []
+        mean_corrs = corr.get('mean_correlations', [])
+        n_stations = corr.get('n_stations', 0)
+        dataset = str(corr.get('dataset', '')).replace('_', ' ')
+
+        pairs: List[tuple] = []
         for i in range(len(stations)):
             for j in range(i + 1, len(stations)):
                 v = matrix[i][j] if i < len(matrix) and j < len(matrix[i]) else None
                 if v is not None:
                     pairs.append((float(v), stations[i], stations[j]))
-        for value, left, right in sorted(pairs, key=lambda x: abs(x[0]), reverse=True)[:4]:
-            parts.append(f'- **{left} vs {right}:** correlation is {value:.3f}, indicating {"strong" if abs(value) >= 0.7 else "moderate"} spatial coherence.')
+        pairs_sorted = sorted(pairs, key=lambda x: abs(x[0]), reverse=True)
+
+        ranked_mean = [(mean_corrs[i], stations[i]) for i in range(min(len(stations), len(mean_corrs))) if mean_corrs[i] is not None]
+        ranked_mean.sort(reverse=True)
+
+        all_vals = [v for v, _, _ in pairs]
+        mean_all = float(np.mean(all_vals)) if all_vals else 0.0
+        coherence = 'strong' if mean_all >= 0.7 else 'moderate' if mean_all >= 0.4 else 'weak'
+
+        parts.append('## Matrix Overview')
+        overview = (
+            f"The Spearman correlation matrix for **{feature_label}** across the **{dataset}** dataset "
+            f"includes {n_stations} station(s). "
+            "Spearman rank correlation is used as the primary metric because it is robust to the right-skewness typical of hydrological discharge distributions. "
+            f"The overall basin coherence is **{coherence}** (mean pairwise correlation {mean_all:.3f}), "
+            f"{'suggesting the basin behaves as a spatially unified system with shared hydroclimatic forcing' if coherence == 'strong' else 'indicating that sub-basin independence or local regulation creates meaningful spatial differentiation across the network'}. "
+            "A minimum overlap of 12 months is enforced for all pairs to guard against spurious short-record correlations."
+        )
+        if note:
+            overview += ' ' + note
+        parts.append(overview)
+
+        parts.append('## Strongest Relationships')
+        for value, left, right in pairs_sorted[:5]:
+            strength = 'strong' if abs(value) >= 0.7 else 'moderate' if abs(value) >= 0.4 else 'weak'
+            parts.append(
+                f'- **{left} vs {right}:** Spearman ρ = {value:.3f} ({strength} coherence) — '
+                f'{"likely reflects direct upstream-downstream routing or shared sub-catchment forcing" if abs(value) >= 0.7 else "suggests partial hydrological connectivity, possibly mediated by regulation or differing catchment responses"}.'
+            )
+
+        parts.append('## Weakest / Divergent Relationships')
+        weakest = sorted(pairs, key=lambda x: abs(x[0]))[:4]
+        for value, left, right in weakest:
+            parts.append(
+                f'- **{left} vs {right}:** ρ = {value:.3f} — '
+                f'{"near-zero or negative correlation indicating independent discharge dynamics, possibly driven by opposing regulation, different tributary systems, or contrasting land-use regimes" if abs(value) < 0.3 else "low coherence suggesting different sub-basin characteristics or limited shared forcing"}.'
+            )
+
         parts.append('## Spatial Interpretation')
-        mean_corrs = corr.get('mean_correlations', [])
-        ranked = [(mean_corrs[i], stations[i]) for i in range(min(len(stations), len(mean_corrs))) if mean_corrs[i] is not None]
-        ranked.sort(reverse=True)
-        if ranked:
-            parts.append(f'- **Most representative station:** {ranked[0][1]} has the highest mean pairwise correlation at {ranked[0][0]:.3f}.')
-        parts.append(f'- **Coverage:** capped subset applied: {"yes" if corr.get("capped") else "no"}; total available stations {corr.get("total_available")}.')
-        parts.append('- **Interpretation:** stronger positive correlations imply shared basin forcing or synchronized routing behaviour.')
-        parts.append('- **Caution:** weak pairs can signal local regulation, tributary independence, or data heterogeneity.')
+        if ranked_mean:
+            parts.append(
+                f'- **Most representative station:** {ranked_mean[0][1]} has the highest mean cross-station correlation at {ranked_mean[0][0]:.3f}, '
+                f'making it the best candidate for basin-wide proxy monitoring when full network coverage is unavailable.'
+            )
+        parts.append(
+            f'- **Coverage note:** {"capped subset applied" if corr.get("capped") else "all available stations included"}; '
+            f'{corr.get("total_available")} stations are available in total, {n_stations} used in this matrix.'
+        )
+        parts.append(
+            '- **Coherence interpretation:** high pairwise correlations across geographically close stations reflect shared precipitation events and hydrological routing; '
+            'weaker correlations across distant or topographically separated stations reflect independent catchment responses.'
+        )
+        parts.append(
+            '- **Causation caveat:** high correlation between two stations does not imply direct hydraulic connection; '
+            'it may reflect synchronised climate forcing or parallel basin responses driven by the same meteorological system.'
+        )
+
         parts.append('## Operational Implications')
-        parts.append('- **Monitoring:** highly coherent stations are suitable candidates for basin-wide proxy monitoring.')
-        parts.append('- **Risk messaging:** weakly aligned subregions should not be represented by one station alone during events.')
-        parts.append('- **Model use:** correlation structure can guide regionalization and transferability assumptions.')
+        parts.append(
+            '- **Proxy monitoring:** the most coherent station clusters are suitable candidates for basin-wide discharge monitoring; '
+            'a single highly-connected station can represent the network when data transmission failures occur at other sites.'
+        )
+        parts.append(
+            '- **Risk communication:** weakly correlated sub-regions should not be represented by the basin average; '
+            'separate sub-basin narratives are needed when communicating conditions during flood or drought events.'
+        )
+        parts.append(
+            '- **Regionalisation:** the correlation structure provides empirical evidence for spatial transferability assumptions in hydrological model calibration and parameter regionalisation exercises.'
+        )
         return markdown.markdown('\n'.join(parts))
 
+    # ── Leaderboard ──────────────────────────────────────────────────────────
     if component == 'leaderboard':
         rows = (data or {}).get('rows', [])
+        above = (data or {}).get('above_normal', 0)
+        below = (data or {}).get('below_normal', 0)
+        total = (data or {}).get('total_stations', 0)
+        year = (data or {}).get('year', 'the selected year')
+        balance = 'above-normal biased' if above > below * 1.5 else 'below-normal biased' if below > above * 1.5 else 'mixed'
+
         parts.append('## Year Context')
-        context = [f'Anomaly leaderboard for **{feature_label}** in {(data or {}).get("year", "the selected year")}.']
-        if note:
-            context.append(note)
-        context.append(
-            f"{(data or {}).get('above_normal', 0)} station(s) are above normal and {(data or {}).get('below_normal', 0)} below normal out of {(data or {}).get('total_stations', 0)} ranked station(s)."
+        context = (
+            f"The anomaly leaderboard for **{feature_label}** in **{year}** ranks {total} station(s) by their absolute departure from climatological means. "
+            f"{above} station(s) are above normal and {below} are below normal, indicating a **{balance}** year across the basin. "
         )
-        parts.append(' '.join(context))
-        parts.append('## Highest Anomaly Stations')
-        for row in rows[:4]:
-            parts.append(
-                f"- **{row['name']}:** {row['anomaly_pct']:+.1f}% relative to climatology, annual mean {row['year_mean']} {row['unit']} versus {row['clim_mean']} {row['unit']} normal, classified as {row['level']}."
-            )
-        parts.append('## Basin Balance')
-        parts.append(f"- **Sign balance:** above-normal stations {(data or {}).get('above_normal', 0)} versus below-normal stations {(data or {}).get('below_normal', 0)}.")
         if rows:
-            parts.append(f"- **Largest departure:** {rows[0]['name']} shows the strongest absolute anomaly at {abs(rows[0]['anomaly_pct']):.1f}%.")
-        parts.append('- **Interpretation:** mixed signs indicate spatially uneven hydroclimatic forcing rather than a uniform basin-wide shift.')
-        parts.append('- **Caution:** anomaly ranking is relative to climatology, not an absolute severity threshold for all stations.')
+            top = rows[0]
+            context += (
+                f"The largest single-station departure is **{top['name']}** at {top['anomaly_pct']:+.1f}% relative to climatology, "
+                f"classified as **{top['level']}**. "
+            )
+        context += (
+            "Anomaly classification uses calendar-month climatological means to remove the seasonal cycle, "
+            "ensuring that departures reflect genuine inter-annual variability rather than seasonal timing shifts."
+        )
+        if note:
+            context += ' ' + note
+        parts.append(context)
+
+        parts.append('## Highest Anomaly Stations')
+        for row in rows[:5]:
+            parts.append(
+                f"- **{row['name']}:** {row['anomaly_pct']:+.1f}% ({row['direction']} normal), "
+                f"annual mean {row['year_mean']} {row['unit']} versus climatology {row['clim_mean']} {row['unit']}, "
+                f"classified as **{row['level']}** — "
+                f"{'an extreme departure requiring urgent follow-up analysis' if row['level'] == 'critical' else 'a notable anomaly warranting monitoring attention' if row['level'] == 'warning' else 'an elevated departure worth tracking through the season'}."
+            )
+
+        parts.append('## Basin Balance & Spatial Pattern')
+        parts.append(
+            f"- **Sign balance:** {above} above-normal and {below} below-normal station(s) out of {total} ranked — "
+            f"{'a predominantly positive anomaly year suggests basin-wide above-normal water availability' if above > below else 'a predominantly negative anomaly year suggests widespread moisture deficit conditions' if below > above else 'a mixed sign pattern indicates spatially heterogeneous hydroclimatic forcing, not a uniform basin-wide shift'}."
+        )
+        if rows:
+            parts.append(
+                f"- **Largest absolute departure:** {rows[0]['name']} at {abs(rows[0]['anomaly_pct']):.1f}% is the basin-wide outlier for {year}; "
+                "this station should be prioritised for hydrograph review and cross-referencing with local precipitation or regulation records."
+            )
+        parts.append(
+            "- **Magnitude context:** anomaly classifications (±20% watch, ±40% warning, ±70% critical) are operational heuristics calibrated for hydrological monitoring; "
+            "stations in the critical tier indicate departures historically associated with significant water supply or flood risk impacts."
+        )
+        parts.append(
+            "- **Spatial interpretation:** if high-anomaly stations cluster within one sub-region, localised forcing (e.g., ENSO-driven precipitation anomalies, upstream regulation changes) "
+            "is more likely than basin-wide climate variability."
+        )
+
+        parts.append('## Methodology Note')
+        parts.append(
+            "- **Climatology computation:** the baseline is derived from calendar-month mean averages across all years of record for each station, "
+            "which removes the seasonal cycle and ensures anomalies reflect genuine inter-annual variation."
+        )
+        parts.append(
+            "- **Classification thresholds:** ±20% = watch, ±40% = warning, ±70% = critical — these are operational monitoring heuristics, not statistically derived quantiles, "
+            "and do not account for differences in natural flow variability between stations."
+        )
+        parts.append(
+            "- **Record-length sensitivity:** stations with shorter records may have climatological means that are less stable, "
+            "leading to anomaly estimates that are more sensitive to individual wet or dry years in the training period."
+        )
+
         parts.append('## Operational Implications')
-        parts.append('- **Hotspot prioritization:** warning and critical stations should be checked first for localized stress or surplus conditions.')
-        parts.append('- **Narrative control:** separate above-normal and below-normal clusters when communicating basin conditions.')
-        parts.append('- **Planning use:** the leaderboard is best used for triage and station targeting, not as a substitute for full hydrograph review.')
+        parts.append(
+            "- **Triage use:** critical and warning-tier stations warrant immediate hydrograph review, cross-checking against local rainfall, and potential escalation to water management authorities."
+        )
+        parts.append(
+            "- **Communication approach:** separate above-normal and below-normal clusters when briefing water managers — "
+            "presenting a mixed-sign basin as uniformly 'wet' or 'dry' misrepresents the spatial complexity of conditions."
+        )
+        parts.append(
+            "- **Limitation reminder:** the leaderboard ranks departure magnitude, not operational impact severity; "
+            "a 50% anomaly at a small headwater station may be less consequential than a 25% anomaly at a major storage or delta station."
+        )
         return markdown.markdown('\n'.join(parts))
 
+    # ── Summary ──────────────────────────────────────────────────────────────
     summary = data or {}
+    unit = summary.get('unit', '')
+    dataset = str(summary.get('dataset', '')).replace('_', ' ')
+    cv = summary.get('spatial_cv_pct', 0)
+    mean_val = summary.get('basin_mean')
+    median_val = summary.get('basin_median')
+    imp_pct = summary.get('avg_imputation_pct', 0)
+    trends = summary.get('trends', {})
+    highest = summary.get('highest_station', {})
+    lowest = summary.get('lowest_station', {})
+
     parts.append('## Basin Snapshot')
-    overview = [f'Basin summary statistics for **{feature_label}** across the selected dataset.']
-    if note:
-        overview.append(note)
-    overview.append(
-        f"{summary.get('active_stations', 0)} active station(s) contribute to a basin mean of {summary.get('basin_mean')} {summary.get('unit', '')} and spatial CV of {summary.get('spatial_cv_pct')}%."
+    overview = (
+        f"Basin-wide summary statistics for **{feature_label}** across the **{dataset}** dataset "
+        f"cover {summary.get('active_stations', 0)} active station(s) out of {summary.get('total_stations', 0)} total. "
+        f"The spatial basin mean is {mean_val} {unit} with a median of {median_val} {unit}, "
+        f"{'indicating a positively skewed distribution with some high-flow stations pulling the mean above the median' if mean_val and median_val and float(mean_val) > float(median_val) else 'suggesting a relatively symmetric or negatively skewed spatial distribution'}. "
+        f"The spatial coefficient of variation is {cv}%, which represents "
+        f"{'high spatial heterogeneity — the basin mean is a poor representative statistic and sub-regional analysis is recommended' if float(cv or 0) > 80 else 'moderate spatial heterogeneity — the basin average provides a useful but imprecise summary' if float(cv or 0) > 40 else 'low spatial heterogeneity — the basin mean is a reasonably stable summary for network-wide monitoring'}."
     )
-    parts.append(' '.join(overview))
+    if note:
+        overview += ' ' + note
+    parts.append(overview)
+
     parts.append('## Distribution Structure')
-    parts.append(f"- **Central tendency:** mean {summary.get('basin_mean')} {summary.get('unit')} and median {summary.get('basin_median')} {summary.get('unit')}.")
-    parts.append(f"- **Spread:** standard deviation {summary.get('basin_std')} {summary.get('unit')} across a range of {summary.get('basin_min')} to {summary.get('basin_max')} {summary.get('unit')}.")
-    parts.append(f"- **Percentiles:** P10 {summary.get('p10')}, P25 {summary.get('p25')}, P75 {summary.get('p75')}, P90 {summary.get('p90')} {summary.get('unit')}.")
-    parts.append(f"- **Data quality:** average imputation is {summary.get('avg_imputation_pct')}% across {summary.get('total_observations')} observations.")
+    parts.append(
+        f"- **Central tendency:** mean {mean_val} {unit}, median {median_val} {unit} — "
+        f"{'mean > median implies right-skewed distribution driven by a few very high-discharge stations' if mean_val and median_val and float(mean_val) > float(median_val) else 'mean ≈ median indicates an approximately symmetric spatial distribution'}."
+    )
+    parts.append(
+        f"- **Spread:** standard deviation {summary.get('basin_std')} {unit} across a full range of "
+        f"{summary.get('basin_min')} to {summary.get('basin_max')} {unit}; spatial CV of {cv}%."
+    )
+    parts.append(
+        f"- **Percentile bands:** P10 {summary.get('p10')}, P25 {summary.get('p25')}, P75 {summary.get('p75')}, P90 {summary.get('p90')} {unit} — "
+        f"the P10–P90 interquantile range spans {round(float(summary.get('p90') or 0) - float(summary.get('p10') or 0), 3)} {unit}, "
+        f"which characterises the typical within-basin station-to-station variability."
+    )
+    parts.append(
+        f"- **Data volume:** {summary.get('total_observations')} total observations across all stations."
+    )
+    parts.append(
+        f"- **Data quality:** average imputation rate is {imp_pct}% — "
+        f"{'low imputation suggests high raw data integrity' if float(imp_pct or 0) < 5 else 'moderate imputation; verify imputed segments do not bias trend or extremes analysis' if float(imp_pct or 0) < 20 else 'high imputation rate; interpret summary statistics with caution as imputed values may smooth genuine variability'}."
+    )
+
     parts.append('## Station Extremes')
-    parts.append(f"- **Highest station:** {summary.get('highest_station', {}).get('name')} at {summary.get('highest_station', {}).get('mean')} {summary.get('unit')}.")
-    parts.append(f"- **Lowest station:** {summary.get('lowest_station', {}).get('name')} at {summary.get('lowest_station', {}).get('mean')} {summary.get('unit')}.")
-    if summary.get('trends_computed'):
-        trends = summary.get('trends', {})
-        parts.append(f"- **Trend mix:** rising {trends.get('rising', 0)}, stable {trends.get('stable', 0)}, falling {trends.get('falling', 0)}.")
-    parts.append('- **Interpretation:** wide separation between upper and lower stations suggests strong spatial heterogeneity within the basin.')
+    if highest:
+        parts.append(
+            f"- **Highest station:** {highest.get('name')} with mean {highest.get('mean')} {unit} — "
+            "likely a high-elevation, high-precipitation catchment or a large mainstem station integrating significant upstream drainage area."
+        )
+    if lowest:
+        parts.append(
+            f"- **Lowest station:** {lowest.get('name')} with mean {lowest.get('mean')} {unit} — "
+            "likely a small headwater, arid sub-catchment, or tributary with limited drainage area."
+        )
+    if summary.get('trends_computed') and trends:
+        dominant = max(trends, key=trends.get)
+        parts.append(
+            f"- **Trend mix:** {trends.get('rising', 0)} rising, {trends.get('stable', 0)} stable, {trends.get('falling', 0)} falling — "
+            f"a dominant **{dominant}** trend across the network suggests "
+            f"{'possible increasing discharge driven by climate change, land-use intensification, or glacial melt contributions' if dominant == 'rising' else 'possible streamflow decline linked to increased evapotranspiration, reduced precipitation, or upstream water abstraction' if dominant == 'falling' else 'general stationarity in the observed period'}."
+        )
+    if highest and lowest and highest.get('mean') and lowest.get('mean'):
+        try:
+            ratio = float(highest['mean']) / max(float(lowest['mean']), 1e-9)
+            parts.append(
+                f"- **Spatial contrast:** the ratio of highest to lowest station mean is {ratio:.1f}×, "
+                f"{'indicating extreme within-basin heterogeneity' if ratio > 100 else 'indicating substantial spatial variability' if ratio > 10 else 'indicating moderate spatial variability'}."
+            )
+        except Exception:
+            pass
+
     parts.append('## Operational Implications')
-    parts.append('- **Network planning:** the distribution spread indicates whether basin management should rely on regional subgroups rather than one basin-average narrative.')
-    parts.append('- **Benchmarking:** percentile bands provide a useful baseline for flagging unusually high or low stations in follow-up diagnostics.')
-    parts.append('- **Decision use:** combine summary statistics with station-level anomalies before making operational statements.')
+    parts.append(
+        "- **Network planning:** a high spatial CV indicates that a single basin-average statistic is insufficient for operational decisions; "
+        "sub-regional groupings or individual station-level analysis should complement basin-wide summaries."
+    )
+    parts.append(
+        "- **Baseline benchmarking:** the P10–P90 percentile band provides a data-driven basis for flagging anomalously high or low station means "
+        "in follow-up diagnostics or real-time monitoring dashboards."
+    )
+    parts.append(
+        "- **Decision confidence:** combine summary statistics with station-level anomaly leaderboard and correlation matrix findings before making operational statements about basin-wide conditions."
+    )
     return markdown.markdown('\n'.join(parts))
 
 

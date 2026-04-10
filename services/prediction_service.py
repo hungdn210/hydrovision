@@ -969,22 +969,80 @@ class PredictionService:
             f'<p><strong>Executive Summary</strong></p>'
             f'<p>The {horizon}-{period_label} forecast for <strong>{feature.replace("_", " ")}</strong> '
             f'at <strong>{station.replace("_", " ")}</strong> projects a <strong>{direction}</strong> '
-            f'trajectory of {pct_change:+.1f}% — from {last_actual:.2f} to {last_forecast:.2f} {unit}. '
-            f'The end-of-horizon value is {hist_context}.</p>'
-            f'<p><strong>Forecast Insights</strong></p>'
-            f'<ul>'
-            f'<li><strong>Trajectory &amp; Magnitude:</strong> Values move from {last_actual:.2f} → '
-            f'{last_forecast:.2f} {unit} ({pct_change:+.1f}%) over {horizon} {period_label}(s). '
-            f'First forecast step: {first_forecast:.2f} {unit}.</li>'
-            f'<li><strong>Historical Comparison:</strong> The end-of-horizon value ({last_forecast:.2f} {unit}) '
-            f'is {hist_context}. Historical record: '
-            f'mean {hist_mean:.2f}, σ {hist_std:.2f}, range {hist_min:.2f}–{hist_max:.2f} {unit}.</li>'
-            f'<li><strong>Volatility &amp; Range:</strong> {volatility_note}</li>'
-            f'<li><strong>Model Confidence:</strong> {conf_note}</li>'
-            f'<li><strong>Data Quality Note:</strong> This forecast is generated from a statistical or '
-            f'ML model trained on historical observations. It does not account for sudden basin interventions, '
-            f'extreme events outside the training range, or real-time observational updates.</li>'
-            f'</ul>'
+            f'trajectory of {pct_change:+.1f}%, moving from {last_actual:.2f} {unit} to {last_forecast:.2f} {unit} '
+            f'by the end of the horizon. The end-of-horizon value is {hist_context}. '
+            f'Forecast confidence is <strong>{conf_label}</strong> based on historical backtesting '
+            f'(RMSE {rmse_str}, MAPE {mape_str}). '
+            f'{volatility_note}</p>'
+
+            f'<p><strong>Trajectory and Magnitude</strong></p>'
+            f'<p>The forecast moves from the last observed value of {last_actual:.2f} {unit} '
+            f'to {last_forecast:.2f} {unit} at the end of the {horizon}-{period_label} horizon, '
+            f'representing a {pct_change:+.1f}% change. '
+            f'The first forecast step is {first_forecast:.2f} {unit}, '
+            + (f'indicating an {"immediate rise" if first_forecast > last_actual else "immediate decline"} from the current observed level. '
+               if abs(first_forecast - last_actual) > 0.01 * abs(last_actual) else
+               'indicating near-continuity from the current observed level. ')
+            + f'The rate of change averages {abs(last_forecast - last_actual) / max(horizon, 1):.3f} {unit} per {period_label} across the forecast window. '
+            f'Peak forecast value within the horizon is {forecast_max:.2f} {unit} and the minimum is {forecast_min:.2f} {unit}.</p>'
+
+            f'<p><strong>Historical Comparison</strong></p>'
+            f'<p>The end-of-horizon forecast value of {last_forecast:.2f} {unit} is {hist_context}. '
+            f'For reference, the full historical record spans {hist_min:.2f}–{hist_max:.2f} {unit} '
+            f'with a mean of {hist_mean:.2f} {unit} and standard deviation of {hist_std:.2f} {unit}. '
+            + (f'The forecast end-value is {abs(last_forecast - hist_mean) / hist_std:.1f} standard deviations from the historical mean, '
+               + ('placing it in an unusual range that warrants additional scrutiny. '
+                  if abs(last_forecast - hist_mean) / hist_std > 2 else
+                  'within the normal range of historical variability. ')
+               if hist_std > 0 else '')
+            + f'The forecast range ({forecast_min:.2f}–{forecast_max:.2f} {unit}) covers {range_pct_of_hist:.0f}% of the full historical range, '
+            + ('suggesting high within-period variability — the forecast is not flat and conditions are expected to change significantly during the horizon. '
+               if range_pct_of_hist > 60 else
+               'suggesting moderate variability within the forecast period. '
+               if range_pct_of_hist > 25 else
+               'suggesting relatively stable conditions throughout the forecast period. ')
+            + '</p>'
+
+            f'<p><strong>Model Confidence and Uncertainty</strong></p>'
+            f'<p>{conf_note} '
+            f'The residual standard deviation of ±{residual_std:.3f} {unit} from backtesting provides a practical uncertainty estimate: '
+            f'approximately 68% of actual future values should fall within ±{residual_std:.3f} {unit} of the forecast line, '
+            f'and approximately 95% within ±{2*residual_std:.3f} {unit}, assuming the model error distribution is approximately normal and stationary. '
+            + ('With a MAPE below 10%, this model demonstrates strong historical accuracy and its forecasts can be used with reasonable operational confidence. '
+               if conf_label == 'high' else
+               'With a MAPE between 10–20%, this model shows moderate accuracy — treat the forecast as a directional guide rather than a precise prediction. '
+               if conf_label == 'moderate' else
+               'With a MAPE above 20%, this model shows weaker accuracy on this station–feature combination. '
+               'Use the forecast for general directional guidance only and monitor against real-time observations closely. '
+               if conf_label == 'low' else
+               'Model confidence could not be assessed from available backtesting data. ')
+            + '</p>'
+
+            f'<p><strong>Seasonal and Climatological Context</strong></p>'
+            f'<p>The forecast covers {horizon} {period_label}(s) ahead. '
+            'Comparing each forecast step to the historical monthly climatological normal for that calendar period reveals whether the model is projecting above- or below-normal conditions. '
+            'Significant positive deviations from climatology may indicate an anomalous wet period, upstream release event, or lagged monsoon response. '
+            'Significant negative deviations may indicate drought conditions, reduced upstream inflow, or seasonal dry-season onset ahead of schedule. '
+            'The monthly climatological context should be inspected in the chart alongside the numerical forecast values.</p>'
+
+            f'<p><strong>Operational Risk Assessment</strong></p>'
+            '<ul>'
+            + (f'<li><strong>High-flow risk:</strong> The forecast maximum of {forecast_max:.2f} {unit} '
+               + (f'approaches or exceeds the historical 90th percentile — elevated flood preparedness is recommended. '
+                  if forecast_max > hist_mean + 1.28 * hist_std else
+                  'is within the normal historical range. ')
+               + '</li>'
+               if hist_std > 0 else '')
+            + (f'<li><strong>Low-flow risk:</strong> The forecast minimum of {forecast_min:.2f} {unit} '
+               + (f'falls near or below the historical 10th percentile — water scarcity and ecological minimum-flow conditions should be monitored. '
+                  if forecast_min < hist_mean - 1.28 * hist_std else
+                  'remains within the normal historical range. ')
+               + '</li>'
+               if hist_std > 0 else '')
+            + f'<li><strong>Data quality and limitations:</strong> This forecast is generated from a pre-trained ML or statistical model based on historical observations. '
+            f'It does not account for real-time basin interventions (dam releases, diversions), extreme events outside the training distribution, '
+            f'or sudden shifts in catchment behaviour. Always cross-reference with real-time gauge readings and operational advisories before high-stakes decisions.</li>'
+            '</ul>'
         )
 
         api_key = os.environ.get('GEMINI_API_KEY')
@@ -993,27 +1051,41 @@ class PredictionService:
 
         try:
             prompt = (
-                'Act as a professional hydrologist and water resource specialist. '
-                'Analyze the forecast results and provide a comprehensive, data-driven report.\n\n'
+                'Act as a professional hydrologist and water resource specialist writing a detailed technical forecast report.\n\n'
                 'RESPONSE FORMAT (STRICT):\n'
-                'Start with exactly this structure:\n\n'
+                'Use exactly these sections:\n\n'
                 '**Executive Summary**\n'
-                '[2-3 sentences overview of the forecast outlook and key implications]\n\n'
-                '**Forecast Insights**\n\n'
-                '- **Trajectory & Magnitude**: [Direction of change, percentage change, rate per period, and what this means for the variable]\n'
-                '- **Historical Comparison**: [How forecast values rank against historical min/mean/max; cite percentiles if significant]\n'
-                '- **Volatility & Range**: [Expected variability, widest swings, and what conditions trigger high/low values]\n'
-                '- **Model Confidence**: [Interpret RMSE and MAPE; assess forecast reliability and uncertainty margins]\n'
-                '- **Seasonal & Climatic Context**: [Compare forecast months to historical monthly normals; cite specific deviations and months]\n'
-                '- **Operational Risk Assessment**: [Flood/drought risk, water availability, irrigation implications, or ecosystem effects]\n'
-                '- **Data Quality Notes**: [Limitations of the model, assumptions, or factors not captured in the forecast]\n\n'
+                '4-5 sentences. State the forecast direction and total magnitude of change, where the end-of-horizon value sits relative to the historical distribution, '
+                'the model confidence level (RMSE and MAPE), the forecast volatility, and the primary operational implication.\n\n'
+                '**Trajectory and Magnitude**\n'
+                'A paragraph (4-5 sentences). Describe the full trajectory: starting value, first step, end value, rate of change per period, peak and trough within the horizon. '
+                'Interpret whether the change is gradual or rapid. State what this trajectory implies for the hydrological variable (rising limb, recession, plateau).\n\n'
+                '**Historical Comparison**\n'
+                'A paragraph (4-5 sentences). Compare forecast values against the full historical record statistics (mean, std, min, max). '
+                'Express the end-of-horizon value in terms of standard deviations from the mean or historical percentile rank. '
+                'State whether the forecast represents normal, above-normal, or below-normal conditions and what this implies operationally.\n\n'
+                '**Model Confidence and Uncertainty**\n'
+                'A paragraph (4-5 sentences). Interpret RMSE and MAPE in detail — classify confidence as high/moderate/low with justification. '
+                'Derive practical uncertainty bounds from the residual standard deviation (±1σ = 68%, ±2σ = 95%). '
+                'Discuss factors that could cause actual values to deviate more than the model error suggests.\n\n'
+                '**Seasonal and Climatic Context**\n'
+                'A paragraph (3-4 sentences). Compare each forecast step to the historical monthly climatological normal using the provided context. '
+                'Identify which months are projected above or below normal and by how much. '
+                'Discuss plausible climate drivers (monsoon phase, ENSO, seasonal transition) that may explain deviations.\n\n'
+                '**Operational Risk Assessment**\n'
+                'Exactly 3 bullet points:\n'
+                '- **High-flow risk:** assess flood or high-water risk based on forecast maximum vs. historical distribution.\n'
+                '- **Low-flow risk:** assess drought or water scarcity risk based on forecast minimum vs. historical distribution.\n'
+                '- **Decision recommendations:** state specific operational actions this forecast should trigger (reservoir management, irrigation scheduling, flood alerts, ecological minimum-flow monitoring).\n\n'
+                '**Data Quality and Limitations**\n'
+                'Exactly 3 bullet points covering: model training assumptions, factors not captured (real-time interventions, extreme events outside training range), '
+                'and recommended cross-checks with real-time observations.\n\n'
                 'RULES:\n'
-                '• Use ONLY bullet points (prefix each with "-" and bold the heading)\n'
-                '• Replace underscores with spaces in names\n'
-                '• Cite actual numbers from the data\n'
+                '• Use professional hydrological language throughout\n'
+                '• Replace underscores with spaces in all names\n'
+                '• Cite actual numbers from the data in every section\n'
                 '• No introductions, sign-offs, apologies, or code blocks\n'
-                '• Be specific: avoid vague terms like "moderate" or "notable"\n'
-                '• Each bullet should be 1-2 sentences of focused analysis\n\n'
+                '• Be specific — avoid vague qualifiers without numeric support\n\n'
                 f'Station: {station.replace("_", " ")}\n'
                 f'Feature: {feature.replace("_", " ")} ({unit})\n'
                 f'Horizon: {horizon} {period_label}(s)\n'

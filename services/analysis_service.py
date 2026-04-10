@@ -17,12 +17,12 @@ from .data_loader import DataRepository, SeriesRequest
 
 MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-# Models tried in order; if one returns 429 the next is used automatically.
+# Models tried in order; if one fails the next is used automatically.
 _GEMINI_MODELS = [
-    'gemini-3.1-flash-lite-preview',  # 500 RPD — highest free quota
-    'gemini-2.5-flash',               # 20 RPD  — fallback
-    'gemini-3-flash-preview',         # 20 RPD  — fallback
-    'gemini-2.5-flash-lite',          # 20 RPD  — last resort
+    'gemini-2.0-flash',               # primary — high quota
+    'gemini-2.0-flash-lite',          # fallback — lighter
+    'gemini-1.5-flash',               # fallback — stable
+    'gemini-1.5-flash-8b',            # last resort — smallest
 ]
 
 _CACHE_PATH = (
@@ -51,7 +51,10 @@ def _load_ai_cache() -> Dict[str, str]:
 def _save_ai_cache(cache: Dict[str, str]) -> None:
     try:
         _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _CACHE_PATH.write_text(json.dumps(cache, ensure_ascii=True, indent=2), encoding='utf-8')
+        # Atomic write: write to temp file then rename to prevent corruption
+        tmp = _CACHE_PATH.with_suffix('.tmp')
+        tmp.write_text(json.dumps(cache, ensure_ascii=True, indent=2), encoding='utf-8')
+        tmp.replace(_CACHE_PATH)
     except Exception:
         pass
 
@@ -73,7 +76,7 @@ def _normalise_md(text: str) -> str:
 
 
 def _gemini_generate(api_key: str, prompt: str) -> str:
-    """Call Gemini with automatic model fallback on 429 RESOURCE_EXHAUSTED."""
+    """Call Gemini with automatic model fallback on any per-model error."""
     from google import genai
     cache_key = _cache_key(api_key, prompt)
     if cache_key in _AI_RESPONSE_CACHE:
@@ -88,12 +91,12 @@ def _gemini_generate(api_key: str, prompt: str) -> str:
             _save_ai_cache(_AI_RESPONSE_CACHE)
             return text
         except Exception as e:
+            last_exc = e
             msg = str(e)
+            # Back off slightly on quota errors; still try next model regardless
             if '429' in msg or 'RESOURCE_EXHAUSTED' in msg:
-                last_exc = e
                 time.sleep(0.6)
-                continue  # try next model
-            raise  # non-quota error — surface immediately
+            continue  # always try the next model
     raise last_exc  # all models exhausted
 
 

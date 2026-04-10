@@ -31,24 +31,99 @@ def _fallback_risk_analysis(result: Dict[str, Any]) -> str:
     flood_pct = (flood + flood_watch) / total * 100
     drought_pct = (drought + severe_drought) / total * 100
     at_risk_pct = at_risk / total * 100
+    normal_pct = normal / total * 100
     feature = str(result.get('feature', '')).replace('_', ' ')
     dataset = str(result.get('dataset', '')).replace('_', ' ')
     lookback = result.get('lookback')
+    mode = result.get('percentile_mode', 'seasonal')
+    mode_label = 'seasonal calendar-month' if mode == 'seasonal' else 'full-record'
 
-    return (
-        '<p><strong>Executive Summary</strong></p>'
-        f'<p>The flood and drought screening for <strong>{feature}</strong> across the <strong>{dataset}</strong> dataset '
-        f'used a {lookback}-point recent window and classified {result.get("n_stations")} stations against their own historical percentiles. '
-        f'Overall, {at_risk} stations ({at_risk_pct:.1f}%) are outside the normal band, with '
-        f'{flood + flood_watch} in elevated flood conditions and {drought + severe_drought} in drought conditions.</p>'
-        '<p><strong>Detailed Insights</strong></p>'
-        '<ul>'
-        f'<li><strong>Risk Balance:</strong> {normal} of {result.get("n_stations")} stations remain normal, while {at_risk} are flagged as hydrologically stressed.</li>'
-        f'<li><strong>Flood Signal:</strong> {flood} stations are in Flood Risk and {flood_watch} are in Flood Watch, representing {flood_pct:.1f}% of the monitored network.</li>'
-        f'<li><strong>Drought Signal:</strong> {severe_drought} stations are in Severe Drought and {drought} are in Drought, representing {drought_pct:.1f}% of the monitored network.</li>'
-        '<li><strong>Operational Interpretation:</strong> Use the map as a basin-screening layer to prioritise station follow-up, but confirm any operational action with station hydrographs and local catchment context.</li>'
-        '</ul>'
+    # Determine dominant signal
+    if flood_pct > drought_pct and flood_pct > 20:
+        dominant_signal = 'flood-biased'
+        signal_note = 'indicating above-normal hydrological conditions across a significant portion of the basin'
+    elif drought_pct > flood_pct and drought_pct > 20:
+        dominant_signal = 'drought-biased'
+        signal_note = 'pointing to widespread below-normal moisture deficits across the monitored network'
+    elif at_risk_pct < 15:
+        dominant_signal = 'near-normal'
+        signal_note = 'suggesting the basin is currently experiencing relatively stable hydrological conditions'
+    else:
+        dominant_signal = 'mixed'
+        signal_note = 'reflecting spatially heterogeneous forcing with no single dominant direction'
+
+    parts = []
+    parts.append(
+        f'<p><strong>Executive Summary</strong></p>'
+        f'<p>The flood and drought risk screening for <strong>{feature}</strong> across the <strong>{dataset}</strong> dataset '
+        f'classified {total} stations against their own historical {mode_label} percentile distributions using a {lookback}-point recent window. '
+        f'The basin currently presents a <strong>{dominant_signal}</strong> signal, {signal_note}. '
+        f'Overall, {at_risk} stations ({at_risk_pct:.1f}%) are classified outside the normal band: '
+        f'{flood + flood_watch} are in elevated flood conditions ({flood_pct:.1f}%) and {drought + severe_drought} are in drought conditions ({drought_pct:.1f}%). '
+        f'The remaining {normal} stations ({normal_pct:.1f}%) fall within the P20–P80 normal range, indicating no immediate operational concern for those locations.</p>'
     )
+
+    parts.append('<p><strong>Risk Classification Breakdown</strong></p><ul>')
+    parts.append(
+        f'<li>Flood Risk (&gt;P95): {flood} station(s) — these are experiencing values exceeding the 95th percentile of historical observations, '
+        f'a threshold associated with high-flow events that may require immediate hydrological attention.</li>'
+    )
+    parts.append(
+        f'<li>Flood Watch (P80–P95): {flood_watch} station(s) — elevated but sub-critical conditions; '
+        f'continued monitoring is recommended, as conditions could escalate during prolonged precipitation events.</li>'
+    )
+    parts.append(
+        f'<li>Normal (P20–P80): {normal} station(s) — values within the expected seasonal range for the current period; '
+        f'no immediate hydrological stress is indicated at these locations.</li>'
+    )
+    parts.append(
+        f'<li>Drought (P5–P20): {drought} station(s) — below-normal conditions that may indicate reduced groundwater recharge, '
+        f'lower baseflow contributions, or declining soil moisture reserves.</li>'
+    )
+    parts.append(
+        f'<li>Severe Drought (&lt;P5): {severe_drought} station(s) — critically low values in the lowest 5th percentile of the historical record, '
+        f'consistent with severe water deficit conditions requiring priority management attention.</li>'
+    )
+    parts.append('</ul>')
+
+    parts.append('<p><strong>Threshold Methodology</strong></p><ul>')
+    if mode == 'seasonal':
+        parts.append(
+            '<li>Seasonal percentile mode: thresholds are computed from the same calendar-month subset of the historical record for each station. '
+            'This removes the confounding effect of the seasonal discharge cycle, so a normal wet-season value does not erroneously appear as Flood Watch when compared to the full-year distribution. '
+            'This approach aligns with WMO flood early-warning operational guidelines.</li>'
+        )
+    else:
+        parts.append(
+            '<li>Full-record percentile mode: thresholds are derived from the complete historical record without seasonal stratification. '
+            'This can cause seasonal bias — wet-season values may appear elevated relative to the full-year distribution even when conditions are normal for that time of year.</li>'
+        )
+    parts.append(
+        f'<li>Lookback window: the most recent {lookback} data points are averaged to represent current conditions, '
+        'smoothing out short-term noise while preserving medium-term hydrological signals.</li>'
+    )
+    parts.append(
+        '<li>Classification boundaries: the five-tier system (Severe Drought / Drought / Normal / Flood Watch / Flood Risk) '
+        'uses P5, P20, P80, and P95 breakpoints, which are standard operational thresholds in hydrological monitoring practice.</li>'
+    )
+    parts.append('</ul>')
+
+    parts.append('<p><strong>Operational Relevance</strong></p><ul>')
+    parts.append(
+        '<li>Basin triage: use the map as a rapid screening layer to identify priority stations for follow-up analysis. '
+        'Stations in Flood Risk or Severe Drought categories should be reviewed first against their full hydrographs before any operational decisions are made.</li>'
+    )
+    parts.append(
+        '<li>Contextual confirmation: risk classification is statistical, not causal. '
+        'Confirm any alert-level station with local catchment context, recent rainfall records, and reservoir operations data before escalating to water management authorities.</li>'
+    )
+    parts.append(
+        '<li>Temporal limitation: this screening reflects conditions at the time of computation based on the available record window. '
+        'Re-running the analysis after new data ingestion is recommended during active weather events or prolonged dry spells.</li>'
+    )
+    parts.append('</ul>')
+
+    return ''.join(parts)
 
 
 def _generate_risk_analysis(result: Dict[str, Any]) -> str:
@@ -57,29 +132,45 @@ def _generate_risk_analysis(result: Dict[str, Any]) -> str:
         return _fallback_risk_analysis(result)
     try:
         summary = result.get('summary', {})
-        prompt = f"""Act as a professional hydrologist interpreting a basin risk-screening map.
-Write the response in markdown and structure it exactly as follows:
+        total = max(int(result.get('n_stations') or 0), 1)
+        flood = int(summary.get('flood', 0))
+        flood_watch = int(summary.get('flood_watch', 0))
+        normal = int(summary.get('normal', 0))
+        drought = int(summary.get('drought', 0))
+        severe_drought = int(summary.get('severe_drought', 0))
+        flood_pct = (flood + flood_watch) / total * 100
+        drought_pct = (drought + severe_drought) / total * 100
+        prompt = f"""Act as a professional hydrologist interpreting a basin-wide flood and drought risk-screening map.
+Write the response in markdown and structure it exactly as follows — no text outside these headings:
 
-**Executive Summary**
-2-3 sentences summarising the overall flood-versus-drought balance, how many stations are outside normal conditions, and what that means operationally.
+## Executive Summary
+Write 4–5 sentences. State the dominant signal (flood-biased / drought-biased / mixed / near-normal), cite the percentage of at-risk stations, characterise the severity tier breakdown, interpret what this pattern means for basin water availability, and note one key limitation the user should be aware of.
 
-**Detailed Insights**
-- **Risk Balance:** quantify the split between normal and at-risk stations.
-- **Flood Conditions:** interpret the counts in Flood Watch and Flood Risk.
-- **Drought Conditions:** interpret the counts in Drought and Severe Drought.
-- **Operational Interpretation:** state how water managers should use this map in practice.
+## Risk Classification Breakdown
+Exactly 5 bullet points — one per risk tier (Flood Risk, Flood Watch, Normal, Drought, Severe Drought). For each: cite the station count and percentage, interpret the hydrological meaning, and state whether this represents an operationally significant signal.
+
+## Spatial Risk Pattern
+Exactly 4 bullet points interpreting spatial coherence: are at-risk stations concentrated in one sub-region or scattered basin-wide? What does clustering imply about forcing mechanisms (e.g., monsoon, ENSO, regulation)? Note any asymmetry between the flood and drought signals spatially.
+
+## Threshold Methodology
+Exactly 3 bullet points explaining: (1) how the seasonal/full-record percentile thresholds work, (2) why P5/P20/P80/P95 boundaries were chosen, (3) what the lookback window represents and its effect on the classification.
+
+## Operational Relevance
+Exactly 3 bullet points: (1) how water managers should prioritise stations based on tier, (2) what confirmatory steps are needed before operational action, (3) one important caveat about statistical risk classification versus causal diagnosis.
 
 Rules:
-- Use professional hydrological language.
-- Always cite specific numbers from the provided results.
-- Replace underscores with spaces.
-- Do not include any introduction or sign-off outside the two sections.
+- Use professional hydrological language throughout.
+- Always cite specific numbers, counts, and percentages from the provided data.
+- Replace all underscores with spaces.
+- No introductory text before the first heading; no conclusion after the last bullet.
 
 Feature: {str(result.get('feature', '')).replace('_', ' ')}
 Dataset: {str(result.get('dataset', '')).replace('_', ' ')}
 Lookback: {result.get('lookback')} data points
-Station risk summary: {summary}
-Total stations: {result.get('n_stations')}
+Percentile mode: {result.get('percentile_mode', 'seasonal')}
+Total stations: {total}
+Flood Risk: {flood} ({flood_pct:.1f}%), Flood Watch: {flood_watch}, Normal: {normal}, Drought: {drought}, Severe Drought: {severe_drought} ({drought_pct:.1f}%)
+Full summary: {summary}
 """
         return markdown.markdown(_gemini_generate(api_key, prompt))
     except Exception:

@@ -25,16 +25,59 @@ def _fallback_wavelet_analysis(result: Dict[str, Any]) -> str:
     title = str(result.get('title', '')).replace('_', ' ')
     dom = s.get('dominant_periods_months') or []
     dom_text = ', '.join(str(p) for p in dom) if dom else 'none identified'
+    n_months = s.get('n_months', '?')
+    period_range = s.get('period_range_months', '?')
+    wavelet = s.get('wavelet', 'Morlet')
+
+    annual_note = ''
+    enso_note = ''
+    if dom:
+        annual_match = [p for p in dom if 10 <= p <= 14]
+        enso_match = [p for p in dom if 24 <= p <= 72]
+        if annual_match:
+            annual_note = (
+                f' A dominant period near {annual_match[0]} months aligns closely with the annual monsoon-driven flood–drought cycle, '
+                'confirming that seasonal forcing is the primary control on discharge variability at this station.'
+            )
+        if enso_match:
+            enso_note = (
+                f' A secondary concentration of power near {enso_match[0]} months falls within the canonical ENSO band (24–72 months), '
+                'suggesting that inter-annual sea-surface temperature anomalies modulate inter-annual discharge variability at this site.'
+            )
+
     return (
         '<p><strong>Executive Summary</strong></p>'
-        f'<p>The wavelet analysis for <strong>{title}</strong> examines how periodic behaviour evolves through time over {s.get("n_months")} months. '
-        f'The strongest detected periodicities are {dom_text} months within an analysed range of {s.get("period_range_months")} months.</p>'
-        '<p><strong>Detailed Insights</strong></p>'
+        f'<p>The Continuous Wavelet Transform (CWT) analysis for <strong>{title}</strong> decomposes {n_months} months of discharge into a time–frequency representation '
+        f'spanning periods of {period_range} months, using the complex {wavelet} wavelet. '
+        f'The strongest detected periodicities are at {dom_text} months.'
+        f'{annual_note}{enso_note} '
+        'The scalogram reveals whether these oscillatory modes are stationary across the record or episodic — information that a conventional Fourier analysis cannot provide.</p>'
+
+        '<p><strong>Dominant Cycles</strong></p>'
+        f'<p>The global wavelet power spectrum identifies {dom_text} months as the leading periodicity bands. '
+        'High power concentrated in the 12-month band confirms the well-known monsoonal annual cycle. '
+        'Power concentrated at longer periods (24–72 months) points to inter-annual modulation likely driven by ENSO and related Indo-Pacific climate modes. '
+        'Power at very long periods (&gt;72 months) — if present — may reflect decadal variability associated with the Pacific Decadal Oscillation (PDO) or anthropogenic forcing, '
+        'though these estimates should be treated cautiously given the increasing cone-of-influence masking at large scales.</p>'
+
+        '<p><strong>Time-Frequency Structure</strong></p>'
+        '<p>The scalogram (period vs time heatmap) reveals whether identified periodicities are persistent throughout the record or intermittent. '
+        'Continuous horizontal bands indicate stationary, stable oscillations. Localised bright patches indicate episodic amplification — '
+        'for example, an intensification of the inter-annual band during known El Niño or La Niña events. '
+        'Regions outside the cone of influence are masked and should not be interpreted, as edge effects contaminate the CWT at large scales near the record boundaries.</p>'
+
+        '<p><strong>Hydrological Interpretation</strong></p>'
         '<ul>'
-        f'<li><strong>Dominant Cycles:</strong> The leading periodicities are {dom_text} months, indicating the main oscillatory scales in the series.</li>'
-        f'<li><strong>Scale Context:</strong> The analysis spans approximately {s.get("period_range_months")} months, allowing comparison between short seasonal cycles and longer inter-annual variability.</li>'
-        '<li><strong>Hydrological Interpretation:</strong> Periods near 12 months usually indicate annual monsoonal seasonality, while multi-year bands may reflect broader climate drivers such as ENSO-scale variability.</li>'
-        '<li><strong>Operational Interpretation:</strong> Use the dominant bands to inform monitoring windows, seasonal preparedness, and interpretation of whether the system is controlled mainly by annual or multi-year variability.</li>'
+        '<li><strong>Annual forcing:</strong> The 12-month cycle dominates most Mekong and tropical stations. Its amplitude in the scalogram indicates how consistently the monsoon delivers predictable seasonal flow.</li>'
+        '<li><strong>ENSO coupling:</strong> Periods between 24 and 60 months are the fingerprint of ENSO-driven inter-annual variability. Strong power in this band means wet and dry years at this station are partly predictable from Pacific SST indices months in advance.</li>'
+        '<li><strong>Non-stationarity:</strong> If the scalogram shows a change in dominant period or power level over time, this may reflect upstream regulation, land-use change, or a shift in large-scale climate forcing — warranting cross-reference with change-point analysis.</li>'
+        '</ul>'
+
+        '<p><strong>Operational Relevance</strong></p>'
+        '<ul>'
+        '<li><strong>Seasonal preparedness:</strong> The strength and stability of the 12-month band directly informs the reliability of seasonal forecasting based on climatological averages.</li>'
+        '<li><strong>Multi-year planning:</strong> Significant inter-annual power justifies using ENSO-phase information to condition reservoir operations, drought contingency plans, and irrigation scheduling 6–12 months ahead.</li>'
+        f'<li><strong>Record length context:</strong> With {n_months} months of data, the CWT can reliably resolve periodicities up to roughly {n_months // 3} months. Longer-period estimates beyond this threshold should be considered exploratory.</li>'
         '</ul>'
     )
 
@@ -45,23 +88,36 @@ def _generate_wavelet_analysis(result: Dict[str, Any]) -> str:
         return _fallback_wavelet_analysis(result)
     try:
         s = result.get('stats', {})
-        prompt = f"""Act as a professional hydrologist interpreting a wavelet power analysis.
+        prompt = f"""Act as a professional hydrologist writing a detailed technical interpretation of a Continuous Wavelet Transform (CWT) analysis.
 Write the response in markdown and structure it exactly as follows:
 
 **Executive Summary**
-2-3 sentences summarising the dominant periodicities and whether variability is concentrated at seasonal or multi-year scales.
+4-5 sentences. Summarise the dominant periodicities, whether variability is stationary or episodic across the record, which physical climate drivers likely explain the observed power bands, and the overall implication for discharge predictability at this station.
 
-**Detailed Insights**
-- **Dominant Cycles:** interpret the strongest reported periodicities.
-- **Scale Context:** explain what the analysed period range captures.
-- **Hydrological Interpretation:** relate the periodicities to plausible physical drivers such as monsoon or ENSO-scale variability.
-- **Operational Interpretation:** state how this information should be used in planning and monitoring.
+**Dominant Cycles**
+A paragraph (4-5 sentences) interpreting the reported dominant periods in detail. Discuss what each band physically represents (annual monsoon cycle, ENSO, PDO, decadal variability). Cite the specific period values. Note whether multiple bands coexist and what that implies about multi-scale forcing.
+
+**Time-Frequency Structure**
+A paragraph (3-4 sentences) interpreting whether the identified periodicities are persistent throughout the record or episodic. Discuss what intermittent power bursts imply (e.g. amplification during specific ENSO events or post-regulation changes). Comment on the reliability of large-scale estimates near the cone of influence boundary.
+
+**Hydrological Interpretation**
+Exactly 4 bullet points:
+- **Annual forcing:** interpret the 12-month band strength and what it means for monsoon predictability.
+- **Inter-annual variability:** interpret the ENSO-band power (24–60 months) and its implications for inter-annual discharge forecasting.
+- **Decadal signals:** interpret any longer-period power and its potential drivers (PDO, anthropogenic, regulation).
+- **Non-stationarity:** assess whether changes in the scalogram through time suggest regime change or shifting climate forcing.
+
+**Operational Relevance**
+Exactly 3 bullet points:
+- **Seasonal forecasting:** state how the annual band strength affects confidence in climatological seasonal forecasts.
+- **Multi-year planning:** state how inter-annual power should inform reservoir operations, drought preparedness, or irrigation scheduling.
+- **Record length and uncertainty:** comment on how the {s.get('n_months')}-month record constrains interpretable period ranges and what additional monitoring would improve confidence.
 
 Rules:
-- Use professional hydrological language.
+- Use professional hydrological language throughout.
 - Always cite specific numbers from the provided results.
 - Replace underscores with spaces.
-- Do not include any introduction or sign-off outside the two sections.
+- Do not include any introduction or sign-off outside the defined sections.
 
 Analysis title: {str(result.get('title', '')).replace('_', ' ')}
 Record length: {s.get('n_months')} months

@@ -501,9 +501,18 @@
                 els.seriesBuilder.querySelectorAll('.series-station').forEach(sel => {
                     if (sel.value) selectedStations.add(sel.value);
                 });
-                const allStations = state.bootstrap.station_names;
+                const datasetFilter = state.activeDatasetFilter;
+                const allStations = (state.bootstrap?.station_names || []).filter(stationName => {
+                    if (datasetFilter === 'all') return true;
+                    const meta = state.stationsByName.get(stationName);
+                    return meta && meta.dataset === datasetFilter;
+                });
                 const nextStation = allStations.find(s => !selectedStations.has(s));
                 if (!nextStation) {
+                    if (type === 'Cross-Correlation Function (CCF)') {
+                        addSeriesRow();
+                        return;
+                    }
                     showMessage(els.builderMessage, 'All stations are already selected.', 'error');
                     return;
                 }
@@ -851,14 +860,20 @@
         const mekongBounds = state.geojsonLayer.getBounds();
         if (mekongBounds.isValid()) state.map.fitBounds(mekongBounds.pad(0.15));
 
-        state.lamahGeojsonLayer = L.geoJSON(lamahGeojson, {
-            interactive: false,
-            style: {
-                weight: 0,
-                fillColor: '#f2bd41',
-                fillOpacity: 0.2,
-            },
-        }).addTo(state.map);
+        const lamahHasFeatures = (lamahGeojson?.features?.length ?? 0) > 0;
+        if (lamahHasFeatures) {
+            state.lamahGeojsonLayer = L.geoJSON(lamahGeojson, {
+                interactive: false,
+                style: {
+                    weight: 0,
+                    fillColor: '#f2bd41',
+                    fillOpacity: 0.2,
+                },
+            }).addTo(state.map);
+        } else {
+            // LamaH not deployed — hide the fly-to button
+            if (els.flyToLamaH) els.flyToLamaH.style.display = 'none';
+        }
     }
 
     async function buildDatasetPicker() {
@@ -913,6 +928,7 @@
                     // Also refresh feature-first station selects
                     const ffContainer = els.seriesBuilder.querySelector('.feature-first-container');
                     if (ffContainer) {
+                        syncFeatureFirstFeatureOptions(ffContainer, ffContainer.querySelector('.ff-feature-select')?.value);
                         const ffFeature = ffContainer.querySelector('.ff-feature-select')?.value;
                         ffContainer.querySelectorAll('.sr-station-select').forEach(sel => {
                             ffPopulateStationSelect(sel, ffFeature);
@@ -981,19 +997,7 @@
         els.featureFilterBar.innerHTML = '';
 
         // Show only features relevant to the active dataset
-        const ds = state.activeDatasetFilter;
-        const datasetFeatures = state.bootstrap.dataset_features || {};
-        const datasetCounts = state.bootstrap.dataset_feature_counts || {};
-
-        let relevantFeatures;
-        let countMap;
-        if (ds === 'all') {
-            relevantFeatures = state.bootstrap.features;
-            countMap = state.bootstrap.feature_counts;
-        } else {
-            relevantFeatures = datasetFeatures[ds] || [];
-            countMap = datasetCounts[ds] || {};
-        }
+        const { relevantFeatures, countMap } = getActiveDatasetFeatureContext();
 
         // If current filter no longer applies, reset to All
         if (state.activeFeatureFilter !== 'All' && !relevantFeatures.includes(state.activeFeatureFilter)) {
@@ -1016,13 +1020,38 @@
         });
     }
 
-    function buildDatasetFilterBar() {
+    function getActiveDatasetFeatureContext() {
+        const ds = state.activeDatasetFilter;
+        const datasetFeatures = state.bootstrap.dataset_features || {};
+        const datasetCounts = state.bootstrap.dataset_feature_counts || {};
+
+        if (ds === 'all') {
+            return {
+                relevantFeatures: state.bootstrap.features || [],
+                countMap: state.bootstrap.feature_counts || {},
+            };
+        }
+
+        return {
+            relevantFeatures: datasetFeatures[ds] || [],
+            countMap: datasetCounts[ds] || {},
+        };
+    }
+
+    async function buildDatasetFilterBar() {
         if (!els.datasetFilterBar) return;
         els.datasetFilterBar.innerHTML = '';
+        // Fetch available datasets from server so bar reflects actual deployment
+        let availableKeys = ['mekong', 'lamah'];
+        try {
+            const res = await fetch('/api/datasets');
+            const names = await res.json();
+            availableKeys = names.map(n => n.toLowerCase());
+        } catch (_) {}
+        const labelMap = { mekong: 'Mekong', lamah: 'LamaH-CE' };
         const datasets = [
             { key: 'all', label: 'All datasets' },
-            { key: 'mekong', label: 'Mekong' },
-            { key: 'lamah', label: 'LamaH-CE' },
+            ...availableKeys.map(k => ({ key: k, label: labelMap[k] ?? k })),
         ];
         datasets.forEach(({ key, label }) => {
             const btn = document.createElement('button');
@@ -1362,7 +1391,13 @@
         
         stationSelect.addEventListener('change', () => {
             const info = graphInfoData[els.graphTypeSelect.value];
-            if (info && info.allowMultiRow && !info.isFeatureFirst && !stationSelect.multiple) {
+            const preventDuplicateStations =
+                info &&
+                info.allowMultiRow &&
+                !info.isFeatureFirst &&
+                !stationSelect.multiple &&
+                els.graphTypeSelect.value !== 'Cross-Correlation Function (CCF)';
+            if (preventDuplicateStations) {
                 // Prevent duplicate station selection across rows
                 const currentVal = stationSelect.value;
                 const rows = Array.from(els.seriesBuilder.querySelectorAll('.series-row'));
@@ -2231,13 +2266,7 @@
         const featureSelect = fragment.querySelector('.ff-feature-select');
         const addBtn = fragment.querySelector('.ff-add-station-btn');
 
-        // Populate feature dropdown with all features
-        state.bootstrap.features.forEach(feature => {
-            const option = document.createElement('option');
-            option.value = feature;
-            option.textContent = prettyFeature(feature);
-            featureSelect.appendChild(option);
-        });
+        syncFeatureFirstFeatureOptions(container);
 
         featureSelect.addEventListener('change', () => {
             // When feature changes, reset to a single station row
@@ -2275,6 +2304,27 @@
         // Add one default station row
         const insertedContainer = els.seriesBuilder.querySelector('.feature-first-container');
         ffAddStationRow(insertedContainer, insertedContainer.querySelector('.ff-feature-select').value);
+    }
+
+    function syncFeatureFirstFeatureOptions(container, selectedFeature) {
+        const featureSelect = container.querySelector('.ff-feature-select');
+        if (!featureSelect) return;
+
+        const { relevantFeatures } = getActiveDatasetFeatureContext();
+        const previousValue = selectedFeature || featureSelect.value;
+
+        featureSelect.innerHTML = '';
+        relevantFeatures.forEach(feature => {
+            const option = document.createElement('option');
+            option.value = feature;
+            option.textContent = prettyFeature(feature);
+            if (feature === previousValue) option.selected = true;
+            featureSelect.appendChild(option);
+        });
+
+        if (!featureSelect.value && relevantFeatures.length > 0) {
+            featureSelect.value = relevantFeatures[0];
+        }
     }
 
     function ffShowNotification(container, message) {
@@ -4118,6 +4168,14 @@
         if (!els.networkWorkspace) return;
         const section = document.createElement('div');
         section.className = 'network-section';
+        const formatOverlapMonths = (row) => {
+            const count = Number(row?.overlap_count || 0);
+            const unit = row?.overlap_unit || '';
+            if (!count) return '—';
+            if (unit === 'months') return `${count} months`;
+            if (unit === 'days') return `${(count / 30.44).toFixed(1)} months`;
+            return `${count}`;
+        };
 
         const heading = document.createElement('h4');
         heading.className = 'network-section-title';
@@ -4126,7 +4184,7 @@
 
         const caveat = document.createElement('p');
         caveat.className = 'network-caveat-text';
-        caveat.textContent = 'Lag at peak cross-correlation of monthly discharge series between consecutive main-stem pairs. Monthly resolution means 1 lag ≈ 30 days.';
+        caveat.textContent = 'Lag at peak cross-correlation of discharge series between consecutive main-stem pairs, recalculated and reported in days. This remains an empirical proxy rather than a hydraulic routing estimate.';
         section.appendChild(caveat);
 
         if (!rows || rows.length === 0) {
@@ -4144,7 +4202,7 @@
             <thead><tr>
                 <th>Upstream station</th>
                 <th>Downstream station</th>
-                <th>Lag (months)</th>
+                <th>Lag (days)</th>
                 <th>Correlation</th>
                 <th>Overlap (months)</th>
             </tr></thead>`;
@@ -4155,9 +4213,9 @@
             tr.innerHTML = `
                 <td>${r.upstream_name.replace(/_/g, ' ')}</td>
                 <td>${r.downstream_name.replace(/_/g, ' ')}</td>
-                <td><strong>${r.lag_months}</strong></td>
+                <td><strong>${r.lag_days ?? '—'}</strong></td>
                 <td class="${corrClass}">${r.correlation.toFixed(3)}</td>
-                <td>${r.overlap_months}</td>`;
+                <td>${formatOverlapMonths(r)}</td>`;
             tbody.appendChild(tr);
         });
         table.appendChild(tbody);
@@ -4179,55 +4237,90 @@
         const result = data.result;
 
         const section = document.createElement('div');
-        section.className = 'network-section';
+        section.className = 'network-section contrib-section';
 
-        const heading = document.createElement('h4');
-        heading.className = 'network-section-title';
-        heading.textContent = `Upstream Discharge Contributions → ${result.target_name.replace(/_/g, ' ')}`;
-        section.appendChild(heading);
+        // ── Header ────────────────────────────────────────────────────────────
+        const header = document.createElement('div');
+        header.className = 'contrib-header';
 
-        const meta = document.createElement('p');
-        meta.className = 'network-caveat-text';
-        meta.textContent = `Target mean discharge: ${result.target_mean_q !== null ? result.target_mean_q + ' m³/s' : 'N/A'} · ${result.upstream_count} upstream stations found.`;
-        section.appendChild(meta);
+        const targetQ = result.target_mean_q !== null ? `${result.target_mean_q} m³/s` : 'N/A';
+        const upstreamCount = result.upstream_count;
+
+        header.innerHTML = `
+            <div class="contrib-header-left">
+                <div class="contrib-header-title">
+                    <svg class="contrib-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+                    </svg>
+                    <span>Upstream Contributions</span>
+                </div>
+                <div class="contrib-header-target">→ ${escapeHtml(result.target_name.replace(/_/g, ' '))}</div>
+            </div>
+            <div class="contrib-header-stats">
+                <div class="contrib-stat">
+                    <span class="contrib-stat-value">${escapeHtml(targetQ)}</span>
+                    <span class="contrib-stat-label">Target Q</span>
+                </div>
+                <div class="contrib-stat-divider"></div>
+                <div class="contrib-stat">
+                    <span class="contrib-stat-value">${upstreamCount}</span>
+                    <span class="contrib-stat-label">Upstream</span>
+                </div>
+            </div>`;
+        section.appendChild(header);
 
         if (result.rows.length === 0) {
-            const empty = document.createElement('p');
-            empty.className = 'network-caveat-text';
-            empty.textContent = 'No upstream stations found in topology.';
+            const empty = document.createElement('div');
+            empty.className = 'contrib-empty';
+            empty.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8" opacity=".4"/>
+                </svg>
+                <span>No upstream stations found in the documented topology.</span>`;
             section.appendChild(empty);
         } else {
-            const table = document.createElement('table');
-            table.className = 'network-table';
-            table.innerHTML = `
-                <thead><tr>
-                    <th>Station</th>
-                    <th>Country</th>
-                    <th>Mean discharge (m³/s)</th>
-                    <th>Contribution (proxy %)</th>
-                </tr></thead>`;
-            const tbody = document.createElement('tbody');
-            result.rows.forEach(r => {
-                const tr = document.createElement('tr');
-                const pct = r.contrib_pct !== null ? r.contrib_pct.toFixed(1) + '%' : '—';
-                const bar = r.contrib_pct !== null
-                    ? `<div class="net-contrib-bar" style="width:${Math.min(r.contrib_pct, 100)}%"></div>`
-                    : '';
-                tr.innerHTML = `
-                    <td>${r.name.replace(/_/g, ' ')}</td>
-                    <td>${r.country}</td>
-                    <td>${r.mean_q !== null ? r.mean_q : '—'}</td>
-                    <td><div class="net-contrib-cell">${bar}<span>${pct}</span></div></td>`;
-                tbody.appendChild(tr);
+            // Sort by contribution descending
+            const sorted = [...result.rows].sort((a, b) => (b.contrib_pct ?? -1) - (a.contrib_pct ?? -1));
+            const maxPct = sorted[0]?.contrib_pct ?? 1;
+
+            const list = document.createElement('div');
+            list.className = 'contrib-list';
+
+            sorted.forEach((r, i) => {
+                const pct = r.contrib_pct !== null ? r.contrib_pct.toFixed(1) : null;
+                const barWidth = r.contrib_pct !== null ? Math.min((r.contrib_pct / Math.max(maxPct, 1)) * 100, 100) : 0;
+                const isTop = i === 0 && r.contrib_pct !== null;
+                const badgeClass = r.contrib_pct !== null
+                    ? (r.contrib_pct >= 50 ? 'contrib-badge-high' : r.contrib_pct >= 20 ? 'contrib-badge-mid' : 'contrib-badge-low')
+                    : 'contrib-badge-none';
+
+                const row = document.createElement('div');
+                row.className = `contrib-row${isTop ? ' contrib-row-top' : ''}`;
+                row.innerHTML = `
+                    <div class="contrib-row-rank">${i + 1}</div>
+                    <div class="contrib-row-body">
+                        <div class="contrib-row-top-line">
+                            <span class="contrib-row-name">${escapeHtml(r.name.replace(/_/g, ' '))}</span>
+                            <span class="contrib-badge ${badgeClass}">${pct !== null ? pct + '%' : '—'}</span>
+                        </div>
+                        <div class="contrib-row-meta">
+                            <span class="contrib-row-country">${escapeHtml(r.country)}</span>
+                            <span class="contrib-row-q">${r.mean_q !== null ? r.mean_q + ' m³/s' : '—'}</span>
+                        </div>
+                        <div class="contrib-bar-track">
+                            <div class="contrib-bar-fill ${badgeClass}-bar" style="width:${barWidth}%"></div>
+                        </div>
+                    </div>`;
+                list.appendChild(row);
             });
-            table.appendChild(tbody);
-            section.appendChild(table);
+            section.appendChild(list);
         }
 
-        const caveat = document.createElement('p');
-        caveat.className = 'network-caveat-text network-caveat-small';
-        caveat.textContent = result.caveat;
-        section.appendChild(caveat);
+        // ── Caveat footer ─────────────────────────────────────────────────────
+        const caveatBox = document.createElement('div');
+        caveatBox.className = 'contrib-caveat';
+        caveatBox.innerHTML = `<span class="contrib-caveat-label">Note</span><span class="contrib-caveat-text">${escapeHtml(result.caveat)}</span>`;
+        section.appendChild(caveatBox);
 
         if (result.analysis) {
             appendAnalysisSection(section, result.analysis, { title: 'Interpretation' });
@@ -4640,7 +4733,7 @@
             <tbody>${rows.map(row => `
                 <tr>
                     <td>${escapeHtml(row.name.replace(/_/g, ' '))}</td>
-                    <td>${escapeHtml(row.feature.replace(/_/g,' '))}</td>
+                    <td>${escapeHtml((row.feature === 'all_features' ? 'All features' : row.feature).replace(/_/g,' '))}</td>
                     <td>${row.observations.toLocaleString()}</td>
                     <td>${row.imputed.toLocaleString()}</td>
                     <td><div class="quality-imp-bar-cell">

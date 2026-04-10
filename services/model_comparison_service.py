@@ -40,23 +40,32 @@ def _generate_modelcompare_analysis(result: Dict[str, Any]) -> str:
         return _fallback_modelcompare_analysis(result)
     try:
         s = result.get('stats', {})
-        prompt = f"""Act as a professional hydrologist comparing multiple forecast models for operational use.
+        prompt = f"""Act as a professional hydrologist writing a detailed technical interpretation of a multi-model forecast benchmark comparison.
 Write the response in markdown and structure it exactly as follows:
 
 **Executive Summary**
-2-3 sentences summarising which model performs best, how large the skill differences are, and what that means for forecast confidence.
+4-5 sentences. Identify the best model by RMSE, quantify the performance spread between best and worst, describe what the cross-model agreement or disagreement implies for forecast confidence, and state the key operational recommendation.
 
-**Detailed Insights**
-- **Best Model:** identify the best-performing model using the reported metrics.
-- **Performance Spread:** compare RMSE and MAPE across the available models.
-- **Forecast Confidence:** explain what the spread between models implies for confidence in the forecast.
-- **Operational Interpretation:** state how this comparison should be used in practice.
+**Model Performance Rankings**
+For each model with available data, provide a bullet point: cite RMSE and MAPE, classify as best/second/third/worst performer, and briefly interpret what the model architecture implies about its strengths (LSTM for sequential memory, PatchTST for multi-scale patterns, DLinear for trend-seasonality decomposition, FlowNet for hydrological domain knowledge).
+
+**Metrics Interpretation**
+A paragraph (4-5 sentences) interpreting RMSE and MAPE jointly. Explain what each metric captures (RMSE penalises large errors; MAPE gives scale-independent relative accuracy). Discuss which metric is more relevant for different operational decisions (flood risk vs. water allocation). Explain that metrics are from rolling hindcast windows, not a simple train/test split, and why this makes them more robust.
+
+**Cross-Model Agreement and Forecast Confidence**
+A paragraph (3-4 sentences). Assess what model convergence or divergence in both metrics and plotted forecasts implies for forecast uncertainty. State how a water manager should adjust their confidence based on whether models agree or disagree. Recommend inspecting the plotted forecast divergence alongside the numeric metrics.
+
+**Operational Relevance**
+Exactly 3 bullet points:
+- **Default model selection:** recommend the best model for operational use and note conditions under which this recommendation should be revisited.
+- **Ensemble averaging:** explain when averaging multiple model forecasts is preferable to selecting a single best model.
+- **Horizon sensitivity:** note that RMSE/MAPE degrade with forecast horizon and how this affects interpretation of the reported metrics.
 
 Rules:
-- Use professional hydrological language.
+- Use professional hydrological language throughout.
 - Always cite specific numbers from the provided results.
 - Replace underscores with spaces.
-- Do not include any introduction or sign-off outside the two sections.
+- Do not include any introduction or sign-off outside the defined sections.
 
 Comparison title: {str(result.get('title', '')).replace('_', ' ')}
 Best model: {s.get('best_model_by_rmse')}
@@ -75,36 +84,93 @@ def _fallback_modelcompare_analysis(result: Dict[str, Any]) -> str:
     horizon = s.get('horizon_days')
     models = [m for m in (s.get('models') or []) if m.get('source_note') != 'no_data']
 
-    def _rmse(model):
-        try:
-            return float(model.get('RMSE'))
-        except Exception:
-            return None
+    def _rmse(m):
+        try: return float(m.get('RMSE'))
+        except Exception: return None
+
+    def _mape(m):
+        try: return float(m.get('MAPE'))
+        except Exception: return None
 
     ranked = sorted((m for m in models if _rmse(m) is not None), key=_rmse)
-    best_row = ranked[0] if ranked else None
+    best_row   = ranked[0] if ranked else None
     second_row = ranked[1] if len(ranked) > 1 else None
-    spread_text = (
-        f'The lowest RMSE is {best_row.get("RMSE")} for {best_row.get("Model")}, compared with {second_row.get("RMSE")} for {second_row.get("Model")}.'
-        if best_row and second_row else
-        'Only one model has usable trained output for this station-feature combination, so cross-model spread is limited.'
-    )
+    worst_row  = ranked[-1] if len(ranked) > 1 else None
 
-    mape_bits = ', '.join(
-        f'{m.get("Model")} {m.get("MAPE")}'
-        for m in models[:4]
-    ) or 'no valid MAPE values'
+    # Build per-model bullet list
+    model_bullets = []
+    for m in ranked:
+        r = _rmse(m)
+        mp = _mape(m)
+        mape_str = f', MAPE {mp:.1f}%' if mp is not None and not (mp != mp) else ''
+        skill = ('strongest performer' if m is best_row else
+                 'second-best' if m is second_row else
+                 'weakest performer' if m is worst_row else 'mid-tier performer')
+        model_bullets.append(
+            f'<li><strong>{m.get("Model")}:</strong> RMSE {r:.3f}{mape_str} — {skill}. '
+            + (f'As a Transformer-based architecture, PatchTST excels at capturing multi-scale temporal patterns. '
+               if m.get("Model") == "PatchTST" else
+               f'LSTM captures sequential memory and is particularly effective for smooth discharge series with strong persistence. '
+               if m.get("Model") == "LSTM" else
+               f'DLinear uses a simple linear decomposition of trend and seasonality, providing a fast and interpretable baseline. '
+               if m.get("Model") == "DLinear" else
+               f'FlowNet is a hydrologically-informed deep learning model designed for discharge forecasting across diverse basin types. '
+               if m.get("Model") == "FlowNet" else '')
+            + '</li>'
+        )
+
+    rmse_spread = ''
+    if best_row and worst_row and best_row is not worst_row:
+        try:
+            spread = _rmse(worst_row) - _rmse(best_row)
+            spread_pct = spread / _rmse(best_row) * 100
+            rmse_spread = (
+                f'The RMSE spread between the best ({best_row.get("Model")}: {_rmse(best_row):.3f}) and worst '
+                f'({worst_row.get("Model")}: {_rmse(worst_row):.3f}) models is {spread:.3f} ({spread_pct:.0f}% relative difference). '
+                + ('This wide spread indicates that model architecture has a substantial effect on forecast accuracy at this station — '
+                   'model selection materially affects forecast quality.'
+                   if spread_pct > 30 else
+                   'This moderate spread suggests all models have broadly similar skill, '
+                   'but the best model still provides a meaningful accuracy advantage for operational use.')
+            )
+        except Exception:
+            pass
 
     return (
         '<p><strong>Executive Summary</strong></p>'
-        f'<p>The multi-model comparison for <strong>{title}</strong> evaluates a {horizon}-day forecast horizon and identifies <strong>{best}</strong> as the best performer by RMSE. '
-        f'This comparison provides a screening view of relative model skill rather than a full uncertainty quantification framework.</p>'
-        '<p><strong>Detailed Insights</strong></p>'
+        f'<p>The multi-model benchmark for <strong>{title}</strong> compares FlowNet, LSTM, PatchTST, and DLinear '
+        f'across a {horizon}-day forecast horizon using RMSE and MAPE computed from rolling hindcast predictions. '
+        f'<strong>{best}</strong> achieves the lowest RMSE and is identified as the best-performing model for this station–feature combination. '
+        + (f'{rmse_spread} ' if rmse_spread else '')
+        + 'This comparison provides a data-driven basis for model selection and quantifies the forecast uncertainty envelope implied by cross-model disagreement.</p>'
+
+        '<p><strong>Model Performance Rankings</strong></p>'
+        f'<ul>{"".join(model_bullets)}</ul>'
+
+        '<p><strong>Metrics Interpretation</strong></p>'
+        '<p>RMSE (Root Mean Square Error) measures average forecast error in the original units of the variable — '
+        'it penalises large errors more heavily than small ones, making it sensitive to occasional extreme mis-forecasts. '
+        'MAPE (Mean Absolute Percentage Error) expresses average error as a percentage of the observed value, '
+        'providing a scale-independent measure of relative accuracy useful for comparing performance across stations and features. '
+        'Together, RMSE and MAPE capture complementary aspects of forecast skill: RMSE is more relevant for flood risk (absolute magnitude matters), '
+        'while MAPE is more relevant for water allocation and operational scheduling (relative deviation from normal matters). '
+        'Both metrics are computed from rolling hindcast windows — not a simple train/test split — providing a more robust estimate of out-of-sample performance.</p>'
+
+        '<p><strong>Cross-Model Agreement and Forecast Confidence</strong></p>'
+        '<p>When multiple models produce similar forecasts and similar error metrics, the forecast is more credible — '
+        'model disagreement is itself a form of uncertainty. '
+        'If the plotted forecasts visually diverge (especially in direction), the true future trajectory is uncertain and the confidence band should be widened subjectively. '
+        'Conversely, if all models project the same direction and magnitude, this convergence strengthens operational confidence even if individual RMSE values are moderate. '
+        'For critical decisions, it is recommended to inspect the plotted forecast divergence alongside the metrics.</p>'
+
+        '<p><strong>Operational Relevance</strong></p>'
         '<ul>'
-        f'<li><strong>Best Model:</strong> The current best model by RMSE is {best}, based on the reported historical fit metrics.</li>'
-        f'<li><strong>Performance Spread:</strong> {spread_text} Reported MAPE values are {mape_bits}.</li>'
-        '<li><strong>Forecast Confidence:</strong> When multiple models produce similar errors, forecast confidence is stronger; when their skill differs materially, the forecast should be interpreted with more caution.</li>'
-        '<li><strong>Operational Interpretation:</strong> Use the best-RMSE model as the default operational candidate, but review the model spread and plotted forecast divergence before making high-stakes decisions.</li>'
+        f'<li><strong>Default operational model:</strong> Use <strong>{best}</strong> as the primary operational forecast model for this station–feature combination, '
+        'subject to periodic re-evaluation as new training data becomes available.</li>'
+        '<li><strong>Ensemble averaging:</strong> If multiple models show similarly low RMSE, consider averaging their forecasts to reduce variance and improve robustness — '
+        'ensemble means typically outperform individual models when inter-model correlation is not too high.</li>'
+        '<li><strong>Horizon sensitivity:</strong> RMSE and MAPE are computed at the specified forecast horizon. '
+        'Performance typically degrades with longer horizons — if a shorter-horizon decision is being made, the reported metrics may be optimistic relative to the actual operational accuracy.</li>'
         '</ul>'
     )
 

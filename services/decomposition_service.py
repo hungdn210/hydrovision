@@ -22,16 +22,78 @@ from .figure_theme import (
 def _fallback_decomp_analysis(result: Dict[str, Any]) -> str:
     s = result.get('stats', {}) or {}
     title = str(result.get('title', '')).replace('_', ' ')
+    n_months = s.get('n_months', '?')
+    ft = s.get('strength_trend', '?')
+    fs = s.get('strength_seasonal', '?')
+    peak = s.get('seasonal_peak_month', '?')
+    trough = s.get('seasonal_trough_month', '?')
+    slope = s.get('trend_slope_per_decade', '?')
+    res_std = s.get('residual_std', '?')
+
+    dominance = ''
+    try:
+        ft_f = float(ft)
+        fs_f = float(fs)
+        if fs_f >= ft_f and fs_f >= 0.6:
+            dominance = (
+                f'With seasonal strength F<sub>S</sub> = {fs_f:.2f} and trend strength F<sub>T</sub> = {ft_f:.2f}, '
+                'the series is predominantly controlled by recurring annual seasonality. '
+                'The annual flood–drought cycle accounts for most of the observed variability, and the long-run trend is a secondary signal.'
+            )
+        elif ft_f >= fs_f and ft_f >= 0.6:
+            dominance = (
+                f'With trend strength F<sub>T</sub> = {ft_f:.2f} and seasonal strength F<sub>S</sub> = {fs_f:.2f}, '
+                'a persistent long-run directional change is the dominant feature of this series. '
+                'This may reflect upstream regulation, climate change, or land-use effects superimposed on the seasonal cycle.'
+            )
+        else:
+            dominance = (
+                f'Both trend strength (F<sub>T</sub> = {ft_f:.2f}) and seasonal strength (F<sub>S</sub> = {fs_f:.2f}) are moderate, '
+                'suggesting that neither a strong long-run trend nor a highly regular seasonal cycle dominates — '
+                'the residual component is relatively large and likely contains episodic events or irregular interannual forcing.'
+            )
+    except (TypeError, ValueError):
+        dominance = f'Trend strength: {ft}, seasonal strength: {fs}.'
+
     return (
         '<p><strong>Executive Summary</strong></p>'
-        f'<p>The STL decomposition for <strong>{title}</strong> separates the monthly signal into trend, seasonal, and residual components over {s.get("n_months")} months. '
-        f'The reported strength metrics indicate whether long-run drift or recurring annual seasonality is the dominant control on the series.</p>'
-        '<p><strong>Detailed Insights</strong></p>'
+        f'<p>The STL decomposition for <strong>{title}</strong> separates {n_months} months of observations into Trend, Seasonal, and Residual components '
+        'using Seasonal-Trend decomposition via LOESS (Cleveland et al. 1990) with period=12 and robust fitting. '
+        f'{dominance} '
+        f'The seasonal component peaks in <strong>{peak}</strong> and reaches its annual minimum in <strong>{trough}</strong>, '
+        f'while the long-run trend changes at approximately <strong>{slope}</strong> per decade.</p>'
+
+        '<p><strong>Signal Dominance</strong></p>'
+        f'<p>The strength indices (Wang et al. 2006) quantify the relative importance of each component. '
+        f'Trend strength F<sub>T</sub> = {ft} and seasonal strength F<sub>S</sub> = {fs} (both on a 0–1 scale, where 1 = component fully explains the variance beyond residual noise). '
+        'Values above 0.6 are considered strong in the hydrology literature. '
+        f'The residual standard deviation of {res_std} indicates the magnitude of unexplained variability — large residuals may point to extreme events, data gaps, or non-periodic climate forcing not captured by the trend or seasonal components.</p>'
+
+        '<p><strong>Seasonal Cycle</strong></p>'
+        f'<p>The STL seasonal component captures the repeating annual flood–drought pattern. '
+        f'Peak flow typically occurs in <strong>{peak}</strong>, consistent with monsoonal or snowmelt-driven high-water periods at this station. '
+        f'The seasonal trough in <strong>{trough}</strong> represents the driest period of the year, which is critical for low-flow planning, irrigation demand, and ecological minimum-flow assessments. '
+        'The amplitude of the seasonal component relative to the total signal variance is a direct measure of how predictable year-to-year timing of floods and droughts is at this location.</p>'
+
+        '<p><strong>Trend Analysis</strong></p>'
+        f'<p>The fitted LOESS trend evolves smoothly across the {n_months}-month record and changes at approximately <strong>{slope}</strong> per decade. '
+        'A positive trend indicates a long-run increase in the variable (possible intensification of the monsoon or upstream land-use change increasing runoff), '
+        'while a negative trend may indicate groundwater depletion, upstream abstraction, reservoir impoundment, or progressive drying. '
+        'It is important to note that the STL trend is a statistical smoothing, not a causal attribution — the direction should be cross-referenced with basin-management history before drawing conclusions.</p>'
+
+        '<p><strong>Residual Component</strong></p>'
+        f'<p>The residual series represents the portion of variability not explained by trend or the regular seasonal cycle. '
+        f'A residual standard deviation of {res_std} relative to the total series variance provides a measure of model fit — lower residuals indicate that trend and seasonality together explain most of the signal. '
+        'Episodic large-magnitude residuals may correspond to extreme flood or drought years, instrument errors, or the influence of large-scale climate anomalies (e.g. strong El Niño events) that fall outside the regular seasonal pattern. '
+        'Inspecting the residual sub-panel for systematic structure (e.g. clustering of positive residuals in specific decades) can help identify non-stationary behaviour or missing explanatory variables.</p>'
+
+        '<p><strong>Operational Relevance</strong></p>'
         '<ul>'
-        f'<li><strong>Signal Dominance:</strong> Trend strength is {s.get("strength_trend")} and seasonal strength is {s.get("strength_seasonal")}, which indicates whether long-term change or recurring seasonality is more prominent.</li>'
-        f'<li><strong>Seasonal Timing:</strong> The seasonal component peaks in {s.get("seasonal_peak_month")} and reaches its trough in {s.get("seasonal_trough_month")}, which helps identify likely high-flow versus low-flow timing.</li>'
-        f'<li><strong>Trend Behaviour:</strong> The fitted trend slope is {s.get("trend_slope_per_decade")} per decade, providing a compact summary of long-run directional change.</li>'
-        f'<li><strong>Operational Interpretation:</strong> Use the decomposition to separate persistent trend from recurring seasonality before drawing conclusions about drought, flood timing, or regime change; residual standard deviation is {s.get("residual_std")}.</li>'
+        '<li><strong>Seasonal forecasting:</strong> A high seasonal strength confirms that climatological seasonal forecasts based on historical averages are reliable at this station. '
+        f'The identified peak in {peak} and trough in {trough} should anchor flood-preparedness calendars and low-flow contingency plans.</li>'
+        f'<li><strong>Trend monitoring:</strong> The observed trend of {slope} per decade should be monitored over successive updates. '
+        'If the trend is accelerating, historical design standards (e.g. flood frequency curves assuming stationarity) may underestimate future risk.</li>'
+        '<li><strong>Extreme event identification:</strong> Large residuals in specific years can serve as a preliminary screen for extreme or anomalous events, complementing formal extreme-value analysis (GEV / Gumbel).</li>'
         '</ul>'
     )
 
@@ -42,28 +104,40 @@ def _generate_decomp_analysis(result: Dict[str, Any]) -> str:
         return _fallback_decomp_analysis(result)
     try:
         s = result.get('stats', {})
-        prompt = f"""Act as a professional hydrologist interpreting an STL decomposition.
+        prompt = f"""Act as a professional hydrologist writing a detailed technical interpretation of an STL decomposition analysis.
 Write the response in markdown and structure it exactly as follows:
 
 **Executive Summary**
-2-3 sentences summarising whether the series is dominated by trend, seasonality, or residual noise.
+4-5 sentences. Summarise which component (trend, seasonal, residual) dominates the series, cite the strength indices, describe the seasonal timing, interpret the trend direction and magnitude, and state the key operational implication.
 
-**Detailed Insights**
-- **Signal Dominance:** interpret the reported trend and seasonal strength values.
-- **Seasonal Timing:** explain the hydrological meaning of the seasonal peak and trough months.
-- **Trend Behaviour:** interpret the sign and magnitude of the long-run trend slope.
-- **Operational Interpretation:** state how the decomposition should be used for hydrological interpretation and planning.
+**Signal Dominance**
+A paragraph (4-5 sentences) interpreting the trend strength (F_T) and seasonal strength (F_S) values in detail. Explain what these indices mean quantitatively (scale 0–1, values above 0.6 are strong). Discuss what the relative magnitudes imply about whether long-run change or recurring seasonality is the primary control. Comment on the residual standard deviation and what it implies about unexplained variability.
+
+**Seasonal Cycle**
+A paragraph (4-5 sentences) interpreting the seasonal component. Explain the hydrological meaning of the peak and trough months in the context of monsoon or snowmelt regimes. Discuss the amplitude of seasonality relative to total variance and its implication for flood–drought predictability and operational planning.
+
+**Trend Analysis**
+A paragraph (4-5 sentences) interpreting the long-run LOESS trend. Discuss the direction (positive/negative) and magnitude (per-decade slope). List plausible physical causes (regulation, land-use, climate change). Caution that STL trend is a statistical smoothing, not causal attribution, and recommend cross-referencing with basin history.
+
+**Residual Component**
+A paragraph (3-4 sentences) interpreting the residual series. Discuss what large residuals may represent (extreme events, data gaps, non-periodic climate forcing). Note whether residual structure may indicate non-stationarity or missing predictors.
+
+**Operational Relevance**
+Exactly 3 bullet points:
+- **Seasonal forecasting:** how seasonal strength informs reliability of climatological forecasts.
+- **Trend monitoring:** how the detected trend should influence design standards and risk assessments going forward.
+- **Extreme event screening:** how large residuals can complement formal extreme-value analysis.
 
 Rules:
-- Use professional hydrological language.
+- Use professional hydrological language throughout.
 - Always cite specific numbers from the provided results.
 - Replace underscores with spaces.
-- Do not include any introduction or sign-off outside the two sections.
+- Do not include any introduction or sign-off outside the defined sections.
 
 Analysis title: {str(result.get('title', '')).replace('_', ' ')}
 Record length: {s.get('n_months')} months
-Trend strength: {s.get('strength_trend')} (0=no trend, 1=strong trend)
-Seasonal strength: {s.get('strength_seasonal')} (0=no seasonality, 1=strong seasonality)
+Trend strength (F_T): {s.get('strength_trend')} (0=no trend, 1=strong trend)
+Seasonal strength (F_S): {s.get('strength_seasonal')} (0=no seasonality, 1=strong seasonality)
 Peak month: {s.get('seasonal_peak_month')}, Trough month: {s.get('seasonal_trough_month')}
 Trend slope: {s.get('trend_slope_per_decade')} per decade
 Residual std: {s.get('residual_std')}

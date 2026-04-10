@@ -63,30 +63,86 @@ def _fallback_extreme_analysis(result: Dict[str, Any], note: str | None = None) 
     elif n_years < 20:
         reliability += ' The short record length means long return-period estimates should be treated cautiously.'
 
-    bullets = []
-    if gev10 is not None or gumbel10 is not None:
-        primary_10 = gev10 if gev10 is not None else gumbel10
-        primary_50 = gev50 if gev50 is not None else _level(50, 'gumbel')
-        primary_100 = gev100 if gev100 is not None else _level(100, 'gumbel')
-        bullets.append(
-            f'<li><strong>Return Levels:</strong> The fitted extreme-value model suggests a 10-year event near {primary_10:.2f} {unit}'
-            + (f', rising to about {primary_50:.2f} {unit} at 50 years' if primary_50 is not None else '')
-            + (f' and {primary_100:.2f} {unit} at 100 years.' if primary_100 is not None else '.')
-        )
-    bullets.append(f'<li><strong>Tail Behaviour:</strong> {tail_text}</li>')
-    bullets.append(f'<li><strong>Reliability:</strong> {reliability}</li>')
-    bullets.append(
-        '<li><strong>Operational Interpretation:</strong> Use the higher return-period estimates as screening-level design guidance, '
-        'but pair them with catchment context and hydraulic assessment before making infrastructure or flood-preparedness decisions.</li>'
-    )
+    primary_10  = gev10  if gev10  is not None else _level(10,  'gumbel')
+    primary_50  = gev50  if gev50  is not None else _level(50,  'gumbel')
+    primary_100 = gev100 if gev100 is not None else _level(100, 'gumbel')
+    gev200 = _level(200, 'gev')
+    primary_200 = gev200 if gev200 is not None else _level(200, 'gumbel')
+
+    gev_gumbel_compare = ''
+    if gev10 is not None and gumbel10 is not None:
+        diff = abs(gev10 - gumbel10)
+        if diff < 0.05 * gumbel10:
+            gev_gumbel_compare = (
+                f'The GEV and Gumbel models produce nearly identical 10-year estimates ({gev10:.2f} vs {gumbel10:.2f} {unit}), '
+                'suggesting the tail shape parameter is close to zero and either distribution is appropriate for design purposes.'
+            )
+        elif gev10 > gumbel10:
+            gev_gumbel_compare = (
+                f'The GEV 10-year level ({gev10:.2f} {unit}) exceeds the Gumbel estimate ({gumbel10:.2f} {unit}), '
+                'consistent with a heavier-than-exponential tail. The GEV fit is preferred for risk-averse design applications at this station.'
+            )
+        else:
+            gev_gumbel_compare = (
+                f'The Gumbel 10-year level ({gumbel10:.2f} {unit}) exceeds the GEV estimate ({gev10:.2f} {unit}), '
+                'which may indicate a bounded upper tail. The GEV fit should be preferred, but this result warrants scrutiny if the record is short.'
+            )
 
     note_html = f'<p><em>{note}</em></p>' if note else ''
     return (
         f'<p><strong>Executive Summary</strong></p>'
-        f'<p>{feature} at {station} was analysed using annual maxima extreme-value fitting in {unit}. '
-        f'The result provides screening-level return-period estimates for rare high-flow events and highlights how confident those estimates are given the available record length.</p>'
-        f'<p><strong>Detailed Insights</strong></p>'
-        f'<ul>{"".join(bullets)}</ul>'
+        f'<p><strong>{feature}</strong> at <strong>{station}</strong> was analysed using the block maxima approach of classical extreme value theory (EVT), '
+        f'fitting both GEV and Gumbel distributions to {n_years} annual maxima'
+        + (f' spanning {year_range[0]}–{year_range[1]}' if len(year_range) >= 2 else '')
+        + f' ({unit}). '
+        + (f'Screening-level return levels range from approximately {primary_10:.2f} {unit} (10-year) to {primary_100:.2f} {unit} (100-year). '
+           if primary_10 is not None and primary_100 is not None else '')
+        + f'{tail_text} '
+        + 'These estimates are intended as screening-level guidance — hydraulic modelling and site-specific assessment are required before use in infrastructure design or flood-plain management.</p>'
+
+        '<p><strong>Return Level Estimates</strong></p>'
+        '<p>The fitted extreme-value model produces the following return level estimates:</p>'
+        '<ul>'
+        + (f'<li><strong>10-year event:</strong> {primary_10:.2f} {unit} — a magnitude expected to be exceeded on average once per decade (annual exceedance probability 10%). This is the standard benchmark for minor flood defences and agricultural infrastructure.</li>'
+           if primary_10 is not None else '')
+        + (f'<li><strong>50-year event:</strong> {primary_50:.2f} {unit} — annual exceedance probability 2%. Commonly used as a design standard for urban drainage and levee systems.</li>'
+           if primary_50 is not None else '')
+        + (f'<li><strong>100-year event:</strong> {primary_100:.2f} {unit} — annual exceedance probability 1%. The standard reference flood for national flood-risk mapping and major infrastructure design.</li>'
+           if primary_100 is not None else '')
+        + (f'<li><strong>200-year event:</strong> {primary_200:.2f} {unit} — annual exceedance probability 0.5%. Relevant for critical infrastructure (dams, hospitals) and residual-risk assessments.</li>'
+           if primary_200 is not None else '')
+        + '</ul>'
+
+        '<p><strong>Model Comparison: GEV vs Gumbel</strong></p>'
+        f'<p>{gev_gumbel_compare if gev_gumbel_compare else "Return level estimates are based on the available fitted distribution."} '
+        'The GEV distribution is the theoretically correct limiting distribution for block maxima under very general conditions (Fisher–Tippett–Gnedenko theorem). '
+        'The Gumbel is a special case (shape ξ = 0) assuming exponential tail decay. '
+        'When the GEV shape parameter ξ is significantly positive, rare events are more severe than Gumbel predicts; '
+        'when ξ is significantly negative, the distribution has a finite upper bound. '
+        f'In this analysis: {tail_text}</p>'
+
+        '<p><strong>Confidence Intervals and Reliability</strong></p>'
+        f'<p>{reliability} '
+        'Bootstrap confidence intervals (150 resamples of the annual maxima block) quantify parameter uncertainty. '
+        'For short records (&lt;30 years), the confidence bands at the 50- and 100-year levels are typically very wide — sometimes spanning a factor of 2 or more — '
+        'because MLE cannot tightly constrain the tail shape from limited data. '
+        'Confidence interval width increases with return period: the 10-year estimate is always more reliable than the 100-year estimate from the same record. '
+        'Where confidence intervals are very wide, it is recommended to report the full interval alongside the point estimate rather than relying on the point estimate alone.</p>'
+
+        '<p><strong>Assumptions and Limitations</strong></p>'
+        '<ul>'
+        '<li><strong>Stationarity:</strong> EVT assumes the annual maxima are drawn from a stationary distribution. If the series contains a trend or structural break (detectable via STL decomposition or change-point analysis), return levels derived from the full record may underestimate future risk under a warming or regulation-altered climate.</li>'
+        '<li><strong>Block maxima sample size:</strong> Each year contributes exactly one observation to the fitting sample. Records shorter than ~30 years yield unreliable estimates for return periods beyond 50 years.</li>'
+        '<li><strong>Independence:</strong> Annual maxima are assumed independent. In practice, multi-year droughts or wet spells may introduce autocorrelation — though at annual resolution this is typically weak.</li>'
+        '<li><strong>Scope:</strong> Return levels are statistical estimates at the gauge location. They should not be extrapolated to ungauged reaches without hydraulic routing analysis.</li>'
+        '</ul>'
+
+        '<p><strong>Operational Relevance</strong></p>'
+        '<ul>'
+        '<li><strong>Infrastructure design:</strong> Use the 100-year return level as a preliminary design flood for levees and flood-protection works, subject to hydraulic verification and freeboard allowance.</li>'
+        '<li><strong>Early warning thresholds:</strong> The 10-year return level is a practical threshold for operational flood alerts — exceedances at this level represent events unusual enough to warrant emergency preparedness activation.</li>'
+        '<li><strong>Climate-adjusted planning:</strong> If a positive trend or post-break mean shift is present in the data, consider applying a non-stationary EVT framework or a climate-change uplift factor to the return levels before using them for long-horizon planning.</li>'
+        '</ul>'
         f'{note_html}'
     )
 
@@ -113,23 +169,42 @@ def _generate_extreme_analysis(result: Dict[str, Any]) -> str:
             f"- T={r['return_period']} yr: {r.get('gumbel', 'N/A')} {result.get('unit', '')}"
             for r in levels if 'gumbel' in r
         ) or '- No Gumbel return levels available.'
-        prompt = f"""Act as a professional hydrologist interpreting an extreme value analysis for a station.
+        prompt = f"""Act as a professional hydrologist writing a detailed technical interpretation of an extreme value analysis.
 Write the response in markdown and structure it exactly as follows:
 
 **Executive Summary**
-2-3 sentences summarising the overall flood-risk signal, how extreme the fitted return levels are, and whether the record length is adequate.
+4-5 sentences. Summarise the overall flood-risk signal at this station, cite the key return level estimates (10, 50, 100 year), interpret the GEV tail type and what it implies for rare event severity, and comment on whether the record length provides robust confidence in these estimates.
 
-**Detailed Insights**
-- **Return Levels:** interpret the 10-, 50-, and 100-year return levels using the reported values.
-- **Tail Behaviour:** explain what the GEV shape parameter implies about the tail type and extreme-event behaviour.
-- **Reliability:** comment on uncertainty, confidence intervals, and whether the record length supports robust inference.
-- **Operational Interpretation:** state what the result means for planning, design, or flood preparedness.
+**Return Level Estimates**
+A paragraph (4-5 sentences) interpreting the full return level table in detail. For each major return period (10, 50, 100, 200 years), state the estimate and its exceedance probability. Discuss how rapidly return levels increase with return period — a fast increase indicates a heavy tail with disproportionately severe rare events. Cite specific values from the data.
+
+**Model Comparison: GEV vs Gumbel**
+A paragraph (4-5 sentences) comparing the GEV and Gumbel fitted values. Explain the theoretical basis: GEV is the general limit distribution (Fisher–Tippett–Gnedenko theorem) while Gumbel is the special case ξ=0. Interpret what agreement or disagreement between the two models implies about tail shape and appropriate model selection for design purposes.
+
+**Tail Behaviour**
+A paragraph (3-4 sentences) interpreting the GEV shape parameter ξ in detail. Explain what Fréchet (ξ>0), Gumbel (ξ≈0), and Weibull (ξ<0) tails mean for rare-event severity. State the implication for how much worse a 200-year event is relative to a 50-year event at this station.
+
+**Confidence Intervals and Reliability**
+A paragraph (4-5 sentences) interpreting the bootstrap confidence intervals and reliability of the estimates. Discuss how interval width varies with return period. Comment on how record length constrains robust inference for rare events. Give specific CI bounds for the 50-year level if available.
+
+**Assumptions and Limitations**
+Exactly 4 bullet points:
+- **Stationarity:** whether the record appears stationary and implications if not.
+- **Sample size:** how the {n_years}-year record constrains inference for long return periods.
+- **Independence:** brief comment on annual maxima independence assumption.
+- **Scope:** remind that return levels are at-gauge estimates, not hydraulic flood extents.
+
+**Operational Relevance**
+Exactly 3 bullet points:
+- **Infrastructure design:** how to use the 100-year level for flood-protection design.
+- **Early warning:** how the 10-year level can serve as an operational flood-alert threshold.
+- **Climate-adjusted planning:** how to adjust estimates if a trend or regime shift is present.
 
 Rules:
-- Use professional hydrological language.
+- Use professional hydrological language throughout.
 - Always cite specific numbers from the provided results.
 - Replace underscores with spaces.
-- Do not include any introduction or sign-off outside the two sections.
+- Do not include any introduction or sign-off outside the defined sections.
 
 Station: {station}
 Feature: {feature}
