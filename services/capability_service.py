@@ -237,6 +237,7 @@ class CapabilityService:
         """
         base = self.data_dir / 'Mekong' / 'prediction_results'
         for sub, mode_key in [
+            ('station_predictions_h1',     'historical'),
             ('station_predictions',        'historical'),
             ('station_predictions_future', 'future'),
         ]:
