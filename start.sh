@@ -8,10 +8,9 @@ if [[ -n "${R2_BUCKET:-}" ]]; then
   R2_SYNC_PREFIXES="Mekong/filled_dataset,Mekong/data_schema.py,Mekong/mekong_basin.geojson,Mekong/prediction_results/station_predictions_future,Mekong/prediction_results/station_predictions_h1.tar.gz,LamaH/prediction_results/station_predictions_future" \
     python scripts/sync_r2_data.py
 
-  # Extract h1 archive if it was just downloaded or not yet extracted
+  # Always extract h1 archive to ensure all models are present
   H1_ARCHIVE="${DATA_DIR}/Mekong/prediction_results/station_predictions_h1.tar.gz"
-  H1_DIR="${DATA_DIR}/Mekong/prediction_results/station_predictions_h1"
-  if [[ -f "$H1_ARCHIVE" && ! -d "$H1_DIR" ]]; then
+  if [[ -f "$H1_ARCHIVE" ]]; then
     echo "Extracting station_predictions_h1.tar.gz..."
     tar -xzf "$H1_ARCHIVE" -C "${DATA_DIR}/Mekong/prediction_results/"
     echo "Extraction complete."
