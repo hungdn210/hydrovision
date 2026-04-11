@@ -64,36 +64,54 @@ class PredictionService:
         self, station: str, feature: str, model: str, horizon_h: int, actual_frame: pd.DataFrame
     ) -> tuple[pd.DataFrame, int, float, float] | None:
         """
-        Load rolling predictions from station_predictions and stitch horizon_h across all windows.
-        Returns (fit_df, actual_h, rmse, mape) where fit_df has columns [Timestamp, ModelFit].
-        Date formula: date(window_i, horizon_k) = eval_start + (i-1) + (k-1)
-                      eval_start = last_actual_date - (n_windows + n_horizons - 2)
+        Load rolling predictions from station_predictions_h1 (horizon_1 only, ~30x smaller than
+        the full station_predictions folder) and build the historical fit line.
+        Each row is one rolling window; the single column is the 1-step-ahead prediction.
+        Date formula: date(window_i) = eval_start + (i-1)
+                      eval_start = last_actual_date - (n_windows - 1)
+        Falls back to the full station_predictions folder if _h1 is not present.
         """
         dataset = self._get_dataset(station)
         if dataset == 'mekong':
+            h1_path = (self.data_dir / 'Mekong' / 'prediction_results' / 'station_predictions_h1'
+                       / self._mekong_feature_folder(feature) / model / f'{station}.csv')
             csv_path = (self.data_dir / 'Mekong' / 'prediction_results' / 'station_predictions'
                         / self._mekong_feature_folder(feature) / model / f'{station}.csv')
         elif dataset == 'lamah':
+            h1_path = (self.data_dir / 'LamaH' / 'prediction_results' / 'station_predictions_h1'
+                       / model / f'{station}.csv')
             csv_path = (self.data_dir / 'LamaH' / 'prediction_results' / 'station_predictions'
                         / model / f'{station}.csv')
         else:
             return None
-        if not csv_path.exists():
+
+        use_h1 = h1_path.exists()
+        active_path = h1_path if use_h1 else csv_path
+        if not active_path.exists():
             return None
         try:
-            pred_df = pd.read_csv(csv_path)
+            pred_df = pd.read_csv(active_path)
             n_windows, n_horizons = len(pred_df), len(pred_df.columns)
-            actual_h = min(horizon_h, n_horizons)   # clamp to available horizons
-            col_idx = actual_h - 1
 
-            last_date = actual_frame['Timestamp'].max()
-            eval_start = last_date - pd.Timedelta(days=n_windows + n_horizons - 2)
+            if use_h1:
+                # h1-only file: single column = horizon_1 (1-step-ahead per window)
+                # date(window_i) = eval_start + (i-1), eval_start = last_date - (n_windows - 1)
+                actual_h = 1
+                col_idx = 0
+                last_date = actual_frame['Timestamp'].max()
+                eval_start = last_date - pd.Timedelta(days=n_windows - 1)
+                dates = pd.date_range(start=eval_start, periods=n_windows, freq='D')
+            else:
+                # Full file: rows=windows, cols=horizons
+                actual_h = min(horizon_h, n_horizons)
+                col_idx = actual_h - 1
+                last_date = actual_frame['Timestamp'].max()
+                eval_start = last_date - pd.Timedelta(days=n_windows + n_horizons - 2)
+                dates = pd.date_range(
+                    start=eval_start + pd.Timedelta(days=actual_h - 1),
+                    periods=n_windows, freq='D',
+                )
 
-            # Dates for window 1..n_windows using horizon actual_h
-            dates = pd.date_range(
-                start=eval_start + pd.Timedelta(days=actual_h - 1),
-                periods=n_windows, freq='D',
-            )
             values = pred_df.iloc[:, col_idx].values
             fit_df = pd.DataFrame({'Timestamp': dates, 'ModelFit': values.astype(float)})
 

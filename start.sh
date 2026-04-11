@@ -12,7 +12,7 @@ if [[ -n "${R2_BUCKET:-}" ]]; then
     # Sync only essential files — filled_dataset + top-level schema/geojson
     # prediction_results (~466 MB, thousands of CSVs) is excluded to stay within
     # free-tier startup time limits. The Predict panel is disabled on the live site.
-    R2_SYNC_PREFIXES="Mekong/filled_dataset,Mekong/data_schema.py,Mekong/mekong_basin.geojson,Mekong/prediction_results/station_predictions_future" \
+    R2_SYNC_PREFIXES="Mekong/filled_dataset,Mekong/data_schema.py,Mekong/mekong_basin.geojson,Mekong/prediction_results/station_predictions_future,Mekong/prediction_results/station_predictions_h1" \
       python scripts/sync_r2_data.py
   fi
 fi
