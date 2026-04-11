@@ -6,7 +6,7 @@ MEKONG_SCHEMA="${DATA_DIR}/Mekong/data_schema.py"
 
 if [[ -n "${R2_BUCKET:-}" ]]; then
   echo "Syncing data from R2 (unchanged files will be skipped)..."
-  R2_SYNC_PREFIXES="Mekong/filled_dataset,Mekong/data_schema.py,Mekong/mekong_basin.geojson,Mekong/prediction_results/station_predictions_future,Mekong/prediction_results/station_predictions_h1" \
+  R2_SYNC_PREFIXES="Mekong/filled_dataset,Mekong/data_schema.py,Mekong/mekong_basin.geojson,Mekong/prediction_results/station_predictions_future,Mekong/prediction_results/station_predictions_h1,LamaH/prediction_results/station_predictions_future,LamaH/prediction_results/station_predictions_h1" \
     python scripts/sync_r2_data.py
 fi
 
