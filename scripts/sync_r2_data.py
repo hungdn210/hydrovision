@@ -74,9 +74,26 @@ def main() -> int:
     total_downloaded = 0
     total_skipped = 0
     for prefix in prefixes:
-        downloaded, skipped = _download_tree(client, bucket, f"{prefix}/", dest_root)
-        total_downloaded += downloaded
-        total_skipped += skipped
+        # If prefix looks like a file (has an extension), download it directly.
+        # Otherwise treat it as a directory prefix and recurse.
+        if '.' in prefix.split('/')[-1]:
+            local_path = dest_root / Path(prefix)
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                head = client.head_object(Bucket=bucket, Key=prefix)
+                remote_size = int(head.get('ContentLength', -1))
+                if _needs_download(local_path, remote_size):
+                    print(f"Downloading {prefix} -> {local_path}", flush=True)
+                    client.download_file(bucket, prefix, str(local_path))
+                    total_downloaded += 1
+                else:
+                    total_skipped += 1
+            except Exception as e:
+                print(f"Warning: could not download {prefix}: {e}", flush=True)
+        else:
+            downloaded, skipped = _download_tree(client, bucket, f"{prefix}/", dest_root)
+            total_downloaded += downloaded
+            total_skipped += skipped
 
     print(
         f"R2 sync complete. Downloaded {total_downloaded} files, skipped {total_skipped} unchanged files.",
