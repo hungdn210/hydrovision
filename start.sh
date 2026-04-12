@@ -5,13 +5,14 @@ DATA_DIR="${HYDROVISION_DATA_DIR:-/opt/render/project/src/data}"
 
 if [[ -n "${R2_BUCKET:-}" ]]; then
   echo "Syncing data from R2 (unchanged files will be skipped)..."
-  R2_SYNC_PREFIXES="Mekong/filled_dataset,Mekong/data_schema.py,Mekong/mekong_basin.geojson,Mekong/prediction_results/station_predictions_future.tar.gz,Mekong/prediction_results/station_predictions_h1.tar.gz,LamaH/prediction_results/station_predictions_future.tar.gz" \
+  R2_SYNC_PREFIXES="Mekong/filled_dataset,Mekong/data_schema.py,Mekong/mekong_basin.geojson,Mekong/prediction_results/station_predictions_future.tar.gz,Mekong/prediction_results/station_predictions_h1.tar.gz,LamaH/filled_dataset.tar.gz,LamaH/prediction_results/station_predictions_future.tar.gz" \
     python scripts/sync_r2_data.py
 
   # Extract prediction archives
   for ARCHIVE in \
     "${DATA_DIR}/Mekong/prediction_results/station_predictions_future.tar.gz" \
     "${DATA_DIR}/Mekong/prediction_results/station_predictions_h1.tar.gz" \
+    "${DATA_DIR}/LamaH/filled_dataset.tar.gz" \
     "${DATA_DIR}/LamaH/prediction_results/station_predictions_future.tar.gz"; do
     if [[ -f "$ARCHIVE" ]]; then
       DEST_DIR="$(dirname "$ARCHIVE")"
