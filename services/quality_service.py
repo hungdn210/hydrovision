@@ -957,11 +957,35 @@ class QualityService:
         # Sort by modified z-score descending
         candidates.sort(key=lambda c: c['z_score'], reverse=True)
 
+        # Build time-series figure with anomalies highlighted
+        anomaly_dates = {c['date'] for c in candidates}
+        normal_mask = pd.Series([str(d.date()) not in anomaly_dates for d in ts.index], index=ts.index)
+        anomaly_mask = ~normal_mask
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=ts.index[normal_mask], y=ts.values[normal_mask],
+            mode='lines', name='Normal', line=dict(color='#4A90D9', width=1.2),
+        ))
+        if anomaly_mask.any():
+            fig.add_trace(go.Scatter(
+                x=ts.index[anomaly_mask], y=ts.values[anomaly_mask],
+                mode='markers', name=f'Anomaly (|M| ≥ {z_thresh})',
+                marker=dict(color='#E74C3C', size=7, symbol='circle'),
+            ))
+        fig.update_layout(
+            title=f'Anomaly Candidates — {station.replace("_", " ")} · {feature}',
+            xaxis_title='Date', yaxis_title=f'{feature} ({unit})',
+            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+            margin=dict(t=60, b=40, l=60, r=20),
+            hovermode='x unified',
+        )
+
         return {
             'station': station, 'feature': feature, 'unit': unit,
             'z_thresh': z_thresh,
-            'mean': round(median_val, 4),   # field kept for API compat; now stores median
-            'std':  round(mad_val, 4),       # field kept for API compat; now stores MAD
+            'mean': round(median_val, 4),
+            'std':  round(mad_val, 4),
             'detection_method': 'modified_zscore_MAD',
             'detection_note': (
                 'Outlier detection uses the modified z-score (Iglewicz & Hoaglin 1993) '
@@ -972,6 +996,7 @@ class QualityService:
             'total': len(candidates),
             'unflagged': sum(1 for c in candidates if c['flag'] == 'none'),
             'candidates': candidates[:100],
+            'figure': plotly.io.to_json(fig),
         }
 
     # ── 5. Flag persistence ─────────────────────────────────────────────────

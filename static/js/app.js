@@ -4801,6 +4801,14 @@
             return;
         }
 
+        // Anomaly time-series chart
+        if (r.figure) {
+            const plotDiv = document.createElement('div');
+            plotDiv.className = 'plot-container';
+            section.appendChild(plotDiv);
+            renderPlot(plotDiv, r.figure);
+        }
+
         section.appendChild(qualityStatChips([
             { label: 'Total candidates', value: r.total },
             { label: 'Unflagged', value: r.unflagged },

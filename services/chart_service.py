@@ -65,6 +65,11 @@ class ChartService:
             )
             if not request.station or not request.feature or not request.start_date or not request.end_date:
                 raise ValueError('Each series must include station, feature, start_date, and end_date.')
+            if not self.repository.feature_available(request.station, request.feature):
+                raise ValueError(
+                    f"'{request.feature}' is not available for station '{request.station}'. "
+                    f"Please select a feature this station has data for."
+                )
             requests.append(request)
 
         stations = {req.station for req in requests}

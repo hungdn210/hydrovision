@@ -21,8 +21,8 @@ MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'O
 _GEMINI_MODELS = [
     'gemini-2.0-flash',               # primary — high quota
     'gemini-2.0-flash-lite',          # fallback — lighter
-    'gemini-1.5-flash',               # fallback — stable
-    'gemini-1.5-flash-8b',            # last resort — smallest
+    'gemini-2.0-flash-exp',           # fallback — experimental channel
+    'gemini-2.5-flash-preview-04-17', # last resort — latest preview
 ]
 
 _CACHE_PATH = (
@@ -352,8 +352,9 @@ Focus on: key trends, anomalies, and practical water management implications. Us
         summary = self._compose_summary(series_frames, findings, comparisons, climatology, benchmark)
         benchmark_analysis = self._compose_benchmark_summary(benchmark)
 
-        # If we have a successful summary, suppress the raw findings cards to reduce clutter
-        if '<p>' in summary or '<ul>' in summary or '<li>' in summary:
+        # Suppress raw findings cards only when AI produced a genuinely rich summary.
+        # The fallback local-stats summary also contains <p>/<ul> tags but is short (~700 chars).
+        if len(summary) > 800:
             findings = []
 
         return {
@@ -696,7 +697,7 @@ Focus on: key trends, anomalies, and practical water management implications. Us
         climatology: List[str] | None = None,
         benchmark: List[Dict] | None = None,
     ) -> str:
-        parts = ['<p><strong>Local statistical summary</strong></p>', '<ul>']
+        parts = ['<p><strong>Statistical Summary</strong></p>', '<ul>']
 
         for finding in findings[: min(2, len(findings))]:
             parts.append(
