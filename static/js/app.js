@@ -5062,7 +5062,12 @@
         if (!els.riskFeatureSelect || !els.riskDatasetSelect) return;
         const dataset = els.riskDatasetSelect.value || 'mekong';
         const stations = (state.bootstrap?.stations || []).filter(s => s.dataset === dataset);
-        const features = [...new Set(stations.flatMap(s => s.features))].sort();
+        const reg = state.bootstrap?.feature_registry;
+        const allowedTypes = reg?.capabilities?.risk;
+        let features = [...new Set(stations.flatMap(s => s.features))].sort();
+        if (allowedTypes && allowedTypes.length > 0) {
+            features = features.filter(f => allowedTypes.includes(reg.feature_type_map[f]));
+        }
         els.riskFeatureSelect.innerHTML = features
             .map(f => `<option value="${escapeHtml(f)}"${f === 'Discharge' ? ' selected' : ''}>${escapeHtml(f.replace(/_/g, ' '))}</option>`)
             .join('');
@@ -5135,10 +5140,20 @@
         meta.className = 'risk-note';
         meta.textContent = `${r.n_stations} stations · ${r.feature.replace(/_/g, ' ')} · lookback ${r.lookback} data points`;
 
+        if (r.method_note) {
+            const methodNote = document.createElement('p');
+            methodNote.className = 'risk-note';
+            methodNote.style.cssText = 'margin-top:4px;font-size:11px;color:var(--text-muted)';
+            methodNote.textContent = r.method_note;
+            mapSection.appendChild(meta);
+            mapSection.appendChild(methodNote);
+        } else {
+            mapSection.appendChild(meta);
+        }
+
         const plotDiv = document.createElement('div');
         plotDiv.className = 'risk-map';
 
-        mapSection.appendChild(meta);
         mapSection.appendChild(plotDiv);
 
         els.riskWorkspace.appendChild(chipsEl);
@@ -5419,7 +5434,11 @@
         const btnRow = document.createElement('div');
         btnRow.className = 'anim-play-row';
         btnRow.appendChild(btn);
-        card.querySelector('.workspace-card-body')?.appendChild(btnRow) || card.appendChild(btnRow);
+        const cardBody = card.querySelector('.workspace-card-body');
+        (cardBody || card).appendChild(btnRow);
+        if (result.analysis) {
+            appendAnalysisSection(cardBody || card, result.analysis, { title: 'Basin Animation Summary' });
+        }
     }
 
     // ════════════════════════════════════════════════════════════════════════
