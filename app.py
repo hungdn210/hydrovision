@@ -164,7 +164,7 @@ def predict_models():
     """Return the union of all model names found in prediction_results directories."""
     models = set()
     for base_dir in [LAMAH_DIR, MEKONG_DIR]:
-        for sub in ['station_predictions', 'station_predictions_future']:
+        for sub in ['station_predictions_h1', 'station_predictions', 'station_predictions_future']:
             parent = base_dir / 'prediction_results' / sub
             if not parent.is_dir():
                 continue
@@ -255,18 +255,19 @@ def predict_stations():
             csvs = list((lamah_future_dir / 'LamaH_daily').glob('*.csv'))
         result['lamah']['future'] = sorted(p.stem for p in csvs)
 
-    # Mekong historical
-    mekong_hist_base = MEKONG_DIR / 'prediction_results' / 'station_predictions'
-    if mekong_hist_base.is_dir():
-        seen = set()
-        for feat_dir in mekong_hist_base.iterdir():
-            if not feat_dir.is_dir():
-                continue
-            model_dir = feat_dir / model
-            if model_dir.is_dir():
-                for p in model_dir.glob('*.csv'):
-                    seen.add(p.stem)
-        result['mekong']['historical'] = sorted(seen)
+    # Mekong historical — prefer h1 folder, fall back to full station_predictions
+    seen = set()
+    for hist_sub in ['station_predictions_h1', 'station_predictions']:
+        mekong_hist_base = MEKONG_DIR / 'prediction_results' / hist_sub
+        if mekong_hist_base.is_dir():
+            for feat_dir in mekong_hist_base.iterdir():
+                if not feat_dir.is_dir():
+                    continue
+                model_dir = feat_dir / model
+                if model_dir.is_dir():
+                    for p in model_dir.glob('*.csv'):
+                        seen.add(p.stem)
+    result['mekong']['historical'] = sorted(seen)
 
     # Mekong future
     mekong_future_base = MEKONG_DIR / 'prediction_results' / 'station_predictions_future'
