@@ -187,7 +187,7 @@ class WaveletService:
             raise ValueError(f"Insufficient data for '{station}' / '{feature}'.")
 
         unit = repo.feature_units.get(feature, '')
-        station_name = repo.station_index[station].get('name', station)
+        station_name = repo.station_index[station].get('name', station).replace('_', ' ')
         feature_label = feature.replace('_', ' ').title()
 
         # Monthly means

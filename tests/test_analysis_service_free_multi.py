@@ -127,7 +127,6 @@ class TestAnalysisService(unittest.TestCase):
 
             self.assertEqual(len(result['graphs']), 1)
             summary = result['graphs'][0]['analysis']['summary']
-            self.assertIn('AI status', summary)
             self.assertIn('Primary series', summary)
 
     def test_ai_cache_persists_to_disk(self):

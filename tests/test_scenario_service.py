@@ -38,7 +38,7 @@ class TestScenarioService(unittest.TestCase):
             'driver_lag_coeffs': [0.2, 0.3, 0.1, 0.0],
         }
 
-        scenario, delta, delta_pct = self.service._simulate_scenario_response(
+        scenario, delta, delta_pct, _baseline_floored = self.service._simulate_scenario_response(
             baseline=baseline,
             scale_pct=20,
             duration_months=2,

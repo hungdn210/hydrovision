@@ -31,7 +31,7 @@ class TestPredictionDiagnostics(unittest.TestCase):
 
         self.assertIsNotNone(result)
         self.assertIn('FlowNet historical fit', result['summary'])
-        self.assertIn('Residual standard deviation is 0.000', result['summary'])
+        self.assertIn('Standard deviation is 0.000', result['summary'])
 
 
 if __name__ == '__main__':

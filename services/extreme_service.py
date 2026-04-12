@@ -123,7 +123,7 @@ def _fallback_extreme_analysis(result: Dict[str, Any], note: str | None = None) 
 
         '<p><strong>Confidence Intervals and Reliability</strong></p>'
         f'<p>{reliability} '
-        'Bootstrap confidence intervals (150 resamples of the annual maxima block) quantify parameter uncertainty. '
+        'Bootstrap confidence intervals (1000 resamples of the annual maxima block) quantify parameter uncertainty. '
         'For short records (&lt;30 years), the confidence bands at the 50- and 100-year levels are typically very wide — sometimes spanning a factor of 2 or more — '
         'because MLE cannot tightly constrain the tail shape from limited data. '
         'Confidence interval width increases with return period: the 10-year estimate is always more reliable than the 100-year estimate from the same record. '

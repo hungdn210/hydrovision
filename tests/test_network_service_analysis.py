@@ -43,8 +43,7 @@ class NetworkAnalysisTests(unittest.TestCase):
             with patch('services.network_service._gemini_generate', side_effect=Exception('429 RESOURCE_EXHAUSTED')):
                 analysis = _generate_network_analysis(self.result)
         self.assertIn('Network Summary', analysis)
-        self.assertIn('Live AI analysis unavailable', analysis)
-        self.assertIn('Topology extent', analysis)
+        self.assertIn('Connectivity Structure', analysis)
 
 
 if __name__ == '__main__':

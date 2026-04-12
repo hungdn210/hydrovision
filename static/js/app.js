@@ -1175,6 +1175,9 @@
         const ds = state.predictDatasetFilter;
         const prev = els.predictStationSelect.value;
         const mode = state.predictMode;
+        if (els.predictHorizonLabel) {
+            els.predictHorizonLabel.textContent = mode === 'historical' ? 'Horizon H (1–30)' : 'Horizon (1–30)';
+        }
         const { lamah, mekong } = state.predictStationsForModel;
         els.predictStationSelect.innerHTML = '';
         state.bootstrap.station_names.forEach(stationName => {
@@ -4952,10 +4955,8 @@
         if (!els.extremeStationSelect || !els.extremeFeatureSelect) return;
         const station = els.extremeStationSelect.value;
         const stInfo = (state.bootstrap?.stations || []).find(s => s.station === station);
-        const features = stInfo?.features || [];
-        els.extremeFeatureSelect.innerHTML = features
-            .map(f => `<option value="${escapeHtml(f)}"${f === 'Discharge' ? ' selected' : ''}>${escapeHtml(f.replace(/_/g, ' '))}</option>`)
-            .join('');
+        const dataset = stInfo?.dataset || 'mekong';
+        updateFeatureSelectForStation(dataset, station, els.extremeFeatureSelect);
     }
 
     async function runExtremeAnalysis() {
@@ -4979,7 +4980,8 @@
             if (!data.ok) throw new Error(data.error);
             appendExtremeCard(data.result);
             activateDockTab('extreme');
-            showMessage(els.extremeMessage, `Done — ${data.result.n_years} yr of data fitted.`, 'success');
+            const gevFallback = !data.result.gev_params && distribution === 'gev' ? ' (GEV shape unstable — Gumbel only)' : '';
+            showMessage(els.extremeMessage, `Done — ${data.result.n_years} yr of data fitted.${gevFallback}`, 'success');
         } catch (err) {
             showMessage(els.extremeMessage, err.message || 'Analysis failed.', 'error');
         } finally {
@@ -5255,6 +5257,31 @@
         const cardId = `climate-${++state.cardCounters.climate}`;
         const card = buildBaseCard(cardId, result.title, result.subtitle);
         const body = card.querySelector('.workspace-card-body');
+        const plot = body.querySelector('.plot-container');
+
+        // Stats strip — trend, R², p-value, projection years, SSP end-change spread
+        if (result.stats) {
+            const s = result.stats;
+            const trendSign = s.historical_trend_per_decade >= 0 ? '+' : '';
+            const ssp = s.scenarios || {};
+            const sspKeys = Object.keys(ssp);
+            const low = sspKeys[0] ? `${ssp[sspKeys[0]].projected_end_change_pct > 0 ? '+' : ''}${ssp[sspKeys[0]].projected_end_change_pct}%` : '—';
+            const high = sspKeys[sspKeys.length - 1] ? `${ssp[sspKeys[sspKeys.length - 1]].projected_end_change_pct > 0 ? '+' : ''}${ssp[sspKeys[sspKeys.length - 1]].projected_end_change_pct}%` : '—';
+            const statsEl = document.createElement('div');
+            statsEl.className = 'pred-metrics-strip';
+            statsEl.innerHTML =
+                `<span class="pms-item"><span class="pms-label">Trend/decade</span><span class="pms-value">${escapeHtml(trendSign + s.historical_trend_per_decade)}</span></span>` +
+                `<span class="pms-divider"></span>` +
+                `<span class="pms-item"><span class="pms-label">R²</span><span class="pms-value">${escapeHtml(String(s.r_squared))}</span></span>` +
+                `<span class="pms-divider"></span>` +
+                `<span class="pms-item"><span class="pms-label">p-value</span><span class="pms-value">${escapeHtml(String(s.p_value))}</span></span>` +
+                `<span class="pms-divider"></span>` +
+                `<span class="pms-item"><span class="pms-label">Projection</span><span class="pms-value">${escapeHtml(String(s.projection_years))} yr</span></span>` +
+                `<span class="pms-divider"></span>` +
+                `<span class="pms-item"><span class="pms-label">SSP range</span><span class="pms-value">${escapeHtml(low)} to ${escapeHtml(high)}</span></span>`;
+            body.insertBefore(statsEl, plot);
+        }
+
         els.climateCards.prepend(card);
         renderPlot(card.querySelector('.plot-container'), result.figure);
         appendAnalysisSection(body, result.analysis, { title: 'Analysis Report' });
@@ -5308,6 +5335,32 @@
         const cardId = `cp-${++state.cardCounters.changepoint}`;
         const card = buildBaseCard(cardId, result.title, result.subtitle);
         const body = card.querySelector('.workspace-card-body');
+        const plot = body.querySelector('.plot-container');
+
+        // Segment summary table
+        const segments = result.stats?.segments;
+        if (segments?.length) {
+            const rows = segments.map(seg => `
+                <tr>
+                    <td><strong>${seg.segment}</strong></td>
+                    <td>${escapeHtml(seg.start?.slice(0,7) || '—')} – ${escapeHtml(seg.end?.slice(0,7) || '—')}</td>
+                    <td>${seg.n_months}</td>
+                    <td>${seg.mean?.toFixed(2) ?? '—'}</td>
+                    <td>${seg.std?.toFixed(2) ?? '—'}</td>
+                    <td>${escapeHtml(seg.trend || '—')}</td>
+                </tr>`).join('');
+            const tableSection = document.createElement('div');
+            tableSection.className = 'extreme-table-section';
+            tableSection.innerHTML = `
+                <div class="extreme-table-wrap">
+                    <table class="extreme-table">
+                        <thead><tr><th>Seg</th><th>Period</th><th>N months</th><th>Mean</th><th>Std</th><th>MK Trend</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>`;
+            body.insertBefore(tableSection, plot);
+        }
+
         els.changepointCards.prepend(card);
         renderPlot(card.querySelector('.plot-container'), result.figure);
         refreshPlotGrid(els.changepointCards);
@@ -5619,6 +5672,26 @@
         const body = card.querySelector('.workspace-card-body');
         const plotContainer = card.querySelector('.plot-container');
         if (plotContainer) plotContainer.style.minHeight = '580px';
+
+        // Stats strip
+        if (result.stats) {
+            const s = result.stats;
+            const trendSign = (s.trend_slope_per_decade ?? 0) >= 0 ? '+' : '';
+            const statsEl = document.createElement('div');
+            statsEl.className = 'pred-metrics-strip';
+            statsEl.innerHTML =
+                `<span class="pms-item"><span class="pms-label">Trend/decade</span><span class="pms-value">${escapeHtml(trendSign + (s.trend_slope_per_decade ?? '—'))}</span></span>` +
+                `<span class="pms-divider"></span>` +
+                `<span class="pms-item"><span class="pms-label">Seasonal peak</span><span class="pms-value">${escapeHtml(s.seasonal_peak_month || '—')}</span></span>` +
+                `<span class="pms-divider"></span>` +
+                `<span class="pms-item"><span class="pms-label">Seasonal trough</span><span class="pms-value">${escapeHtml(s.seasonal_trough_month || '—')}</span></span>` +
+                `<span class="pms-divider"></span>` +
+                `<span class="pms-item"><span class="pms-label">F<sub>S</sub></span><span class="pms-value">${s.strength_seasonal != null ? s.strength_seasonal.toFixed(2) : '—'}</span></span>` +
+                `<span class="pms-divider"></span>` +
+                `<span class="pms-item"><span class="pms-label">F<sub>T</sub></span><span class="pms-value">${s.strength_trend != null ? s.strength_trend.toFixed(2) : '—'}</span></span>`;
+            body.insertBefore(statsEl, plotContainer);
+        }
+
         els.decompCards.prepend(card);
         renderPlot(plotContainer, result.figure);
         refreshPlotGrid(els.decompCards);
