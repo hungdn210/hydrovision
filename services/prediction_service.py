@@ -66,9 +66,9 @@ class PredictionService:
         """
         Load rolling predictions from station_predictions_h1 (horizon_1 only, ~30x smaller than
         the full station_predictions folder) and build the historical fit line.
-        Each row is one rolling window; the single column is the 1-step-ahead prediction.
-        Date formula: date(window_i) = eval_start + (i-1)
-                      eval_start = last_actual_date - (n_windows - 1)
+        Each row is one rolling window; the single column is the horizon_1 prediction.
+        Date formula: date(window_i) = eval_start + i
+                      eval_start = last_actual_date - (n_windows + n_horizons_full - 2)
         Falls back to the full station_predictions folder if _h1 is not present.
         """
         dataset = self._get_dataset(station)
@@ -94,12 +94,15 @@ class PredictionService:
             n_windows, n_horizons = len(pred_df), len(pred_df.columns)
 
             if use_h1:
-                # h1-only file: single column = horizon_1 (1-step-ahead per window)
-                # date(window_i) = eval_start + (i-1), eval_start = last_date - (n_windows - 1)
+                # h1-only file: single column = horizon_1, same rows as the full prediction file.
+                # Must use the full model's n_horizons to align dates correctly:
+                #   eval_start = last_date - (n_windows + n_horizons_full - 2)
+                # so that row 0 h1 = first test-set target date.
                 actual_h = 1
                 col_idx = 0
                 last_date = actual_frame['Timestamp'].max()
-                eval_start = last_date - pd.Timedelta(days=n_windows - 1)
+                n_horizons_full = len(pd.read_csv(csv_path, nrows=0).columns) if csv_path.exists() else 30
+                eval_start = last_date - pd.Timedelta(days=n_windows + n_horizons_full - 2)
                 dates = pd.date_range(start=eval_start, periods=n_windows, freq='D')
             else:
                 # Full file: rows=windows, cols=horizons
