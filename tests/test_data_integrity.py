@@ -5,6 +5,7 @@ import os
 import sys
 
 # Ensure services and data modules can be found
+# data/ and services/ both live directly under the hydrovision project root (one level up from tests/)
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from data.Mekong.data_schema import DATASETS as MEKONG_SCHEMA

@@ -69,7 +69,9 @@ class PredictionService:
         Each row is one rolling window; the single column is the horizon_1 prediction.
         Date formula: date(window_i) = eval_start + i
                       eval_start = last_actual_date - (n_windows + n_horizons_full - 2)
-        Falls back to the full station_predictions folder if _h1 is not present.
+        Note: n_windows = num_test - n_horizons + 1 (rolling windows that fit within the test set)
+        Uses the compact station_predictions_h1 shortcut only for H=1, or as a fallback
+        when the full multi-horizon file is unavailable.
         """
         dataset = self._get_dataset(station)
         if dataset == 'mekong':
@@ -85,7 +87,7 @@ class PredictionService:
         else:
             return None
 
-        use_h1 = h1_path.exists()
+        use_h1 = h1_path.exists() and (horizon_h == 1 or not csv_path.exists())
         active_path = h1_path if use_h1 else csv_path
         if not active_path.exists():
             return None
@@ -94,10 +96,9 @@ class PredictionService:
             n_windows, n_horizons = len(pred_df), len(pred_df.columns)
 
             if use_h1:
-                # h1-only file: single column = horizon_1, same rows as the full prediction file.
-                # Must use the full model's n_horizons to align dates correctly:
-                #   eval_start = last_date - (n_windows + n_horizons_full - 2)
-                # so that row 0 h1 = first test-set target date.
+                # h1-only file: n_windows = num_test - n_horizons + 1 (e.g. 701 for 730-day test, 30-horizon).
+                # eval_start = last_date - (n_windows + n_horizons_full - 2)
+                # so that dates[0] = row 0 target date (e.g. 2001-01-01 for Discharge).
                 actual_h = 1
                 col_idx = 0
                 last_date = actual_frame['Timestamp'].max()
@@ -105,7 +106,8 @@ class PredictionService:
                 eval_start = last_date - pd.Timedelta(days=n_windows + n_horizons_full - 2)
                 dates = pd.date_range(start=eval_start, periods=n_windows, freq='D')
             else:
-                # Full file: rows=windows, cols=horizons
+                # Full file: rows=windows, cols=horizons.
+                # eval_start formula same as h1. For horizon h, target date = eval_start + (h-1).
                 actual_h = min(horizon_h, n_horizons)
                 col_idx = actual_h - 1
                 last_date = actual_frame['Timestamp'].max()
