@@ -135,6 +135,14 @@ GEMINI_API_KEY=your_key_here
 
 The app runs fully without a key — AI summaries fall back to deterministic text.
 
+### Download the Dataset
+
+Download `data.zip` from the link in the [Datasets](#datasets) section and extract it into the project root:
+
+```bash
+unzip data.zip -d .
+```
+
 ### Running
 
 ```bash
@@ -160,7 +168,29 @@ The test suite covers all service modules (2,769 tests). No external services or
 | Mekong | Southeast Asia (China → Vietnam) | ~40 | Discharge, Water Level, Rainfall, Sediment | 1960s–2020s |
 | LamaH-CE | Central Europe (Alps & Danube basin) | ~850 | Discharge, Rainfall, Temperature, Snow | 1981–2017 |
 
-Both datasets are bundled with the repository. No external data download is required.
+The datasets are **not included in the repository** (5.8 GB total). You must download them separately before running the app locally.
+
+### Download
+
+**[Download data.zip (~5.8 GB) from Google Drive](https://drive.google.com/file/d/1H-t4ex24Dylord22ekg65WBn8N53N82f/view?usp=sharing)**
+
+After downloading, extract it into the project root so the folder structure looks like:
+
+```
+hydrovision/
+├── data/
+│   ├── Mekong/
+│   └── LamaH/
+├── app.py
+└── ...
+```
+
+On macOS/Linux:
+```bash
+unzip data.zip -d .
+```
+
+On Windows: right-click `data.zip` → Extract Here.
 
 ---
 
