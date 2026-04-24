@@ -19,10 +19,9 @@ MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'O
 
 # Models tried in order; if one fails the next is used automatically.
 _GEMINI_MODELS = [
-    'gemini-2.0-flash',               # primary — high quota
-    'gemini-2.0-flash-lite',          # fallback — lighter
-    'gemini-2.0-flash-exp',           # fallback — experimental channel
-    'gemini-2.5-flash-preview-04-17', # last resort — latest preview
+    'gemini-2.5-flash',               # primary stable text model
+    'gemini-2.5-flash-lite',          # cheaper/faster stable fallback
+    'gemini-2.5-pro',                 # deeper reasoning fallback
 ]
 
 _CACHE_PATH = (
@@ -193,12 +192,23 @@ class AnalysisService:
                     series_desc = ', '.join(
                         f"{s.get('station','?')} / {s.get('feature','?')}" for s in series[:3]
                     )
-                    prompt = f"""Analyze these hydrological time series and provide 3 concise bullet-point insights:
+                    prompt = f"""Analyze these hydrological time series and write a compact but substantial markdown report.
 
 Series: {series_desc}
 Benchmark summary: {benchmark_analysis[:500] if benchmark_analysis else 'N/A'}
 
-Focus on: key trends, anomalies, and practical water management implications. Use **bold** for key terms."""
+Use exactly these sections:
+
+## Cross-Graph Overview
+Write 4-5 sentences on the main trends, anomalies, and how the selected series relate to one another.
+
+## Key Findings
+Write 4 bullet points with specific quantitative observations.
+
+## Water Management Implication
+Write 2-3 sentences on what a basin analyst should pay attention to next.
+
+Use **bold** for key terms and cite numbers where possible."""
                     out['analysis'] = _gemini_generate(api_key, prompt)
                 except Exception:
                     pass
@@ -315,8 +325,15 @@ Focus on: key trends, anomalies, and practical water management implications. Us
             f"{self._format_benchmark_for_prompt(benchmark) if benchmark else 'No benchmark data available.'}\n\n"
             f"Produce exactly {n} analysis sections, one per graph. "
             "Each section must begin with the EXACT marker '## SECTION_N' (N = 1, 2, 3…) "
-            "followed by 5 bullet points, each starting with a bold **Heading:** that specifically "
-            "addresses what THAT graph type reveals.\n\n"
+            "and use exactly these subsections in this order:\n"
+            "### Overview\n"
+            "Write 4-5 sentences summarising what this graph reveals, the dominant signal, the key number or date, and the main operational implication.\n"
+            "### Statistical Interpretation\n"
+            "Write 4 bullet points, each starting with a bold **Heading:** and citing specific findings from the graph.\n"
+            "### Hydrological Context\n"
+            "Write 1 compact paragraph of 3-4 sentences linking the graph pattern to plausible basin behaviour, seasonality, or regulation/climate drivers.\n"
+            "### Practical Takeaway\n"
+            "Write 2 bullet points with concrete monitoring or interpretation guidance.\n\n"
             "Tailor each section tightly to its focus area. "
             "A Timeline section should discuss trends and seasonality; "
             "a Year-over-Year section MUST reference the climatological anomaly table to name specific years "
@@ -626,7 +643,7 @@ Focus on: key trends, anomalies, and practical water management implications. Us
         return results
 
     def _compose_benchmark_summary(self, benchmark: List[Dict]) -> str:
-        """Short paragraph interpreting the dataset benchmark comparisons."""
+        """Detailed station-vs-dataset benchmark interpretation."""
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key or api_key == "your_google_gemini_api_key_here" or not api_key.strip() or not benchmark:
             return self._fallback_benchmark_summary(benchmark)
@@ -638,12 +655,17 @@ Focus on: key trends, anomalies, and practical water management implications. Us
                 "Act as a professional hydrologist. "
                 "You have a dataset benchmark table comparing selected stations to all stations in their dataset.\n\n"
                 f"{data_text}\n\n"
-                f"Write exactly {n} bullet point(s), one per station ({station_list}). "
-                "Each bullet must start with '- **Station Name:**' (bold, using the exact station name), "
-                "followed by one sentence that: states whether the station is above or below the dataset average, "
-                "cites the percentile rank and z-score, and explains what this suggests about its hydrological character "
-                "(e.g. high-yield alpine catchment, low-flow lowland stream, large mainstem river). "
-                "Use professional hydrological language. No introduction, no sign-off, bullets only."
+                "Write the response in markdown using exactly these sections and no extra intro or sign-off:\n\n"
+                "## Benchmark Overview\n"
+                f"Write 4-5 sentences summarising how the selected station set ({station_list}) compares with the wider dataset and whether the selections represent low-, mid-, or high-yield parts of the basin.\n\n"
+                "## Station-by-Station Interpretation\n"
+                f"Write exactly {n} bullet point(s), one per station. Each bullet must start with '- **Station Name:**' (bold, using the exact station name), then state whether the station is above or below the dataset average, cite percentile rank and z-score, and interpret its hydrological character.\n\n"
+                "## Implications\n"
+                "Write 3 bullet points on representativeness, how benchmark position should affect interpretation of anomalies and forecasts, and one caution about comparing stations with different catchment roles.\n\n"
+                "RULES:\n"
+                "- Use professional hydrological language.\n"
+                "- Cite specific numbers in every section.\n"
+                "- Replace underscores with spaces."
             )
             return markdown.markdown(_gemini_generate(api_key, prompt))
         except Exception:
@@ -737,7 +759,25 @@ Focus on: key trends, anomalies, and practical water management implications. Us
         benchmark_line = self._benchmark_line(benchmark[0]) if benchmark else None
         for g in graphs_data:
             finding = g['findings'][0] if g['findings'] else None
-            lines = ['<ul>']
+            lines = ['<p><strong>Overview</strong></p>']
+            overview_parts = [f"This view focuses on {g['focus']}."]
+            if finding:
+                overview_parts.append(
+                    f"The primary series, {finding['title'].replace('_', ' ')}, shows {finding['trend'].lower()} "
+                    f"with mean {finding['mean']} and variability {finding['cv_percent']}."
+                )
+                overview_parts.append(
+                    f"Record extremes range from {finding['record_low']} to {finding['record_high']}."
+                )
+            if g['comparisons']:
+                overview_parts.append(g['comparisons'][0])
+            if g['climatology']:
+                first_clim = g['climatology'][0].splitlines()[-1].strip()
+                overview_parts.append(first_clim)
+            elif benchmark_line:
+                overview_parts.append(benchmark_line)
+            lines.append(f"<p>{' '.join(overview_parts)}</p>")
+            lines.append('<p><strong>Statistical Interpretation</strong></p><ul>')
             lines.append(f"<li><strong>Focus:</strong> {g['focus'].capitalize()}.</li>")
             if finding:
                 lines.append(
@@ -755,11 +795,28 @@ Focus on: key trends, anomalies, and practical water management implications. Us
                 )
             if g['comparisons']:
                 lines.append(f"<li><strong>Comparison:</strong> {g['comparisons'][0]}</li>")
+            lines.append('</ul>')
+            lines.append('<p><strong>Hydrological Context</strong></p>')
             if g['climatology']:
                 first_clim = g['climatology'][0].splitlines()[-1].strip()
-                lines.append(f'<li><strong>Climatology:</strong> {first_clim}</li>')
+                lines.append(
+                    f'<p>{first_clim} This helps place the plotted behaviour in a longer climatological frame rather than treating the selected interval in isolation.</p>'
+                )
             elif benchmark_line:
-                lines.append(f'<li><strong>Benchmark:</strong> {benchmark_line}</li>')
+                lines.append(
+                    f'<p>{benchmark_line} This benchmark helps distinguish whether the plotted behaviour is typical of the wider dataset or specific to an unusually high- or low-yield station.</p>'
+                )
+            else:
+                lines.append(
+                    '<p>The plotted relationships should be interpreted alongside longer-term climatology, basin position, and any regulation effects before drawing causal conclusions.</p>'
+                )
+            lines.append('<p><strong>Practical Takeaway</strong></p><ul>')
+            lines.append(
+                '<li><strong>Interpretation:</strong> Use this view alongside the other complementary charts, because trend, spread, and cross-series alignment are easier to judge when read together.</li>'
+            )
+            lines.append(
+                '<li><strong>Monitoring use:</strong> Treat the cited extremes, spread statistics, and climatological departures as screening indicators for follow-up rather than standalone decision thresholds.</li>'
+            )
             lines.append('</ul>')
             summaries.append(''.join(lines))
         return summaries
@@ -767,9 +824,20 @@ Focus on: key trends, anomalies, and practical water management implications. Us
     def _fallback_benchmark_summary(self, benchmark: List[Dict]) -> str:
         if not benchmark:
             return ''
-        lines = ['<ul>']
+        lines = ['<p><strong>Benchmark Overview</strong></p>']
+        above = sum(1 for row in benchmark if row['pct_diff'] >= 0)
+        below = len(benchmark) - above
+        lines.append(
+            f'<p>The selected stations span {len(benchmark)} benchmark comparison(s): {above} are above their dataset mean and {below} are below it. '
+            'This benchmark indicates whether the chosen locations are broadly representative of basin-average conditions or skewed toward unusually high- or low-yield hydrological settings.</p>'
+        )
+        lines.append('<p><strong>Station-by-Station Interpretation</strong></p><ul>')
         for row in benchmark:
             lines.append(f'<li><strong>{row["station_label"]}:</strong> {self._benchmark_line(row)}</li>')
+        lines.append('</ul><p><strong>Implications</strong></p><ul>')
+        lines.append('<li><strong>Representativeness:</strong> Stations near the 50th percentile are closer to basin-average behaviour, while extreme percentile ranks should be interpreted as specialised hydrological settings rather than typical conditions.</li>')
+        lines.append('<li><strong>Context for later analysis:</strong> Forecasts, anomalies, and extremes from a high-percentile station should not be compared directly with low-percentile stations without accounting for their different baseline yield.</li>')
+        lines.append('<li><strong>Caution:</strong> Benchmark position reflects relative standing within the dataset, not absolute hazard or operational importance; basin role and local exposure still matter.</li>')
         lines.append('</ul>')
         return ''.join(lines)
 

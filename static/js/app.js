@@ -419,8 +419,34 @@
         activateDockTab('visualize');
     }
 
-    function invalidateMapAfterTransition() {
-        setTimeout(() => { if (state.map) state.map.invalidateSize(); }, 370);
+    function resizeVisiblePlotlyCharts() {
+        const config = {
+            responsive: true,
+            displaylogo: false,
+            modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d'],
+        };
+        const visiblePlots = Array.from(document.querySelectorAll('[data-figure]')).filter((plot) => {
+            if (!(plot instanceof HTMLElement)) return false;
+            return plot.offsetParent !== null;
+        });
+        visiblePlots.forEach((plot) => {
+            try {
+                resizePlotPreserveHeight(plot, config);
+            } catch (_) {
+                // Ignore plots that are not fully initialised yet.
+            }
+        });
+    }
+
+    function invalidateLayoutAfterTransition() {
+        const refresh = () => {
+            if (state.map) state.map.invalidateSize();
+            resizeVisiblePlotlyCharts();
+        };
+        setTimeout(() => {
+            requestAnimationFrame(refresh);
+            setTimeout(refresh, 120);
+        }, 370);
     }
 
     function bindEvents() {
@@ -429,7 +455,7 @@
                 els.sidebar.classList.toggle('open');
             } else {
                 els.sidebar.classList.add('collapsed');
-                invalidateMapAfterTransition();
+                invalidateLayoutAfterTransition();
             }
         });
 
@@ -437,14 +463,14 @@
         if (sidebarToggleCollapsed) {
             sidebarToggleCollapsed.addEventListener('click', () => {
                 els.sidebar.classList.remove('collapsed');
-                invalidateMapAfterTransition();
+                invalidateLayoutAfterTransition();
             });
         }
 
         document.querySelectorAll('.rail-nav-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const tab = btn.dataset.railTab;
-                invalidateMapAfterTransition();
+                invalidateLayoutAfterTransition();
                 activateDockTab(tab);
             });
         });
@@ -3020,6 +3046,33 @@
         }
     }
 
+    function resizePlotPreserveHeight(plot, config) {
+        if (!plot?.dataset?.figure) return Promise.resolve();
+        if (!plot.data || !plot.layout) {
+            renderPlot(plot, plot.dataset.figure);
+            return Promise.resolve();
+        }
+        const originalFigure = plot.dataset.figure ? JSON.parse(plot.dataset.figure) : null;
+        const originalHeight = Number(originalFigure?.layout?.height || plot.layout?.height || 0);
+        if (originalHeight > 0) {
+            plot.style.height = `${originalHeight}px`;
+            plot.style.minHeight = `${originalHeight}px`;
+        }
+        const updateLayout = { ...plot.layout, autosize: true };
+        if (originalHeight > 0) updateLayout.height = originalHeight;
+        delete updateLayout.width;
+        return Plotly.react(plot, plot.data, updateLayout, config)
+            .then(() => {
+                if (originalHeight > 0) {
+                    return Plotly.relayout(plot, { height: originalHeight }).catch(() => {});
+                }
+            })
+            .then(() => {
+                applySeasonalTickPolicy(plot);
+            })
+            .catch(() => {});
+    }
+
     function renderPlot(container, figureJson) {
         container.dataset.figure = figureJson;
         // Defer to next animation frame so the browser finishes layout before
@@ -3058,15 +3111,7 @@
                 // Attach a ResizeObserver if not already present
                 if (!container._resizeObserver) {
                     container._resizeObserver = new ResizeObserver(() => {
-                        if (container.data && container.layout) {
-                            // Clear existing width to allow autosizing to the new container width
-                            const updateLayout = { ...container.layout };
-                            delete updateLayout.width;
-                            Plotly.react(container, container.data, updateLayout, config);
-                        } else {
-                            Plotly.Plots.resize(container);
-                        }
-                        applySeasonalTickPolicy(container);
+                        resizePlotPreserveHeight(container, config);
                     });
                     container._resizeObserver.observe(container);
                 }
@@ -3083,23 +3128,7 @@
         };
         const resizePlots = () => {
             container.querySelectorAll('.plot-container[data-figure]').forEach((plot) => {
-                if (!plot.data || !plot.layout) {
-                    renderPlot(plot, plot.dataset.figure);
-                    return;
-                }
-                const originalFigure = plot.dataset.figure ? JSON.parse(plot.dataset.figure) : null;
-                const originalHeight = Number(originalFigure?.layout?.height || plot.layout?.height || 0);
-                if (originalHeight > 0) {
-                    plot.style.height = `${originalHeight}px`;
-                    plot.style.minHeight = `${originalHeight}px`;
-                }
-                const updateLayout = { ...plot.layout, autosize: true };
-                if (originalHeight > 0) updateLayout.height = originalHeight;
-                delete updateLayout.width;
-                Plotly.react(plot, plot.data, updateLayout, config).then(() => {
-                    Plotly.Plots.resize(plot);
-                    applySeasonalTickPolicy(plot);
-                });
+                resizePlotPreserveHeight(plot, config);
             });
         };
         requestAnimationFrame(() => {
